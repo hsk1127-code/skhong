@@ -410,6 +410,137 @@ async function buildProjectZip(p) {
   for (const r of p.records) await add(`${fmtDot(r.date)}_${r.title}`, [...r.images, ...r.files]);
   for (const m of p.meetings) await add(`${fmtDot(m.date)}_${m.title}`, m.files);
   await add("HW 주요 Spec", p.hwImages);
+  for (const key of ["bom", "consumables", "supplied"]) await add(`${LISTS[key].title}_원본`, p.listFiles?.[key]);
   for (const key of ["submissions", "changes"]) for (const r of p.lists[key]) await add(`${LISTS[key].title}_${r.item || r.content || ""}`.slice(0, 60), r.files);
   return Zip.write(files);
+}
+
+// ------------------------------------------------------- BOM 엑셀 가져오기·자동 정리
+// 업체마다 다른 머리글 이름을 같은 열로 인식하기 위한 별칭 (정확히 같거나, 포함 단어)
+const PART_FIELDS = [
+  { key: "no", exact: ["no", "번호", "순번", "순서", "sl", "slno", "sno"] },
+  { key: "kind", exact: ["구분", "분류", "category", "type", "group", "파트", "유닛", "unit", "대분류"] },
+  { key: "item", exact: ["품목", "품목명", "품명", "부품명", "자재명", "item", "itemname", "part", "partname", "name", "description", "명칭"], has: ["품목", "item", "품명"] },
+  { key: "model", exact: ["모델명", "모델", "model", "spec", "규격", "사양", "partno", "pn", "형번", "형식", "specification", "type no"], has: ["모델", "model", "spec", "규격", "partno"] },
+  { key: "maker", exact: ["업체명", "업체", "maker", "제조사", "메이커", "vendor", "manufacturer", "brand", "제조업체", "공급사"], has: ["maker", "업체", "제조사", "메이커", "vendor", "manufacturer"] },
+  { key: "qty", exact: ["개수", "수량", "qty", "quantity", "ea", "소요량", "q'ty"], has: ["수량", "qty", "quantity"] },
+  { key: "note", exact: ["비고", "remark", "remarks", "note", "notes", "참고", "comment", "memo"], has: ["비고", "remark"] },
+];
+const partFieldOf = (label) => {
+  const n = norm(label).replace(/'/g, "");
+  if (!n) return null;
+  const f = PART_FIELDS.find((x) => x.exact.some((a) => norm(a).replace(/'/g, "") === n))
+    || PART_FIELDS.find((x) => (x.has || []).some((a) => n.includes(norm(a))));
+  return f ? f.key : null;
+};
+
+// 시트에서 머리글 행을 찾아 열 목록과 자동 매핑을 만든다
+function analyzePartSheet(sheet) {
+  const rows = filledRows(sheet);
+  let best = null;
+  for (let r = 0; r < Math.min(rows.length, 40); r++) {
+    const mapping = {};
+    (rows[r] || []).forEach((v, c) => {
+      const k = partFieldOf(v);
+      if (k && !(k in mapping)) mapping[k] = c;
+    });
+    const score = Object.keys(mapping).length;
+    if ((mapping.item != null || mapping.model != null) && score >= 2 && (!best || score > best.score)) best = { row: r, mapping, score };
+  }
+  if (!best) return null;
+  const columns = [];
+  (rows[best.row] || []).forEach((v, c) => {
+    const label = cellText(v);
+    if (label && !columns.some((x) => x.c === c)) columns.push({ c, label });
+  });
+  // 머리글 바로 위의 짧은 글자 한 칸(예: "본체부", "Main Unit")은 첫 소제목으로 사용
+  let section = "";
+  for (let r = best.row - 1; r >= 0 && r >= best.row - 3; r--) {
+    const vals = [...new Set((rows[r] || []).map(cellText).filter(Boolean))];
+    if (vals.length >= 1 && vals.length <= 2 && vals.every((v) => v.length <= 20)) { section = vals[vals.length - 1]; break; }
+  }
+  return { headerRow: best.row, mapping: best.mapping, columns, section, rows };
+}
+
+// 매핑대로 행을 읽는다. 소제목 행은 { section } 으로 돌려준다.
+function readPartRows(info, mapping, { extraToNote = true } = {}) {
+  const out = [];
+  if (info.section) out.push({ section: info.section });
+  const header = info.rows[info.headerRow] || [];
+  const used = new Set(Object.values(mapping).filter((c) => c !== "" && c != null).map(Number));
+  const extras = info.columns.filter((x) => !used.has(x.c));
+  // 계산식 결과 같은 긴 소수는 소수 둘째 자리까지
+  const val = (v) => (typeof v === "number" && !Number.isInteger(v) ? String(Math.round(v * 100) / 100) : cellText(v));
+  const get = (row, k) => (mapping[k] === "" || mapping[k] == null ? "" : val(row[Number(mapping[k])]));
+  for (let r = info.headerRow + 1; r < info.rows.length; r++) {
+    const row = info.rows[r] || [];
+    const texts = [...new Set(row.map(cellText).filter(Boolean))];
+    if (!texts.length) continue;
+    // 머리글 반복 행
+    if (texts.length > 1 && row.every((v, c) => !cellText(v) || norm(v) === norm(header[c]))) continue;
+    const rec = { kind: get(row, "kind"), item: get(row, "item"), model: get(row, "model"), maker: get(row, "maker"),
+      qty: get(row, "qty"), note: get(row, "note") };
+    if (!rec.item && !rec.model && !rec.maker && !rec.qty) {
+      // 번호만 있는 빈 양식 행은 건너뛰고, 글자가 있으면 소제목으로 본다
+      const label = texts.find((t) => !/^\d+$/.test(t));
+      if (label && texts.length <= 2) out.push({ section: label });
+      continue;
+    }
+    if (extraToNote) {
+      const add = extras.map((x) => [x.label, val(row[x.c])]).filter(([, v]) => v).map(([l, v]) => `${l}: ${v}`);
+      if (add.length) rec.note = [rec.note, ...add].filter(Boolean).join(" / ");
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
+// 자동 정리: 공백 정리, 소제목으로 빈 구분 채우기, 중복 합치기(수량 합산), 구분별로 모으기
+function organizeParts(input, { fillKind = true, merge = true, group = true } = {}) {
+  const stats = { before: 0, merged: 0, filled: 0, removed: 0 };
+  const clean = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+  // 소제목 단위로 나눠서 각 묶음 안에서 정리한다
+  const blocks = [{ section: "", rows: [] }];
+  for (const r of input) {
+    const sec = r.section ?? (/^■\s*/.test(r.item || "") && !r.model && !r.maker && !r.qty ? r.item.replace(/^■\s*/, "") : null);
+    if (sec != null) { blocks.push({ section: clean(sec), rows: [] }); continue; }
+    stats.before++;
+    const rec = { id: r.id || Store.uid() };
+    for (const c of PART_COLS) rec[c.key] = clean(r[c.key]);
+    if (!rec.item && !rec.model && !rec.maker && !rec.qty && !rec.note) { stats.removed++; continue; }
+    if (fillKind && !rec.kind && blocks[blocks.length - 1].section) { rec.kind = blocks[blocks.length - 1].section; stats.filled++; }
+    blocks[blocks.length - 1].rows.push(rec);
+  }
+  const out = [];
+  for (const b of blocks) {
+    let rows = b.rows;
+    if (merge) {
+      const seen = new Map(), kept = [];
+      for (const r of rows) {
+        const key = [r.kind, r.item, r.model, r.maker].map((v) => norm(v)).join("|");
+        const prev = (r.item || r.model) && seen.get(key);
+        if (!prev) { seen.set(key, r); kept.push(r); continue; }
+        stats.merged++;
+        const a = Number(prev.qty || 0), q = Number(r.qty || 0);
+        if (!isNaN(a) && !isNaN(q) && (prev.qty || r.qty)) prev.qty = String(a + q);
+        if (r.note && !prev.note.split(" / ").includes(r.note)) prev.note = [prev.note, r.note].filter(Boolean).join(" / ");
+      }
+      rows = kept;
+    }
+    if (group) {
+      const order = [];
+      rows.forEach((r) => !order.includes(r.kind) && order.push(r.kind));
+      rows = order.flatMap((k) => rows.filter((r) => r.kind === k));
+    }
+    if (!b.rows.length && !b.section) continue;
+    if (b.section) {
+      const sec = { id: Store.uid() };
+      PART_COLS.forEach((c) => (sec[c.key] = ""));
+      sec.item = `■ ${b.section}`;
+      out.push(sec);
+    }
+    out.push(...rows);
+  }
+  stats.after = out.filter((r) => !/^■/.test(r.item)).length;
+  return { rows: out, stats };
 }

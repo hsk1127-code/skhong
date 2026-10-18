@@ -861,11 +861,146 @@ function tabSpec(p, el) {
   });
   $("#hwNote").oninput = (e) => { p.hwNote = e.target.value; Store.touch(p); };
 }
+const PART_LISTS = ["bom", "consumables", "supplied"];
+let partsUndo = null; // { pid, key, rows, label } 마지막 가져오기/정리 직전 상태
+
 function tabParts(p, el) {
-  const sub = ["bom", "consumables", "supplied"].includes(route.sub) ? route.sub : "bom";
-  el.innerHTML = `<nav class="subtabs">${["bom", "consumables", "supplied"].map((k) =>
-    `<button data-sub="${k}" class="${k === sub ? "active" : ""}">${LISTS[k].title} <small>${p.lists[k].length}</small></button>`).join("")}</nav>${gridCard(p, sub)}`;
+  const sub = PART_LISTS.includes(route.sub) ? route.sub : "bom";
+  p.listFiles ||= {};
+  const files = p.listFiles[sub] || [];
+  const undo = partsUndo && partsUndo.pid === p.id && partsUndo.key === sub ? partsUndo : null;
+  el.innerHTML = `<nav class="subtabs">${PART_LISTS.map((k) =>
+    `<button data-sub="${k}" class="${k === sub ? "active" : ""}">${LISTS[k].title} <small>${p.lists[k].length}</small></button>`).join("")}</nav>
+    <div class="card parts-tools"><div class="between wrap">
+      <div class="row2"><button class="btn primary" id="partsImport">📥 엑셀에서 가져오기</button>
+        <button class="btn" id="partsOrganize" ${p.lists[sub].length ? "" : "disabled"}>🧹 자동 정리</button>
+        ${undo ? `<button class="btn" id="partsUndo">↩ 되돌리기 (${esc(undo.label)})</button>` : ""}</div>
+      <span class="muted small">업체 BOM·메이커리스트 엑셀을 넣으면 머리글을 알아보고 표에 맞춰 정리합니다.</span></div>
+      ${files.length ? `<div class="chips"><span class="muted small">원본 파일:</span>${fileChips(files, { removable: true })}</div>` : ""}
+    </div>${gridCard(p, sub)}`;
   $$("[data-sub]", el).forEach((b) => (b.onclick = () => { route.sub = b.dataset.sub; rerender(); }));
+  $("#partsImport").onclick = () => pickFiles(".xlsx", false, (f) => partsImportDialog(p, sub, f[0]));
+  $("#partsOrganize").onclick = () => partsOrganizeDialog(p, sub);
+  if (undo) $("#partsUndo").onclick = () => {
+    p.lists[sub] = undo.rows;
+    partsUndo = null;
+    Store.touch(p, `${LISTS[sub].title} 되돌리기: ${undo.label}`);
+    rerender();
+  };
+  $(".parts-tools", el).addEventListener("click", async (e) => {
+    const id = e.target.dataset.remove;
+    if (!id) return;
+    e.stopPropagation();
+    if (!confirm("원본 파일을 목록에서 삭제할까요? (표 내용은 그대로 남습니다)")) return;
+    p.listFiles[sub] = files.filter((x) => x !== id);
+    Store.touch(p);
+    await Store.gc();
+    rerender();
+  });
+}
+
+const PART_LABELS = { kind: "구분", item: "품목", model: "모델명", maker: "업체명", qty: "개수", note: "비고" };
+function partsPreviewTable(rows, limit = 60) {
+  return `<div class="table-scroll preview"><table class="list"><thead><tr><th>NO</th>${PART_COLS.map((c) => `<th>${c.label}</th>`).join("")}</tr></thead>
+    <tbody>${(() => { let n = 0; return rows.slice(0, limit).map((r) => /^■/.test(r.item)
+      ? `<tr class="sec-row"><td></td><td colspan="${PART_COLS.length}"><b>${esc(r.item)}</b></td></tr>`
+      : `<tr><td class="muted">${++n}</td>${PART_COLS.map((c) => `<td>${esc(r[c.key])}</td>`).join("")}</tr>`).join(""); })()}</tbody></table>
+    ${rows.length > limit ? `<p class="muted small center">… 외 ${rows.length - limit}행</p>` : ""}</div>`;
+}
+const organizeSummary = (st) => `${st.before}행 → <b>${st.after}행</b>` +
+  [st.merged && `중복 ${st.merged}건 합침`, st.filled && `구분 ${st.filled}건 채움`, st.removed && `빈 행 ${st.removed}건 제거`].filter(Boolean).map((x) => ` · ${x}`).join("");
+
+async function partsImportDialog(p, key, file) {
+  let wb;
+  await busy("엑셀 파일을 읽는 중…", async () => { wb = await Xlsx.read(file); });
+  if (!wb) return;
+  const sheets = wb.sheets.map((sh) => ({ sh, info: analyzePartSheet(sh) })).filter((x) => x.info);
+  if (!sheets.length) return toast("품목·모델명 같은 머리글이 있는 시트를 찾지 못했습니다.", 5000);
+  // 보통 맨 앞 시트가 최신본이므로 기본 선택 (내용이 너무 적으면 가장 많은 시트)
+  const count = (x) => readPartRows(x.info, x.info.mapping).filter((r) => !r.section).length;
+  const most = sheets.reduce((a, b) => (count(b) > count(a) ? b : a));
+  let cur = count(sheets[0]) * 2 >= count(most) ? sheets[0] : most;
+  let mapping = { ...cur.info.mapping };
+  openDialog(`<h3>BOM 엑셀 가져오기 <span class="muted small">${esc(file.name)}</span></h3>
+    <div class="form">
+      <label>시트<select name="sheet">${sheets.map((x, i) => `<option value="${i}" ${x === cur ? "selected" : ""}>${esc(x.sh.name)} (${count(x)}행)</option>`).join("")}</select></label>
+      <label>넣을 목록<select name="target">${PART_LISTS.map((k) => `<option value="${k}" ${k === key ? "selected" : ""}>${LISTS[k].title}</option>`).join("")}</select></label>
+      <label class="full">가져오는 방법<select name="mode"><option value="append">기존 목록 뒤에 추가</option><option value="replace">기존 목록을 이 내용으로 바꾸기</option></select></label>
+    </div>
+    <h4>열 맞추기 <span class="muted small">자동으로 맞춘 결과입니다. 틀리면 바꿔 주세요.</span></h4>
+    <div class="map-grid" id="mapGrid"></div>
+    <div class="opts">
+      <label><input type="checkbox" name="extra"> 표에 없는 열(원가, Origin 등)도 비고에 붙이기</label>
+      <label><input type="checkbox" name="fill" checked> 구분이 비어 있으면 소제목(예: 전장, 본체부)으로 채우기</label>
+      <label><input type="checkbox" name="merge" checked> 같은 구분·품목·모델·업체는 한 줄로 합치고 개수 더하기</label>
+      <label><input type="checkbox" name="group" checked> 같은 구분끼리 모으기</label>
+      <label><input type="checkbox" name="keep" checked> 원본 엑셀 파일 보관</label>
+    </div>
+    <h4>미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
+  async (form) => {
+    const { rows, stats } = build(form);
+    const target = form.target.value;
+    partsUndo = { pid: p.id, key: target, rows: structuredClone(p.lists[target]), label: "가져오기" };
+    p.lists[target] = form.mode.value === "replace" ? rows : [...p.lists[target], ...rows];
+    if (form.keep.checked) {
+      p.listFiles ||= {};
+      (p.listFiles[target] ||= []).push(await Store.addFile(file, file.name));
+    }
+    Store.touch(p, `${LISTS[target].title} 엑셀 가져오기: ${file.name}`, `${cur.sh.name} 시트, ${stats.after}행`);
+    route.sub = target;
+    rerender();
+    toast(`${stats.after}행을 가져왔습니다.`);
+  }, { wide: true, okLabel: "가져오기", onOpen: (dlg, form) => {
+    const drawMap = () => {
+      $("#mapGrid", dlg).innerHTML = Object.entries(PART_LABELS).map(([k, label]) => `<label>${label}<select data-map="${k}">
+        <option value="">(없음)</option>${cur.info.columns.map((c) => `<option value="${c.c}" ${String(mapping[k]) === String(c.c) ? "selected" : ""}>${Xlsx.colName(c.c)}: ${esc(c.label.slice(0, 30))}</option>`).join("")}
+        </select></label>`).join("");
+    };
+    const draw = () => {
+      const { rows, stats } = build(form);
+      $("#pvSum", dlg).innerHTML = organizeSummary(stats);
+      $("#pv", dlg).innerHTML = partsPreviewTable(rows);
+    };
+    form.sheet.onchange = () => { cur = sheets[form.sheet.value]; mapping = { ...cur.info.mapping }; drawMap(); draw(); };
+    dlg.addEventListener("change", (e) => {
+      if (e.target.dataset.map) mapping[e.target.dataset.map] = e.target.value;
+      if (e.target.name !== "sheet") draw();
+    });
+    drawMap();
+    draw();
+  } });
+  function build(form) {
+    const raw = readPartRows(cur.info, mapping, { extraToNote: form.extra.checked });
+    return organizeParts(raw, { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
+  }
+}
+
+function partsOrganizeDialog(p, key) {
+  const run = (form) => organizeParts(p.lists[key], { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
+  openDialog(`<h3>${LISTS[key].title} 자동 정리</h3>
+    <div class="opts">
+      <label><input type="checkbox" checked disabled> 앞뒤 공백·줄바꿈 정리, 빈 행 삭제</label>
+      <label><input type="checkbox" name="fill" checked> 구분이 비어 있으면 위의 소제목(■ 행)으로 채우기</label>
+      <label><input type="checkbox" name="merge" checked> 같은 구분·품목·모델·업체는 한 줄로 합치고 개수 더하기</label>
+      <label><input type="checkbox" name="group" checked> 같은 구분끼리 모으기 (소제목 순서는 유지)</label>
+    </div>
+    <h4>정리 결과 미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
+  (form) => {
+    const { rows, stats } = run(form);
+    partsUndo = { pid: p.id, key, rows: structuredClone(p.lists[key]), label: "자동 정리" };
+    p.lists[key] = rows;
+    Store.touch(p, `${LISTS[key].title} 자동 정리`, organizeSummary(stats).replace(/<[^>]+>/g, ""));
+    rerender();
+    toast("정리했습니다. 마음에 들지 않으면 ↩ 되돌리기를 누르세요.", 4000);
+  }, { wide: true, okLabel: "정리하기", onOpen: (dlg, form) => {
+    const draw = () => {
+      const { rows, stats } = run(form);
+      $("#pvSum", dlg).innerHTML = organizeSummary(stats);
+      $("#pv", dlg).innerHTML = partsPreviewTable(rows);
+    };
+    dlg.addEventListener("change", draw);
+    draw();
+  } });
 }
 
 // ------------------------------------------------------------- 시작

@@ -1,6 +1,6 @@
 """실제 사용 중인 프로젝트 엑셀과 같은 구조의 테스트용 통합문서를 만든다.
 
-    python3 app/tests/make_fixture.py <출력 경로.xlsx>
+    python3 app/tests/make_fixture.py <출력 경로.xlsx> [업체 BOM 출력 경로.xlsx]
 """
 
 import datetime as dt
@@ -80,5 +80,28 @@ def main(out):
     wb.save(out)
 
 
+def supplier_bom(out):
+    """업체에서 받는 메이커리스트 형식: 제목, 소제목, 영문 머리글, 중복 품목"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "MakerList"
+    ws["B1"] = "Deployment of a Custom AMR"
+    ws.merge_cells("B1:H1")
+    ws["B2"] = "전장"
+    ws.append([None, "No.", "Item Name", "Spec.", "Maker", "Q'ty", "Remark", "Cost($)"])
+    ws.append([None, 1, "Lidar", "Nano Scan3", "SICK", 1, None, 1337.150311639368])
+    ws.append([None, 2, "Drive", "Leadshine", "Leadshine", 2, "Driving"])
+    ws.append([None, 3, "Lidar", "Nano Scan3", "sick", 1, "spare"])
+    ws.append([None, "기구"])
+    ws.append([None, 4, "LM Guide", "SSEBL10", "Misumi", 4])
+    ws.append([None, 5])
+    old = wb.create_sheet("(이전)MakerList(2026.08.24)")
+    old.append(["No.", "Item Name", "Spec.", "Maker"])
+    old.append([1, "Lidar", "Nano Scan3", "SICK"])
+    wb.save(out)
+
+
 if __name__ == "__main__":
     main(sys.argv[1])
+    if len(sys.argv) > 2:
+        supplier_bom(sys.argv[2])

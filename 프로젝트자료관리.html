@@ -189,6 +189,20 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
   .grid2, .grid2.wide-left, .split, .form { grid-template-columns: 1fr; } .grid2 { display: flex; flex-direction: column; }
 }
 
+/* BOM 가져오기 */
+h4 { font-size: 14px; margin: 16px 0 8px; }
+.map-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+.map-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.map-grid select { color: var(--text); font-size: 13px; }
+.opts { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.opts label { display: flex; gap: 8px; align-items: center; }
+.preview { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.preview th { position: sticky; top: 0; background: var(--panel); font-size: 12px; color: var(--muted); text-align: left; padding: 6px; }
+.preview td { font-size: 13px; padding: 4px 6px !important; }
+.sec-row td { background: var(--accent-soft); }
+.parts-tools .chips { margin-top: 10px; align-items: center; }
+@media (max-width: 900px) { .map-grid { grid-template-columns: 1fr 1fr; } }
+
 </style>
 </head>
 <body>
@@ -1147,8 +1161,139 @@ async function buildProjectZip(p) {
   for (const r of p.records) await add(`${fmtDot(r.date)}_${r.title}`, [...r.images, ...r.files]);
   for (const m of p.meetings) await add(`${fmtDot(m.date)}_${m.title}`, m.files);
   await add("HW 주요 Spec", p.hwImages);
+  for (const key of ["bom", "consumables", "supplied"]) await add(`${LISTS[key].title}_원본`, p.listFiles?.[key]);
   for (const key of ["submissions", "changes"]) for (const r of p.lists[key]) await add(`${LISTS[key].title}_${r.item || r.content || ""}`.slice(0, 60), r.files);
   return Zip.write(files);
+}
+
+// ------------------------------------------------------- BOM 엑셀 가져오기·자동 정리
+// 업체마다 다른 머리글 이름을 같은 열로 인식하기 위한 별칭 (정확히 같거나, 포함 단어)
+const PART_FIELDS = [
+  { key: "no", exact: ["no", "번호", "순번", "순서", "sl", "slno", "sno"] },
+  { key: "kind", exact: ["구분", "분류", "category", "type", "group", "파트", "유닛", "unit", "대분류"] },
+  { key: "item", exact: ["품목", "품목명", "품명", "부품명", "자재명", "item", "itemname", "part", "partname", "name", "description", "명칭"], has: ["품목", "item", "품명"] },
+  { key: "model", exact: ["모델명", "모델", "model", "spec", "규격", "사양", "partno", "pn", "형번", "형식", "specification", "type no"], has: ["모델", "model", "spec", "규격", "partno"] },
+  { key: "maker", exact: ["업체명", "업체", "maker", "제조사", "메이커", "vendor", "manufacturer", "brand", "제조업체", "공급사"], has: ["maker", "업체", "제조사", "메이커", "vendor", "manufacturer"] },
+  { key: "qty", exact: ["개수", "수량", "qty", "quantity", "ea", "소요량", "q'ty"], has: ["수량", "qty", "quantity"] },
+  { key: "note", exact: ["비고", "remark", "remarks", "note", "notes", "참고", "comment", "memo"], has: ["비고", "remark"] },
+];
+const partFieldOf = (label) => {
+  const n = norm(label).replace(/'/g, "");
+  if (!n) return null;
+  const f = PART_FIELDS.find((x) => x.exact.some((a) => norm(a).replace(/'/g, "") === n))
+    || PART_FIELDS.find((x) => (x.has || []).some((a) => n.includes(norm(a))));
+  return f ? f.key : null;
+};
+
+// 시트에서 머리글 행을 찾아 열 목록과 자동 매핑을 만든다
+function analyzePartSheet(sheet) {
+  const rows = filledRows(sheet);
+  let best = null;
+  for (let r = 0; r < Math.min(rows.length, 40); r++) {
+    const mapping = {};
+    (rows[r] || []).forEach((v, c) => {
+      const k = partFieldOf(v);
+      if (k && !(k in mapping)) mapping[k] = c;
+    });
+    const score = Object.keys(mapping).length;
+    if ((mapping.item != null || mapping.model != null) && score >= 2 && (!best || score > best.score)) best = { row: r, mapping, score };
+  }
+  if (!best) return null;
+  const columns = [];
+  (rows[best.row] || []).forEach((v, c) => {
+    const label = cellText(v);
+    if (label && !columns.some((x) => x.c === c)) columns.push({ c, label });
+  });
+  // 머리글 바로 위의 짧은 글자 한 칸(예: "본체부", "Main Unit")은 첫 소제목으로 사용
+  let section = "";
+  for (let r = best.row - 1; r >= 0 && r >= best.row - 3; r--) {
+    const vals = [...new Set((rows[r] || []).map(cellText).filter(Boolean))];
+    if (vals.length >= 1 && vals.length <= 2 && vals.every((v) => v.length <= 20)) { section = vals[vals.length - 1]; break; }
+  }
+  return { headerRow: best.row, mapping: best.mapping, columns, section, rows };
+}
+
+// 매핑대로 행을 읽는다. 소제목 행은 { section } 으로 돌려준다.
+function readPartRows(info, mapping, { extraToNote = true } = {}) {
+  const out = [];
+  if (info.section) out.push({ section: info.section });
+  const header = info.rows[info.headerRow] || [];
+  const used = new Set(Object.values(mapping).filter((c) => c !== "" && c != null).map(Number));
+  const extras = info.columns.filter((x) => !used.has(x.c));
+  // 계산식 결과 같은 긴 소수는 소수 둘째 자리까지
+  const val = (v) => (typeof v === "number" && !Number.isInteger(v) ? String(Math.round(v * 100) / 100) : cellText(v));
+  const get = (row, k) => (mapping[k] === "" || mapping[k] == null ? "" : val(row[Number(mapping[k])]));
+  for (let r = info.headerRow + 1; r < info.rows.length; r++) {
+    const row = info.rows[r] || [];
+    const texts = [...new Set(row.map(cellText).filter(Boolean))];
+    if (!texts.length) continue;
+    // 머리글 반복 행
+    if (texts.length > 1 && row.every((v, c) => !cellText(v) || norm(v) === norm(header[c]))) continue;
+    const rec = { kind: get(row, "kind"), item: get(row, "item"), model: get(row, "model"), maker: get(row, "maker"),
+      qty: get(row, "qty"), note: get(row, "note") };
+    if (!rec.item && !rec.model && !rec.maker && !rec.qty) {
+      // 번호만 있는 빈 양식 행은 건너뛰고, 글자가 있으면 소제목으로 본다
+      const label = texts.find((t) => !/^\d+$/.test(t));
+      if (label && texts.length <= 2) out.push({ section: label });
+      continue;
+    }
+    if (extraToNote) {
+      const add = extras.map((x) => [x.label, val(row[x.c])]).filter(([, v]) => v).map(([l, v]) => `${l}: ${v}`);
+      if (add.length) rec.note = [rec.note, ...add].filter(Boolean).join(" / ");
+    }
+    out.push(rec);
+  }
+  return out;
+}
+
+// 자동 정리: 공백 정리, 소제목으로 빈 구분 채우기, 중복 합치기(수량 합산), 구분별로 모으기
+function organizeParts(input, { fillKind = true, merge = true, group = true } = {}) {
+  const stats = { before: 0, merged: 0, filled: 0, removed: 0 };
+  const clean = (v) => String(v ?? "").replace(/\s+/g, " ").trim();
+  // 소제목 단위로 나눠서 각 묶음 안에서 정리한다
+  const blocks = [{ section: "", rows: [] }];
+  for (const r of input) {
+    const sec = r.section ?? (/^■\s*/.test(r.item || "") && !r.model && !r.maker && !r.qty ? r.item.replace(/^■\s*/, "") : null);
+    if (sec != null) { blocks.push({ section: clean(sec), rows: [] }); continue; }
+    stats.before++;
+    const rec = { id: r.id || Store.uid() };
+    for (const c of PART_COLS) rec[c.key] = clean(r[c.key]);
+    if (!rec.item && !rec.model && !rec.maker && !rec.qty && !rec.note) { stats.removed++; continue; }
+    if (fillKind && !rec.kind && blocks[blocks.length - 1].section) { rec.kind = blocks[blocks.length - 1].section; stats.filled++; }
+    blocks[blocks.length - 1].rows.push(rec);
+  }
+  const out = [];
+  for (const b of blocks) {
+    let rows = b.rows;
+    if (merge) {
+      const seen = new Map(), kept = [];
+      for (const r of rows) {
+        const key = [r.kind, r.item, r.model, r.maker].map((v) => norm(v)).join("|");
+        const prev = (r.item || r.model) && seen.get(key);
+        if (!prev) { seen.set(key, r); kept.push(r); continue; }
+        stats.merged++;
+        const a = Number(prev.qty || 0), q = Number(r.qty || 0);
+        if (!isNaN(a) && !isNaN(q) && (prev.qty || r.qty)) prev.qty = String(a + q);
+        if (r.note && !prev.note.split(" / ").includes(r.note)) prev.note = [prev.note, r.note].filter(Boolean).join(" / ");
+      }
+      rows = kept;
+    }
+    if (group) {
+      const order = [];
+      rows.forEach((r) => !order.includes(r.kind) && order.push(r.kind));
+      rows = order.flatMap((k) => rows.filter((r) => r.kind === k));
+    }
+    if (!b.rows.length && !b.section) continue;
+    if (b.section) {
+      const sec = { id: Store.uid() };
+      PART_COLS.forEach((c) => (sec[c.key] = ""));
+      sec.item = `■ ${b.section}`;
+      out.push(sec);
+    }
+    out.push(...rows);
+  }
+  stats.after = out.filter((r) => !/^■/.test(r.item)).length;
+  return { rows: out, stats };
 }
 
 // ---------------------------------------------------------------------------
@@ -2014,11 +2159,146 @@ function tabSpec(p, el) {
   });
   $("#hwNote").oninput = (e) => { p.hwNote = e.target.value; Store.touch(p); };
 }
+const PART_LISTS = ["bom", "consumables", "supplied"];
+let partsUndo = null; // { pid, key, rows, label } 마지막 가져오기/정리 직전 상태
+
 function tabParts(p, el) {
-  const sub = ["bom", "consumables", "supplied"].includes(route.sub) ? route.sub : "bom";
-  el.innerHTML = `<nav class="subtabs">${["bom", "consumables", "supplied"].map((k) =>
-    `<button data-sub="${k}" class="${k === sub ? "active" : ""}">${LISTS[k].title} <small>${p.lists[k].length}</small></button>`).join("")}</nav>${gridCard(p, sub)}`;
+  const sub = PART_LISTS.includes(route.sub) ? route.sub : "bom";
+  p.listFiles ||= {};
+  const files = p.listFiles[sub] || [];
+  const undo = partsUndo && partsUndo.pid === p.id && partsUndo.key === sub ? partsUndo : null;
+  el.innerHTML = `<nav class="subtabs">${PART_LISTS.map((k) =>
+    `<button data-sub="${k}" class="${k === sub ? "active" : ""}">${LISTS[k].title} <small>${p.lists[k].length}</small></button>`).join("")}</nav>
+    <div class="card parts-tools"><div class="between wrap">
+      <div class="row2"><button class="btn primary" id="partsImport">📥 엑셀에서 가져오기</button>
+        <button class="btn" id="partsOrganize" ${p.lists[sub].length ? "" : "disabled"}>🧹 자동 정리</button>
+        ${undo ? `<button class="btn" id="partsUndo">↩ 되돌리기 (${esc(undo.label)})</button>` : ""}</div>
+      <span class="muted small">업체 BOM·메이커리스트 엑셀을 넣으면 머리글을 알아보고 표에 맞춰 정리합니다.</span></div>
+      ${files.length ? `<div class="chips"><span class="muted small">원본 파일:</span>${fileChips(files, { removable: true })}</div>` : ""}
+    </div>${gridCard(p, sub)}`;
   $$("[data-sub]", el).forEach((b) => (b.onclick = () => { route.sub = b.dataset.sub; rerender(); }));
+  $("#partsImport").onclick = () => pickFiles(".xlsx", false, (f) => partsImportDialog(p, sub, f[0]));
+  $("#partsOrganize").onclick = () => partsOrganizeDialog(p, sub);
+  if (undo) $("#partsUndo").onclick = () => {
+    p.lists[sub] = undo.rows;
+    partsUndo = null;
+    Store.touch(p, `${LISTS[sub].title} 되돌리기: ${undo.label}`);
+    rerender();
+  };
+  $(".parts-tools", el).addEventListener("click", async (e) => {
+    const id = e.target.dataset.remove;
+    if (!id) return;
+    e.stopPropagation();
+    if (!confirm("원본 파일을 목록에서 삭제할까요? (표 내용은 그대로 남습니다)")) return;
+    p.listFiles[sub] = files.filter((x) => x !== id);
+    Store.touch(p);
+    await Store.gc();
+    rerender();
+  });
+}
+
+const PART_LABELS = { kind: "구분", item: "품목", model: "모델명", maker: "업체명", qty: "개수", note: "비고" };
+function partsPreviewTable(rows, limit = 60) {
+  return `<div class="table-scroll preview"><table class="list"><thead><tr><th>NO</th>${PART_COLS.map((c) => `<th>${c.label}</th>`).join("")}</tr></thead>
+    <tbody>${(() => { let n = 0; return rows.slice(0, limit).map((r) => /^■/.test(r.item)
+      ? `<tr class="sec-row"><td></td><td colspan="${PART_COLS.length}"><b>${esc(r.item)}</b></td></tr>`
+      : `<tr><td class="muted">${++n}</td>${PART_COLS.map((c) => `<td>${esc(r[c.key])}</td>`).join("")}</tr>`).join(""); })()}</tbody></table>
+    ${rows.length > limit ? `<p class="muted small center">… 외 ${rows.length - limit}행</p>` : ""}</div>`;
+}
+const organizeSummary = (st) => `${st.before}행 → <b>${st.after}행</b>` +
+  [st.merged && `중복 ${st.merged}건 합침`, st.filled && `구분 ${st.filled}건 채움`, st.removed && `빈 행 ${st.removed}건 제거`].filter(Boolean).map((x) => ` · ${x}`).join("");
+
+async function partsImportDialog(p, key, file) {
+  let wb;
+  await busy("엑셀 파일을 읽는 중…", async () => { wb = await Xlsx.read(file); });
+  if (!wb) return;
+  const sheets = wb.sheets.map((sh) => ({ sh, info: analyzePartSheet(sh) })).filter((x) => x.info);
+  if (!sheets.length) return toast("품목·모델명 같은 머리글이 있는 시트를 찾지 못했습니다.", 5000);
+  // 보통 맨 앞 시트가 최신본이므로 기본 선택 (내용이 너무 적으면 가장 많은 시트)
+  const count = (x) => readPartRows(x.info, x.info.mapping).filter((r) => !r.section).length;
+  const most = sheets.reduce((a, b) => (count(b) > count(a) ? b : a));
+  let cur = count(sheets[0]) * 2 >= count(most) ? sheets[0] : most;
+  let mapping = { ...cur.info.mapping };
+  openDialog(`<h3>BOM 엑셀 가져오기 <span class="muted small">${esc(file.name)}</span></h3>
+    <div class="form">
+      <label>시트<select name="sheet">${sheets.map((x, i) => `<option value="${i}" ${x === cur ? "selected" : ""}>${esc(x.sh.name)} (${count(x)}행)</option>`).join("")}</select></label>
+      <label>넣을 목록<select name="target">${PART_LISTS.map((k) => `<option value="${k}" ${k === key ? "selected" : ""}>${LISTS[k].title}</option>`).join("")}</select></label>
+      <label class="full">가져오는 방법<select name="mode"><option value="append">기존 목록 뒤에 추가</option><option value="replace">기존 목록을 이 내용으로 바꾸기</option></select></label>
+    </div>
+    <h4>열 맞추기 <span class="muted small">자동으로 맞춘 결과입니다. 틀리면 바꿔 주세요.</span></h4>
+    <div class="map-grid" id="mapGrid"></div>
+    <div class="opts">
+      <label><input type="checkbox" name="extra"> 표에 없는 열(원가, Origin 등)도 비고에 붙이기</label>
+      <label><input type="checkbox" name="fill" checked> 구분이 비어 있으면 소제목(예: 전장, 본체부)으로 채우기</label>
+      <label><input type="checkbox" name="merge" checked> 같은 구분·품목·모델·업체는 한 줄로 합치고 개수 더하기</label>
+      <label><input type="checkbox" name="group" checked> 같은 구분끼리 모으기</label>
+      <label><input type="checkbox" name="keep" checked> 원본 엑셀 파일 보관</label>
+    </div>
+    <h4>미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
+  async (form) => {
+    const { rows, stats } = build(form);
+    const target = form.target.value;
+    partsUndo = { pid: p.id, key: target, rows: structuredClone(p.lists[target]), label: "가져오기" };
+    p.lists[target] = form.mode.value === "replace" ? rows : [...p.lists[target], ...rows];
+    if (form.keep.checked) {
+      p.listFiles ||= {};
+      (p.listFiles[target] ||= []).push(await Store.addFile(file, file.name));
+    }
+    Store.touch(p, `${LISTS[target].title} 엑셀 가져오기: ${file.name}`, `${cur.sh.name} 시트, ${stats.after}행`);
+    route.sub = target;
+    rerender();
+    toast(`${stats.after}행을 가져왔습니다.`);
+  }, { wide: true, okLabel: "가져오기", onOpen: (dlg, form) => {
+    const drawMap = () => {
+      $("#mapGrid", dlg).innerHTML = Object.entries(PART_LABELS).map(([k, label]) => `<label>${label}<select data-map="${k}">
+        <option value="">(없음)</option>${cur.info.columns.map((c) => `<option value="${c.c}" ${String(mapping[k]) === String(c.c) ? "selected" : ""}>${Xlsx.colName(c.c)}: ${esc(c.label.slice(0, 30))}</option>`).join("")}
+        </select></label>`).join("");
+    };
+    const draw = () => {
+      const { rows, stats } = build(form);
+      $("#pvSum", dlg).innerHTML = organizeSummary(stats);
+      $("#pv", dlg).innerHTML = partsPreviewTable(rows);
+    };
+    form.sheet.onchange = () => { cur = sheets[form.sheet.value]; mapping = { ...cur.info.mapping }; drawMap(); draw(); };
+    dlg.addEventListener("change", (e) => {
+      if (e.target.dataset.map) mapping[e.target.dataset.map] = e.target.value;
+      if (e.target.name !== "sheet") draw();
+    });
+    drawMap();
+    draw();
+  } });
+  function build(form) {
+    const raw = readPartRows(cur.info, mapping, { extraToNote: form.extra.checked });
+    return organizeParts(raw, { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
+  }
+}
+
+function partsOrganizeDialog(p, key) {
+  const run = (form) => organizeParts(p.lists[key], { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
+  openDialog(`<h3>${LISTS[key].title} 자동 정리</h3>
+    <div class="opts">
+      <label><input type="checkbox" checked disabled> 앞뒤 공백·줄바꿈 정리, 빈 행 삭제</label>
+      <label><input type="checkbox" name="fill" checked> 구분이 비어 있으면 위의 소제목(■ 행)으로 채우기</label>
+      <label><input type="checkbox" name="merge" checked> 같은 구분·품목·모델·업체는 한 줄로 합치고 개수 더하기</label>
+      <label><input type="checkbox" name="group" checked> 같은 구분끼리 모으기 (소제목 순서는 유지)</label>
+    </div>
+    <h4>정리 결과 미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
+  (form) => {
+    const { rows, stats } = run(form);
+    partsUndo = { pid: p.id, key, rows: structuredClone(p.lists[key]), label: "자동 정리" };
+    p.lists[key] = rows;
+    Store.touch(p, `${LISTS[key].title} 자동 정리`, organizeSummary(stats).replace(/<[^>]+>/g, ""));
+    rerender();
+    toast("정리했습니다. 마음에 들지 않으면 ↩ 되돌리기를 누르세요.", 4000);
+  }, { wide: true, okLabel: "정리하기", onOpen: (dlg, form) => {
+    const draw = () => {
+      const { rows, stats } = run(form);
+      $("#pvSum", dlg).innerHTML = organizeSummary(stats);
+      $("#pv", dlg).innerHTML = partsPreviewTable(rows);
+    };
+    dlg.addEventListener("change", draw);
+    draw();
+  } });
 }
 
 // ------------------------------------------------------------- 시작

@@ -26,6 +26,10 @@
 
 - **통합 대시보드**: 프로젝트별 진행률과 종료 D-day, 지연된 일정, 2주 안에 시작하거나 끝나는 일정, 미완료 실천 의제, 최근 자료
 - **자료 이력**: 메일 화면을 캡처해 **Ctrl+V** 하면 바로 등록되고, 파일은 끌어다 놓으면 됩니다. 이미지는 클릭하면 크게 보입니다.
+- **BOM 엑셀 가져오기·자동 정리** (자재 탭): 업체에서 받은 BOM·메이커리스트 엑셀을 넣으면 머리글(`Item Name`/`품목명`, `Spec.`/`규격`, `Maker`, `Q'ty`, `Remark` 등)을 알아보고 표에 맞춰 넣습니다.
+  - 미리보기에서 시트와 열 맞춤을 확인하고 바꿀 수 있습니다.
+  - 소제목(전장, 본체부 등)으로 비어 있는 구분을 채우고, 같은 품목·모델·업체는 개수를 더해 한 줄로 합치고, 구분끼리 모읍니다.
+  - 원본 파일은 함께 보관되고, 마지막 가져오기·정리는 **↩ 되돌리기**로 취소할 수 있습니다.
 - **엑셀처럼 표 편집**: 칸을 눌러 바로 고치고, 엑셀에서 여러 행을 복사해 붙여넣을 수 있습니다.
 - **Revision 자동 기록**: 자료나 회의록을 추가하면 날짜와 작성자가 자동으로 남습니다.
 - **회의록 인쇄/PDF**: 기존 회의록 양식으로 인쇄됩니다.
@@ -46,8 +50,8 @@
 
 ```bash
 python3 app/build.py                                  # -> 프로젝트자료관리.html
-python3 app/tests/make_fixture.py /tmp/fixture.xlsx   # 테스트용 엑셀 (openpyxl, Pillow 필요)
-node app/tests/e2e.js /tmp/fixture.xlsx               # 브라우저 종단 테스트 (playwright 필요)
+python3 app/tests/make_fixture.py /tmp/fixture.xlsx /tmp/bom.xlsx  # 테스트용 엑셀 (openpyxl, Pillow 필요)
+node app/tests/e2e.js /tmp/fixture.xlsx /tmp/bom.xlsx # 브라우저 종단 테스트 (playwright 필요)
 ```
 
 | 파일 | 역할 |

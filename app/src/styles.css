@@ -180,3 +180,17 @@ dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top
   body { flex-direction: column; } #side { width: 100%; max-height: 45vh; } #main { padding: 16px; }
   .grid2, .grid2.wide-left, .split, .form { grid-template-columns: 1fr; } .grid2 { display: flex; flex-direction: column; }
 }
+
+/* BOM 가져오기 */
+h4 { font-size: 14px; margin: 16px 0 8px; }
+.map-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px 12px; }
+.map-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.map-grid select { color: var(--text); font-size: 13px; }
+.opts { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; }
+.opts label { display: flex; gap: 8px; align-items: center; }
+.preview { max-height: 320px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+.preview th { position: sticky; top: 0; background: var(--panel); font-size: 12px; color: var(--muted); text-align: left; padding: 6px; }
+.preview td { font-size: 13px; padding: 4px 6px !important; }
+.sec-row td { background: var(--accent-soft); }
+.parts-tools .chips { margin-top: 10px; align-items: center; }
+@media (max-width: 900px) { .map-grid { grid-template-columns: 1fr 1fr; } }

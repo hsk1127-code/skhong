@@ -1,6 +1,6 @@
 // 브라우저 종단 테스트: 엑셀 불러오기 → 편집 → 내보내기 → 백업/복원
-//   python3 app/build.py && python3 app/tests/make_fixture.py /tmp/fixture.xlsx
-//   node app/tests/e2e.js /tmp/fixture.xlsx      (playwright 필요)
+//   python3 app/build.py && python3 app/tests/make_fixture.py /tmp/fixture.xlsx /tmp/bom.xlsx
+//   node app/tests/e2e.js /tmp/fixture.xlsx /tmp/bom.xlsx      (playwright 필요)
 const { chromium } = require("playwright");
 const fs = require("fs");
 const os = require("os");
@@ -9,6 +9,7 @@ const assert = require("assert");
 
 (async () => {
   const fixture = path.resolve(process.argv[2]);
+  const bomFixture = path.resolve(process.argv[3]);
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "pd-e2e-"));
   const html = path.resolve(__dirname, "../../프로젝트자료관리.html");
   const ctx = await chromium.launchPersistentContext(path.join(work, "profile"), {
@@ -36,6 +37,23 @@ const assert = require("assert");
   await p.click(".tabs [data-tab=parts]");
   const items = await p.$$eval("[data-grid=bom] [data-f=item]", (els) => els.map((e) => e.value));
   assert.deepStrictEqual(items, ["■ 지정품 List", "메인제어PC", "말굽센서"]);
+
+  // 업체 BOM 엑셀 가져오기: 영문 머리글 인식, 소제목→구분, 중복 합치기, 되돌리기
+  const [bc] = await Promise.all([p.waitForEvent("filechooser"), p.click("#partsImport")]);
+  await bc.setFiles(bomFixture);
+  await p.waitForSelector("dialog #pv table");
+  assert.match(await p.textContent("dialog [name=sheet] option:checked"), /^MakerList/);
+  assert.match(await p.textContent("#pvSum"), /4행 → 3행.*중복 1건/);
+  await p.selectOption("dialog [name=mode]", "replace");
+  await p.click("dialog button.primary");
+  await p.waitForSelector("#partsUndo");
+  const bom = await p.$$eval("[data-grid=bom] tbody tr", (trs) => trs.map((tr) =>
+    ["kind", "item", "model", "maker", "qty", "note"].map((k) => tr.querySelector(`[data-f=${k}]`).value).join("|")));
+  assert.deepStrictEqual(bom, ["|■ 전장||||", "전장|Lidar|Nano Scan3|SICK|2|spare", "전장|Drive|Leadshine|Leadshine|2|Driving",
+    "|■ 기구||||", "기구|LM Guide|SSEBL10|Misumi|4|"]);
+  assert.strictEqual(await p.locator(".parts-tools .chip").count(), 1);
+  await p.click("#partsUndo");
+  assert.deepStrictEqual(await p.$$eval("[data-grid=bom] [data-f=item]", (els) => els.map((e) => e.value)), items);
 
   await p.click(".tabs [data-tab=meetings]");
   assert.strictEqual(await p.inputValue("[data-mf=title]"), "고객사 Kick-off");
