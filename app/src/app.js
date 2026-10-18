@@ -11,6 +11,13 @@ const dday = (d) => {
   const n = dayNo(d) - dayNo(today());
   return n === 0 ? "D-Day" : n > 0 ? `D-${n}` : `D+${-n}`;
 };
+// 프로젝트 이니셜 아바타 (프로젝트마다 고유 색)
+function avatar(p, cls = "", withDot = false) {
+  const name = (p.overview.customer || p.overview.name || "?").replace(/^[㈜(（\s]*(주\)|주식회사)?\s*/, "");
+  let h = 0;
+  for (const ch of p.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `<span class="avatar ${cls}" style="--h:${h}">${esc(name.slice(0, 1) || "?")}${withDot ? `<span class="dot s-${esc(p.overview.status)}"></span>` : ""}</span>`;
+}
 const badge = (s, cls = "") => `<span class="badge s-${esc(s)} ${cls}">${esc(s)}</span>`;
 const opts = (list, sel) => list.map((v) => `<option ${v === sel ? "selected" : ""}>${esc(v)}</option>`).join("");
 
@@ -68,19 +75,19 @@ function renderSidebar() {
   const days = s.lastBackup ? dayNo(today()) - dayNo(s.lastBackup) : null;
   const warn = Store.projects.length && (days === null || days >= 7);
   $("#side").innerHTML = `
-    <div class="brand">📁 프로젝트 자료 관리</div>
-    <input id="globalSearch" type="search" placeholder="전체 검색 (자료, 회의록, BOM…)" value="${esc(route.view === "search" ? route.q : "")}">
-    <button class="nav ${route.view === "home" ? "active" : ""}" data-go="home">📊 통합 대시보드</button>
+    <div class="brand"><span class="logo">PD</span><div><b>프로젝트 자료 관리</b><small>Project Docs</small></div></div>
+    <input id="globalSearch" type="search" placeholder="전체 검색" title="모든 프로젝트의 자료·회의록·일정·BOM 등을 검색합니다" value="${esc(route.view === "search" ? route.q : "")}">
+    <button class="nav ${route.view === "home" ? "active" : ""}" data-go="home"><span class="nav-ico">📊</span> 통합 대시보드</button>
     <div class="side-head"><span>프로젝트 (${projects.length})</span>
       <span><button class="icon" id="importXlsx" title="기존 엑셀 파일로 프로젝트 만들기">📥</button><button class="icon" id="newProject" title="새 프로젝트">＋</button></span></div>
     <div class="plist">${projects.map((p) => `
       <button class="nav proj ${route.id === p.id && route.view === "project" ? "active" : ""}" data-project="${p.id}">
-        <span class="dot s-${esc(p.overview.status)}"></span><span class="pname">${esc(p.overview.name)}</span>
-        <small>${esc(p.overview.customer)}</small></button>`).join("") || `<div class="muted small pad">아직 프로젝트가 없습니다.</div>`}</div>
+        ${avatar(p, "", true)}<span class="pinfo"><span class="pname">${esc(p.overview.name)}</span>
+        <small>${esc(p.overview.customer || p.overview.status)}</small></span></button>`).join("") || `<div class="muted small pad">아직 프로젝트가 없습니다.</div>`}</div>
     <div class="side-foot">
       <label class="small muted">작성자 이름 <input id="userName" value="${esc(s.user)}" placeholder="예: 홍길동"></label>
       <div class="row2"><button class="btn sm" id="backupBtn">💾 백업</button><button class="btn sm" id="restoreBtn">📂 복원</button></div>
-      <div class="small ${warn ? "warn" : "muted"}">${s.lastBackup ? `마지막 백업: ${esc(s.lastBackup)} (${days}일 전)` : "아직 백업하지 않았습니다"}</div>
+      <div class="small backup-note ${warn ? "warn" : "muted"}">${warn ? "⚠" : "✓"} ${s.lastBackup ? `마지막 백업 ${esc(s.lastBackup)} (${days}일 전)` : "아직 백업하지 않았습니다"}</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
   $$("[data-project]").forEach((b) => (b.onclick = () => go({ view: "project", id: b.dataset.project, tab: route.id === b.dataset.project ? route.tab : "overview" })));
@@ -288,20 +295,19 @@ function renderHome() {
     <div class="page-head"><h1>통합 대시보드</h1><div class="row2"><span class="muted">기준일 ${esc(base)}</span>
       ${Store.projects.some((p) => p.overview.status === "완료") ? `<button class="btn" id="closingAll" title="완료 상태인 프로젝트를 열로 모은 마감 보고서">📊 완료 프로젝트 마감 보고서</button>` : ""}</div></div>
     ${!Store.projects.length ? `<div class="card empty-big">
-      <h2>시작하기</h2><p>왼쪽의 <b>📥</b> 버튼으로 지금 쓰고 있는 프로젝트 엑셀 파일을 불러오거나, <b>＋</b> 버튼으로 새 프로젝트를 만드세요.</p>
+      <div class="hero-emoji">📂</div><h2>시작하기</h2><p>왼쪽의 <b>📥</b> 버튼으로 지금 쓰고 있는 프로젝트 엑셀 파일을 불러오거나, <b>＋</b> 버튼으로 새 프로젝트를 만드세요.</p>
       <p class="muted small">엑셀을 불러오면 개요·일정·BOM·회의록·날짜별 문의/자료 시트(캡처 이미지와 첨부 원본 포함)가 자동으로 정리됩니다.</p>
       <div class="row2 center"><button class="btn primary" id="homeImport">📥 엑셀 불러오기</button><button class="btn" id="homeNew">＋ 새 프로젝트</button></div></div>` : `
     <div class="kpis">
-      <div class="card kpi"><span>진행 중 프로젝트</span><b>${active.length}</b></div>
-      <div class="card kpi ${delayed.length ? "bad" : ""}"><span>지연된 일정</span><b>${delayed.length}</b></div>
-      <div class="card kpi"><span>2주 내 일정</span><b>${soon.length}</b></div>
-      <div class="card kpi ${actions.length ? "warn" : ""}"><span>미완료 실천 의제</span><b>${actions.length}</b></div>
-      <div class="card kpi"><span>미제출 자료</span><b>${subs.length}</b></div>
+      ${[["📁", "진행 중 프로젝트", active.length, ""], ["⏰", "지연된 일정", delayed.length, delayed.length ? "bad" : "ok"],
+        ["📅", "2주 내 일정", soon.length, ""], ["📝", "미완료 실천 의제", actions.length, actions.length ? "warn" : "ok"],
+        ["📤", "미제출 자료", subs.length, subs.length ? "warn" : "ok"]].map(([ico, label, n, cls]) =>
+        `<div class="card kpi ${cls}"><span class="kpi-icon">${ico}</span><div class="kpi-body"><span>${label}</span><b>${n}</b></div></div>`).join("")}
     </div>
     <div class="pcards">${all.map(({ p, s }) => `
-      <div class="card pcard" ${goto(p, "overview")}>
-        <div class="between"><b class="ellipsis">${esc(p.overview.name)}</b>${badge(p.overview.status)}</div>
-        <div class="muted small ellipsis">${esc(p.overview.customer || "-")} · ${esc(p.overview.project || "")}</div>
+      <div class="card pcard" data-st="${esc(p.overview.status)}" ${goto(p, "overview")}>
+        <div class="pc-head">${avatar(p)}<div><b class="ellipsis" style="display:block">${esc(p.overview.name)}</b>
+          <div class="muted small ellipsis">${esc(p.overview.customer || "-")}${p.overview.project ? " · " + esc(p.overview.project) : ""}</div></div>${badge(p.overview.status)}</div>
         ${s.progress !== null ? `<div class="progress"><span style="width:${s.progress}%"></span></div>
         <div class="between small"><span>${esc(fmtDot(s.start))} ~ ${esc(fmtDot(s.end))}</span><b>${dday(s.end)}</b></div>` : `<div class="muted small pad">일정 미등록</div>`}
         <div class="small chips-line">
@@ -401,8 +407,9 @@ function renderProject(p) {
     changes: p.lists.changes.length || "" };
   $("#main").innerHTML = `
     <div class="page-head">
-      <div><h1>${esc(p.overview.name)} ${badge(p.overview.status)}</h1>
-        <div class="muted">${esc(p.overview.customer)}${p.overview.project ? " · " + esc(p.overview.project) : ""}</div></div>
+      <div class="title-wrap">${avatar(p, "lg")}<div style="min-width:0"><div class="crumb">프로젝트 · ${esc(p.overview.customer || "고객사 미입력")}</div>
+        <h1>${esc(p.overview.name)} ${badge(p.overview.status)}</h1>
+        ${p.overview.project ? `<div class="muted small ellipsis">${esc(p.overview.project)}</div>` : ""}</div></div>
       <div class="row2">
         <button class="btn" id="exportXlsx" title="이 프로젝트를 기존 양식의 엑셀 파일로 저장">📊 엑셀로 내보내기</button>
         <button class="btn" id="exportZip" title="엑셀 + 첨부 원본 파일을 폴더 구조로 저장">🗂 전체 자료 ZIP</button>
@@ -925,7 +932,7 @@ function gridCard(p, key, help = "") {
     ${help ? `<p class="muted small">${help}</p>` : `<p class="muted small">칸을 눌러 바로 수정합니다. 엑셀에서 여러 행을 복사해 칸에 붙여넣으면 한 번에 입력됩니다.</p>`}
     <div class="table-scroll"><table class="grid-table">
       <thead><tr><th class="num">NO</th>${def.cols.map((c) => `<th>${c.label}</th>`).join("")}${def.files ? "<th>첨부</th>" : ""}<th></th></tr></thead>
-      <tbody>${rows.map((r, i) => `<tr data-id="${r.id}"><td class="num muted">${i + 1}</td>${def.cols.map((c) => `<td>${gridInput(c, r[c.key])}</td>`).join("")}
+      <tbody>${rows.map((r, i) => `<tr data-id="${r.id}" class="${/^■/.test(r.item || "") ? "sec-row" : ""}"><td class="num muted">${i + 1}</td>${def.cols.map((c) => `<td>${gridInput(c, r[c.key])}</td>`).join("")}
         ${def.files ? `<td class="files-cell">${fileChips(r.files)}<button class="icon" data-attach title="파일 첨부">📎</button></td>` : ""}
         <td class="nowrap"><button class="icon" data-ins title="아래에 행 추가">＋</button><button class="icon" data-delrow title="삭제">✕</button></td></tr>`).join("")
         || `<tr><td colspan="${def.cols.length + 3}" class="muted center pad">내용이 없습니다. ＋ 행 추가를 누르거나 엑셀에서 붙여넣으세요.</td></tr>`}</tbody></table></div></div>`;
