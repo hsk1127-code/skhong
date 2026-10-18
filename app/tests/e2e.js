@@ -30,6 +30,10 @@ const assert = require("assert");
   assert.strictEqual(await p.inputValue("[data-k=scope]"), "AMR : 2EA\nCharger : 1EA");
 
   await p.click(".tabs [data-tab=schedule]");
+  // 기본은 한눈에 보기: 단계별 묶음, 오늘 선
+  assert.strictEqual(await p.locator(".gv-phase").count(), 2);
+  assert.strictEqual(await p.locator(".gv-axis .now-label").count(), 1);
+  await p.click("[data-mode=edit]");
   assert.strictEqual(await p.locator(".sched tbody tr").count(), 3);
   assert.strictEqual(await p.locator(".sched tbody tr").nth(1).locator("[data-f=phase]").inputValue(), "사양 협의");
   assert.match(await p.locator(".sched tbody tr").nth(2).locator("[data-c=status]").textContent(), /진행/);

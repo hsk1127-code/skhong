@@ -464,24 +464,9 @@ function tabOverview(p, el) {
 }
 
 // ------------------------------------------------------------- 일정 (간트)
-function tabSchedule(p, el) {
+function tabScheduleEdit(p, el) {
   const base = today();
-  const dated = p.schedule.filter((t) => isDate(t.start) && isDate(t.end));
-  let min = dated.length ? dayNo(dated.map((t) => t.start).sort()[0]) : dayNo(base) - 7;
-  let max = dated.length ? dayNo(dated.map((t) => t.end).sort().pop()) : dayNo(base) + 60;
-  min = Math.min(min, dayNo(base));
-  max = Math.max(max, dayNo(base)) + 1;
-  const span = max - min;
-  const pct = (d) => ((d - min) / span) * 100;
-  const months = [];
-  for (let d = new Date(min * 86400000); d.getTime() / 86400000 < max; d.setUTCMonth(d.getUTCMonth() + 1, 1)) {
-    const n = Math.round(d.getTime() / 86400000);
-    months.push(`<span style="left:${Math.max(0, pct(n))}%">${d.getUTCFullYear() % 100}.${d.getUTCMonth() + 1}</span>`);
-  }
-  const todayLine = `<i class="today" style="left:${pct(dayNo(base))}%"></i>`;
   const s = projectSummary(p, base);
-  const bar = (t, info) => isDate(t.start) && isDate(t.end)
-    ? `<div class="bar st-${info.status}" style="left:${pct(dayNo(t.start))}%;width:${Math.max(0.6, ((dayNo(t.end) - dayNo(t.start) + 1) / span) * 100)}%" title="${esc(t.start)} ~ ${esc(t.end)}"></div>` : "";
   const row = (t, i) => {
     const info = taskInfo(t, base);
     return `<tr data-id="${t.id}" class="${t.phase !== p.schedule[i - 1]?.phase ? "phase-start" : ""}">
@@ -493,24 +478,25 @@ function tabSchedule(p, el) {
       <td><input type="date" data-f="end" value="${esc(t.end)}"></td>
       <td class="num" data-c="dur">${info.dur}</td><td class="num" data-c="elapsed">${info.elapsed}</td><td class="num" data-c="remain">${info.remain}</td>
       <td data-c="status">${badge(info.status)}</td>
-      <td class="gantt">${todayLine}${bar(t, info)}</td>
       <td><input data-f="note" value="${esc(t.note)}" class="w-note"></td>
       <td class="nowrap"><button class="icon" data-move="-1" title="위로">↑</button><button class="icon" data-move="1" title="아래로">↓</button><button class="icon" data-ins title="아래에 행 추가">＋</button><button class="icon" data-del title="삭제">✕</button></td></tr>`;
   };
-  el.innerHTML = `<div class="card">
-    <div class="between wrap"><div class="row2">
-      <span>기준일 <b>${esc(base)}</b></span>
-      ${s.progress !== null ? `<span>전체 <b>${esc(fmtDot(s.start))} ~ ${esc(fmtDot(s.end))}</b> (${s.progress}% 경과, ${dday(s.end)})</span>` : ""}
+  el.insertAdjacentHTML("beforeend", `<div class="card">
+    <div class="between wrap"><div class="row2"><span>기준일 <b>${esc(base)}</b></span>
       ${s.delayed.length ? `<span class="bad">지연 ${s.delayed.length}건</span>` : ""}</div>
-      <div class="row2"><span class="legend"><i class="st-완료"></i>완료 <i class="st-진행"></i>진행 <i class="st-예정"></i>예정 <i class="st-지연"></i>지연</span>
-      <button class="btn primary sm" id="addTask">＋ 일정 추가</button></div></div>
-    <p class="muted small">종료일이 지났는데 완료 체크가 없으면 <b class="bad">지연</b>으로 표시됩니다. 엑셀에서 여러 행을 복사해 붙여넣을 수도 있습니다.</p>
+      <button class="btn primary sm" id="addTask">＋ 일정 추가</button></div>
+    <p class="muted small">끝난 일정은 ✓ 체크하세요. 종료일이 지났는데 체크가 없으면 <b class="bad">지연</b>으로 표시됩니다. 엑셀에서 여러 행을 복사해 붙여넣을 수도 있습니다.</p>
     <div class="table-scroll"><table class="sched grid-table" data-schedule>
       <thead><tr><th>✓</th><th>단계</th><th>세부사항</th><th>담당자</th><th>시작일</th><th>종료일</th><th>기간</th><th>경과</th><th>잔여</th><th>상태</th>
-      <th class="gantt-head">${months.join("")}</th><th>비고</th><th></th></tr></thead>
-      <tbody>${p.schedule.map(row).join("") || `<tr><td colspan="13" class="muted center pad">등록된 일정이 없습니다.</td></tr>`}</tbody></table></div></div>`;
+      <th>비고</th><th></th></tr></thead>
+      <tbody>${p.schedule.map(row).join("") || `<tr><td colspan="12" class="muted center pad">등록된 일정이 없습니다.</td></tr>`}</tbody></table></div></div>`);
 
   const tbody = $("tbody", el);
+  if (route.task) {
+    const tr = $(`tr[data-id="${route.task}"]`, tbody);
+    if (tr) { tr.classList.add("focus"); setTimeout(() => tr.scrollIntoView({ block: "center" })); }
+    route.task = null;
+  }
   const find = (tr) => p.schedule.find((t) => t.id === tr.dataset.id);
   tbody.addEventListener("input", (e) => {
     const tr = e.target.closest("tr[data-id]");
@@ -523,10 +509,8 @@ function tabSchedule(p, el) {
       const info = taskInfo(t, base);
       for (const k of ["dur", "elapsed", "remain"]) $(`[data-c=${k}]`, tr).textContent = info[k];
       $("[data-c=status]", tr).innerHTML = badge(info.status);
-      $(".gantt", tr).innerHTML = todayLine + bar(t, info);
     }
   });
-  tbody.addEventListener("change", (e) => { if (["start", "end"].includes(e.target.dataset.f)) rerender(); });
   tbody.addEventListener("click", (e) => {
     const tr = e.target.closest("tr[data-id]");
     if (!tr) return;
@@ -556,6 +540,143 @@ function tabSchedule(p, el) {
   bindTablePaste(tbody, ["phase", "name", "owner", "start", "end", "note"], p.schedule,
     () => ({ id: Store.uid(), phase: "", name: "", owner: "", note: "", start: "", end: "", done: false }),
     (k, v) => (k === "start" || k === "end" ? (isDate(v) ? v : dateFromText(v)) : v), () => { Store.touch(p); rerender(); });
+}
+
+// ------------------------------------------------------------- 일정 (보기/편집 전환)
+const collapsedPhases = new Set();
+function tabSchedule(p, el) {
+  const mode = route.schedMode === "edit" ? "edit" : "view";
+  el.innerHTML = `<div class="between wrap toolbar"><nav class="seg">
+      <button data-mode="view" class="${mode === "view" ? "active" : ""}">📊 한눈에 보기</button>
+      <button data-mode="edit" class="${mode === "edit" ? "active" : ""}">✏️ 표로 편집</button></nav>
+    ${mode === "view" ? `<nav class="seg small-seg">
+      <button data-range="all" class="${route.schedRange !== "near" ? "active" : ""}">전체 기간</button>
+      <button data-range="near" class="${route.schedRange === "near" ? "active" : ""}">오늘 전후 2달</button></nav>` : ""}</div>`;
+  $$("[data-mode]", el).forEach((b) => (b.onclick = () => { route.schedMode = b.dataset.mode; rerender(); }));
+  $$("[data-range]", el).forEach((b) => (b.onclick = () => { route.schedRange = b.dataset.range; rerender(); }));
+  (mode === "edit" ? tabScheduleEdit : tabScheduleView)(p, el);
+}
+
+function tabScheduleView(p, el) {
+  const base = today(), b = dayNo(base);
+  const s = projectSummary(p, base);
+  const tasks = p.schedule.map((t) => ({ t, i: taskInfo(t, base) }));
+  if (!tasks.length) {
+    el.insertAdjacentHTML("beforeend", `<div class="card muted center pad">등록된 일정이 없습니다. <b>✏️ 표로 편집</b>에서 일정을 추가하세요.</div>`);
+    return;
+  }
+  // 동떨어진 날짜는 표시만 하고 보기 범위 계산에서 뺀다
+  const suspect = suspectTasks(p.schedule);
+  const dated = tasks.filter((x) => isDate(x.t.start) && isDate(x.t.end) && !suspect.has(x.t.id));
+  let min = dated.length ? Math.min(...dated.map((x) => dayNo(x.t.start))) : b - 14;
+  let max = dated.length ? Math.max(...dated.map((x) => dayNo(x.t.end))) : b + 60;
+  if (route.schedRange === "near") { min = b - 30; max = b + 31; }
+  min = Math.min(min, b) - 2;
+  max = Math.max(max, b) + 3;
+  const span = max - min;
+  const pct = (d) => Math.max(0, Math.min(100, ((d - min) / span) * 100));
+  const dateStr = (d) => { const x = new Date(d * 86400000); return `${x.getUTCMonth() + 1}.${x.getUTCDate()}`; };
+
+  // 눈금: 달 경계(굵게), 기간이 짧으면 주(월요일) 경계
+  const ticks = [];
+  for (let d = min; d <= max; d++) {
+    const x = new Date(d * 86400000);
+    if (x.getUTCDate() === 1) ticks.push({ d, cls: "month", label: `${x.getUTCFullYear() % 100}년 ${x.getUTCMonth() + 1}월` });
+    else if (span <= 150 && x.getUTCDay() === 1) ticks.push({ d, cls: "week", label: span <= 75 ? dateStr(d) : "" });
+  }
+  const grid = ticks.map((k) => `<i class="tick ${k.cls}" style="left:${pct(k.d)}%"></i>`).join("") +
+    `<i class="now" style="left:${pct(b)}%"></i>`;
+  const placed = [{ at: pct(b), w: 9 }];
+  const free = (at, w) => at + w < 100 && placed.every((x) => at + w <= x.at - x.w / 2 || at >= x.at + x.w / 2);
+  const labels = [...ticks.filter((k) => k.cls === "month"), ...ticks.filter((k) => k.cls === "week")].filter((k) => k.label)
+    .filter((k) => { const at = pct(k.d), w = k.cls === "month" ? 8 : 4; if (!free(at, w)) return false; placed.push({ at: at + w / 2, w }); return true; });
+  const axis = labels.map((k) => `<span class="${k.cls}" style="left:${pct(k.d)}%">${k.label}</span>`).join("") +
+    `<span class="now-label" style="left:${pct(b)}%">오늘 ${dateStr(b)}</span>`;
+
+  const barHtml = (t, i, cls = "") => {
+    if (!isDate(t.start) || !isDate(t.end)) return `<span class="gv-nodate">날짜 미정</span>`;
+    const s0 = dayNo(t.start), e0 = dayNo(t.end) + 1;
+    if (e0 <= min || s0 >= max) return `<span class="gv-nodate">${s0 >= max ? "→" : "←"} ${esc(fmtDot(t.start))}</span>`;
+    const left = pct(s0), right = pct(e0);
+    const label = t.start === t.end ? dateStr(s0) : `${dateStr(s0)}~${dateStr(e0 - 1)}`;
+    const tip = `${t.name} · ${t.start} ~ ${t.end} (${i.dur}일, ${i.status}${i.remain ? `, 잔여 ${i.remain}일` : ""})`;
+    // 날짜 글자는 막대 오른쪽에, 자리가 없으면 왼쪽에, 양쪽 다 없으면 막대 안에
+    const lbl = right <= 85 ? `<span class="gv-lbl" style="left:${right}%">${label}</span>`
+      : left >= 12 ? `<span class="gv-lbl" style="right:${100 - left}%;text-align:right">${label}</span>`
+      : `<span class="gv-lbl inside" style="left:${left}%">${label}</span>`;
+    if (t.start === t.end) return `<span class="gv-ms st-${i.status} ${cls}" style="left:${left}%" title="${esc(tip)}"></span>${lbl}`;
+    // 진행 중이면 오늘까지 진하게 채워 진행 정도를 보여준다
+    const fill = i.status === "진행" ? `<span class="gv-fill" style="width:${(i.elapsed / i.dur) * 100}%"></span>` : "";
+    return `<span class="gv-bar st-${i.status} ${cls}" style="left:${left}%;width:${Math.max(0.5, right - left)}%" title="${esc(tip)}">${fill}</span>${lbl}`;
+  };
+
+  // 같은 단계끼리 묶기 (나온 순서 유지)
+  const groups = [];
+  for (const x of tasks) {
+    const g = groups.find((y) => y.phase === (x.t.phase || "기타"));
+    if (g) g.items.push(x); else groups.push({ phase: x.t.phase || "기타", items: [x] });
+  }
+  const rows = groups.map((g) => {
+    const done = g.items.filter((x) => x.i.status === "완료").length;
+    const st = g.items.some((x) => x.i.status === "지연") ? "지연" : done === g.items.length ? "완료"
+      : g.items.some((x) => ["진행", "완료"].includes(x.i.status)) ? "진행" : "예정";
+    const gd = g.items.filter((x) => isDate(x.t.start) && isDate(x.t.end) && !suspect.has(x.t.id));
+    const span = gd.length ? { start: gd.map((x) => x.t.start).sort()[0], end: gd.map((x) => x.t.end).sort().pop() } : { start: "", end: "" };
+    const key = g.phase;
+    const warn = (t) => (suspect.has(t.id) ? `<span class="gv-warn" title="다른 일정과 동떨어진 날짜(${esc(t.start)} ~ ${esc(t.end)})입니다. 입력 실수인지 확인하세요.">⚠ 날짜 확인</span>` : "");
+    if (g.items.length === 1) {
+      const { t, i } = g.items[0];
+      return `<div class="gv-row gv-phase gv-single" data-task="${t.id}">
+        <div class="gv-label"><span class="caret"></span><b>${esc(g.phase)}</b>${t.name !== g.phase ? `<span class="gv-name muted">${esc(t.name)}</span>` : ""}
+          ${warn(t)}${t.owner ? `<span class="gv-owner">${esc(t.owner)}</span>` : ""}${badge(i.status)}</div>
+        <div class="gv-time">${grid}${barHtml(t, i)}</div></div>`;
+    }
+    const closed = collapsedPhases.has(key) || (!collapsedPhases.has("!" + key) && st === "완료" && g.items.length > 1);
+    const head = `<div class="gv-row gv-phase" data-phase="${esc(key)}">
+      <div class="gv-label"><span class="caret">${closed ? "▸" : "▾"}</span><b>${esc(g.phase)}</b>
+        <span class="gv-count ${st === "지연" ? "bad" : ""}">${done}/${g.items.length}</span>${badge(st)}</div>
+      <div class="gv-time">${grid}${barHtml({ ...span, name: g.phase }, { ...taskInfo(span, base), status: st }, "phase")}</div></div>`;
+    if (closed) return head;
+    return head + g.items.map(({ t, i }) => `<div class="gv-row gv-task ${i.status === "지연" ? "late" : ""}" data-task="${t.id}">
+      <div class="gv-label"><span class="gv-name">${esc(t.name)}</span>${warn(t)}${t.owner ? `<span class="gv-owner">${esc(t.owner)}</span>` : ""}</div>
+      <div class="gv-time">${grid}${barHtml(t, i)}</div></div>`).join("");
+  }).join("");
+
+  // 지금 볼 것: 지연 / 진행 중 / 다가오는 일정
+  const mini = (list, empty, fmt) => list.length ? `<ul class="mini">${list.map(fmt).join("")}</ul>` : `<p class="muted small">${empty}</p>`;
+  const delayed = tasks.filter((x) => x.i.status === "지연");
+  const active = tasks.filter((x) => x.i.status === "진행").sort((a, c) => a.t.end.localeCompare(c.t.end));
+  const next = tasks.filter((x) => x.i.status === "예정" && isDate(x.t.start)).sort((a, c) => a.t.start.localeCompare(c.t.start)).slice(0, 4);
+  const item = (x, right) => `<li data-task="${x.t.id}"><span>${x.t.phase && x.t.phase !== x.t.name ? `<span class="muted small">${esc(x.t.phase)}</span> ` : ""}${esc(x.t.name)}</span><b>${right}</b></li>`;
+
+  el.insertAdjacentHTML("beforeend", `
+    <div class="sched-summary">
+      <div class="card"><div class="between"><h3>전체 진행</h3><b>${s.end ? dday(s.end) : ""}</b></div>
+        ${s.progress !== null ? `<div class="progress big"><span style="width:${s.progress}%"></span></div>
+        <div class="between small muted"><span>${esc(fmtDot(s.start))}</span><span>${s.progress}% 경과</span><span>${esc(fmtDot(s.end))}</span></div>` : ""}
+        <div class="small" style="margin-top:6px">완료 <b>${tasks.filter((x) => x.i.status === "완료").length}</b> / 전체 ${tasks.length}</div></div>
+      <div class="card ${delayed.length ? "card-bad" : ""}"><h3>⚠ 지연 ${delayed.length}</h3>${mini(delayed, "지연된 일정이 없습니다.", (x) => item(x, `<span class="bad">${dday(x.t.end)}</span>`))}</div>
+      <div class="card"><h3>▶ 진행 중 ${active.length}</h3>${mini(active, "진행 중인 일정이 없습니다.", (x) => item(x, `${x.i.remain}일 남음`))}</div>
+      <div class="card"><h3>📅 다음 일정</h3>${mini(next, "예정된 일정이 없습니다.", (x) => item(x, `${esc(fmtDot(x.t.start))} <span class="muted">${dday(x.t.start)}</span>`))}</div>
+    </div>
+    ${suspect.size ? `<div class="notice">⚠ 다른 일정과 동떨어진 날짜가 ${suspect.size}건 있어 보기 범위에서 뺐습니다:
+      ${[...suspect].map((id) => p.schedule.find((t) => t.id === id)).map((t) => `<a href="#" data-task="${t.id}">${esc(t.phase)} · ${esc(t.name)} (${esc(fmtDot(t.start))})</a>`).join(", ")}
+      — 입력 실수라면 눌러서 고치세요.</div>` : ""}
+    <div class="card gv">
+      <div class="gv-row gv-axis"><div class="gv-label muted small">단계 / 세부사항 · 담당</div><div class="gv-time">${axis}</div></div>
+      ${rows}
+      <div class="gv-foot muted small"><span class="legend"><i class="st-완료"></i>완료 <i class="st-진행"></i>진행 <i class="st-예정"></i>예정 <i class="st-지연"></i>지연 ◆ 하루 일정</span>
+        <span>단계 이름을 누르면 접고 펼칩니다 · 일정을 누르면 편집 화면으로 이동합니다</span></div>
+    </div>`);
+
+  $$(".gv-phase:not(.gv-single)", el).forEach((r) => (r.onclick = () => {
+    const k = r.dataset.phase;
+    const isClosed = r.querySelector(".caret").textContent === "▸";
+    collapsedPhases.delete(k); collapsedPhases.delete("!" + k);
+    collapsedPhases.add(isClosed ? "!" + k : k);
+    rerender();
+  }));
+  $$("[data-task]", el).forEach((r) => (r.onclick = () => { route.schedMode = "edit"; route.task = r.dataset.task; rerender(); }));
 }
 
 // 엑셀에서 복사한 여러 행/열을 표에 붙여넣기

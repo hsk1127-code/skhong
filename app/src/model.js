@@ -50,8 +50,22 @@ function taskInfo(t, base = today()) {
   else if (b >= s) status = "진행";
   return { dur, elapsed: dur - remain, remain, status };
 }
+// 다른 일정과 60일 넘게 동떨어진 시작/종료일 (입력 실수일 가능성) → 기간 계산에서 제외
+function suspectTasks(schedule) {
+  const dated = schedule.filter((t) => isDate(t.start) && isDate(t.end));
+  const out = new Set();
+  if (dated.length < 4) return out;
+  const starts = dated.map((t) => dayNo(t.start)).sort((a, b) => a - b);
+  const ends = dated.map((t) => dayNo(t.end)).sort((a, b) => a - b);
+  for (const t of dated) {
+    if (dayNo(t.start) === starts[0] && starts[1] - starts[0] > 60) out.add(t.id);
+    if (dayNo(t.end) === ends[ends.length - 1] && ends[ends.length - 1] - ends[ends.length - 2] > 60) out.add(t.id);
+  }
+  return out;
+}
 function projectSummary(p, base = today()) {
-  const dated = p.schedule.filter((t) => isDate(t.start) && isDate(t.end));
+  const suspect = suspectTasks(p.schedule);
+  const dated = p.schedule.filter((t) => isDate(t.start) && isDate(t.end) && !suspect.has(t.id));
   const info = p.schedule.map((t) => ({ t, ...taskInfo(t, base) }));
   const start = dated.length ? dated.map((t) => t.start).sort()[0] : "";
   const end = dated.length ? dated.map((t) => t.end).sort().pop() : "";
