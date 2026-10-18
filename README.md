@@ -30,6 +30,10 @@
   - 미리보기에서 시트와 열 맞춤을 확인하고 바꿀 수 있습니다.
   - 소제목(전장, 본체부 등)으로 비어 있는 구분을 채우고, 같은 품목·모델·업체는 개수를 더해 한 줄로 합치고, 구분끼리 모읍니다.
   - 원본 파일은 함께 보관되고, 마지막 가져오기·정리는 **↩ 되돌리기**로 취소할 수 있습니다.
+- **회의록 엑셀 가져오기** (회의록 탭): 회의록 엑셀 파일을 고르거나 목록에 끌어다 놓으면 등록됩니다. 여러 파일을 한 번에 넣을 수 있습니다.
+  - 기존 회의록 양식뿐 아니라 `일시`·`장소`·`회의명`·`논의내용`·`조치사항` 같은 다른 양식이나 "일시 : 2026.10.06" 처럼 한 칸에 적은 것도 읽습니다.
+  - 원본 엑셀과 시트 안의 사진은 첨부로 보관되고, 같은 제목·날짜의 회의록은 건너뜁니다.
+  - 등록하면 Revision에 `회의록: 제목`이 자동 기록됩니다. (직접 작성할 때는 제목을 입력하면 기록)
 - **엑셀처럼 표 편집**: 칸을 눌러 바로 고치고, 엑셀에서 여러 행을 복사해 붙여넣을 수 있습니다.
 - **Revision 자동 기록**: 자료나 회의록을 추가하면 날짜와 작성자가 자동으로 남습니다.
 - **회의록 인쇄/PDF**: 기존 회의록 양식으로 인쇄됩니다.
@@ -50,8 +54,8 @@
 
 ```bash
 python3 app/build.py                                  # -> 프로젝트자료관리.html
-python3 app/tests/make_fixture.py /tmp/fixture.xlsx /tmp/bom.xlsx  # 테스트용 엑셀 (openpyxl, Pillow 필요)
-node app/tests/e2e.js /tmp/fixture.xlsx /tmp/bom.xlsx # 브라우저 종단 테스트 (playwright 필요)
+python3 app/tests/make_fixture.py /tmp/fixture.xlsx /tmp/bom.xlsx /tmp/meeting.xlsx  # 테스트용 엑셀 (openpyxl, Pillow 필요)
+node app/tests/e2e.js /tmp/fixture.xlsx /tmp/bom.xlsx /tmp/meeting.xlsx # 브라우저 종단 테스트 (playwright 필요)
 ```
 
 | 파일 | 역할 |

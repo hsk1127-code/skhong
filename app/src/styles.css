@@ -254,3 +254,4 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .plist { max-height: 30vh; }
 }
 .gv-lbl.inside { color: #fff; font-weight: 600; z-index: 1; text-shadow: 0 0 2px rgba(0,0,0,.4); }
+.mlist.over { outline: 2px dashed var(--accent); background: var(--accent-soft); }

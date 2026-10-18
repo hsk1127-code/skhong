@@ -871,22 +871,38 @@ function tabMeetings(p, el) {
   const cur = p.meetings.find((m) => m.id === route.meeting) || list[0];
   el.innerHTML = `<div class="split">
     <div class="card mlist"><button class="btn primary full" id="addMeeting">＋ 새 회의록</button>
+      <button class="btn full" id="importMeeting" title="회의록 엑셀 파일을 골라 등록합니다 (여러 개 가능, 끌어다 놓아도 됩니다)">📥 엑셀에서 가져오기</button>
       ${list.map((m) => `<button class="mitem ${m === cur ? "active" : ""}" data-m="${m.id}"><b>${esc(m.title || "(제목 없음)")}</b>
         <span class="muted small">${esc(fmtDot(m.date))}${m.actions.some((a) => !a.done && a.text) ? ` · <span class="warn">의제 ${m.actions.filter((a) => !a.done && a.text).length}</span>` : ""}</span></button>`).join("")
         || `<p class="muted small pad">회의록이 없습니다.</p>`}</div>
     <div class="card" id="mEditor">${cur ? meetingForm(cur) : `<p class="muted">왼쪽에서 회의록을 선택하거나 새로 작성하세요.</p>`}</div></div>`;
   $$("[data-m]", el).forEach((b) => (b.onclick = () => { route.meeting = b.dataset.m; tabMeetings(p, el); loadImages(el); }));
+  $("#importMeeting").onclick = () => pickFiles(".xlsx", true, (files) => importMeetings(p, files));
+  const ml = $(".mlist", el);
+  ml.addEventListener("dragover", (e) => { e.preventDefault(); ml.classList.add("over"); });
+  ml.addEventListener("dragleave", () => ml.classList.remove("over"));
+  ml.addEventListener("drop", (e) => {
+    e.preventDefault();
+    ml.classList.remove("over");
+    const files = Array.from(e.dataTransfer.files).filter((f) => /\.xlsx$/i.test(f.name));
+    if (files.length) importMeetings(p, files); else toast("회의록은 엑셀(.xlsx) 파일만 가져올 수 있습니다.");
+  });
   $("#addMeeting").onclick = () => {
     const m = { id: Store.uid(), title: "", dept: "", writer: Store.state.settings.user, date: today(), time: "", place: "", kind: "비정례",
       attendees: "", content: MEETING_TEMPLATE, actions: [{ id: Store.uid(), text: "", owner: "", due: "", done: false, note: "" }], notes: "", files: [] };
     p.meetings.push(m);
     route.meeting = m.id;
-    Store.touch(p, "회의록 작성");
+    Store.touch(p); // Revision 은 제목을 입력하면 기록
     tabMeetings(p, el);
     $("[data-mf=title]", el)?.focus();
   };
   if (!cur) return;
   const ed = $("#mEditor");
+  ed.addEventListener("change", (e) => {
+    if (e.target.dataset.mf !== "title" || !cur.title.trim() || cur.logged) return;
+    cur.logged = true;
+    Store.touch(p, `회의록: ${cur.title.trim()}`, `직접 작성 (${fmtDot(cur.date)})`);
+  });
   ed.addEventListener("input", (e) => {
     const t = e.target;
     if (t.dataset.mf) cur[t.dataset.mf] = t.value;
@@ -921,6 +937,47 @@ function tabMeetings(p, el) {
     loadImages(el);
   }, ed);
 }
+async function importMeetings(p, files) {
+  await busy("회의록을 가져오는 중…", async (progress) => {
+    let added = 0, dup = 0;
+    const skipped = [];
+    let lastId = null;
+    for (const file of files) {
+      progress(`읽는 중: ${file.name}`);
+      const wb = await Xlsx.read(file);
+      let sheets = wb.sheets.filter(isMeetingSheet);
+      // 회의록 표시가 없어도 시트가 하나뿐이면 회의록으로 본다
+      if (!sheets.length && wb.sheets.length === 1 && sheetLines(wb.sheets[0]).length) sheets = wb.sheets;
+      if (!sheets.length) { skipped.push(file.name); continue; }
+      const original = await Store.addFile(file, file.name);
+      const baseName = file.name.replace(/\.xlsx$/i, "");
+      for (const sheet of sheets) {
+        const extra = [];
+        for (const img of sheet.images) {
+          if (img.type.startsWith("image/") && !/emf|wmf/.test(img.ext)) extra.push(await Store.addFile(new Blob([img.data], { type: img.type }), `${baseName}_${extra.length + 1}.${img.ext}`));
+        }
+        for (const em of sheet.embeds) extra.push(await Store.addFile(new Blob([em.data], { type: em.type }), `${baseName}_첨부.${em.ext}`));
+        const m = parseMeeting(sheet, [original, ...extra]);
+        // 시트 이름이 Sheet1 처럼 의미 없으면 파일 이름을 제목으로
+        if (!m.title || /^(sheet|시트)\s*\d*$/i.test(m.title)) m.title = titleFromSheet(baseName);
+        if (!m.date) m.date = dateFromText(file.name) || today();
+        if (p.meetings.some((x) => norm(x.title) === norm(m.title) && x.date === m.date)) { dup++; continue; }
+        m.logged = true;
+        p.meetings.push(m);
+        lastId = m.id;
+        added++;
+        Store.touch(p, `회의록: ${m.title}`, `엑셀 가져오기 · ${file.name} (${fmtDot(m.date)})`);
+      }
+    }
+    await Store.gc();
+    if (lastId) route.meeting = lastId;
+    rerender();
+    const msg = [`회의록 ${added}건을 등록했습니다.`, dup && `같은 제목·날짜 ${dup}건은 건너뜀`,
+      skipped.length && `회의록을 찾지 못한 파일: ${skipped.join(", ")}`].filter(Boolean).join(" · ");
+    toast(msg, 5000);
+  });
+}
+
 function meetingForm(m) {
   const f = (k, label, attrs = "") => `<label>${label}<input data-mf="${k}" value="${esc(m[k])}" ${attrs}></label>`;
   return `<div class="between"><h3>회의록</h3><span class="row2"><button class="btn sm" data-print>🖨 인쇄 / PDF</button>
@@ -928,7 +985,7 @@ function meetingForm(m) {
     <div class="form">
       <label class="full">제목<input data-mf="title" value="${esc(m.title)}" placeholder="예: 고객사 Kick-off"></label>
       ${f("dept", "부서명")}${f("writer", "작성자")}${f("date", "회의일자", 'type="date"')}${f("time", "회의시간", 'placeholder="15:00 ~ 18:00"')}
-      ${f("place", "회의장소")}<label>구분<select data-mf="kind">${opts(["정례", "비정례"], m.kind)}</select></label>
+      ${f("place", "회의장소")}<label>구분<select data-mf="kind">${opts(["", "정례", "비정례"], m.kind)}</select></label>
       <label class="full">참석자<textarea data-mf="attendees" rows="2">${esc(m.attendees)}</textarea></label>
       <label class="full">회의 내용<textarea data-mf="content" rows="16" class="mono-ish">${esc(m.content)}</textarea></label>
     </div>

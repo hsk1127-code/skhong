@@ -1,6 +1,6 @@
 // 브라우저 종단 테스트: 엑셀 불러오기 → 편집 → 내보내기 → 백업/복원
-//   python3 app/build.py && python3 app/tests/make_fixture.py /tmp/fixture.xlsx /tmp/bom.xlsx
-//   node app/tests/e2e.js /tmp/fixture.xlsx /tmp/bom.xlsx      (playwright 필요)
+//   python3 app/build.py && python3 app/tests/make_fixture.py /tmp/fixture.xlsx /tmp/bom.xlsx /tmp/meeting.xlsx
+//   node app/tests/e2e.js /tmp/fixture.xlsx /tmp/bom.xlsx /tmp/meeting.xlsx      (playwright 필요)
 const { chromium } = require("playwright");
 const fs = require("fs");
 const os = require("os");
@@ -10,6 +10,7 @@ const assert = require("assert");
 (async () => {
   const fixture = path.resolve(process.argv[2]);
   const bomFixture = path.resolve(process.argv[3]);
+  const meetingFixture = path.resolve(process.argv[4]);
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "pd-e2e-"));
   const html = path.resolve(__dirname, "../../프로젝트자료관리.html");
   const ctx = await chromium.launchPersistentContext(path.join(work, "profile"), {
@@ -64,6 +65,23 @@ const assert = require("assert");
   assert.strictEqual(await p.inputValue("[data-mf=date]"), "2026-09-16");
   assert.strictEqual(await p.inputValue("[data-mf=kind]"), "비정례");
   assert.strictEqual(await p.inputValue(".actions-table [data-af=text]"), "견적 제출");
+
+  // 다른 양식의 회의록 엑셀 가져오기 → 등록 + Revision 자동 기록, 같은 회의록은 건너뜀
+  for (const expectAdded of [1, 0]) {
+    const [mc] = await Promise.all([p.waitForEvent("filechooser"), p.click("#importMeeting")]);
+    await mc.setFiles(meetingFixture);
+    await p.waitForFunction(() => /회의록 \d+건을 등록/.test(document.querySelector("#toast").textContent));
+    assert.match(await p.textContent("#toast"), new RegExp(`회의록 ${expectAdded}건을 등록`));
+    await p.evaluate(() => (document.querySelector("#toast").textContent = ""));
+  }
+  assert.strictEqual(await p.inputValue("[data-mf=title]"), "1차 DR 회의");
+  assert.strictEqual(await p.inputValue("[data-mf=date]"), "2026-10-06");
+  assert.strictEqual(await p.inputValue("[data-mf=place]"), "본사 3층");
+  assert.strictEqual(await p.inputValue(".actions-table [data-af=text]"), "수정 도면 송부");
+  assert.strictEqual(await p.inputValue(".actions-table [data-af=due]"), "2026-10-13");
+  await p.click(".tabs [data-tab=revisions]");
+  const revs = await p.$$eval("[data-grid=revisions] [data-f=content]", (els) => els.map((e) => e.value));
+  assert.strictEqual(revs.filter((v) => v === "회의록: 1차 DR 회의").length, 1);
 
   await p.click(".tabs [data-tab=records]");
   assert.strictEqual(await p.textContent(".rec .rec-title"), "전장품 문의");

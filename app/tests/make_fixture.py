@@ -1,6 +1,6 @@
 """실제 사용 중인 프로젝트 엑셀과 같은 구조의 테스트용 통합문서를 만든다.
 
-    python3 app/tests/make_fixture.py <출력 경로.xlsx> [업체 BOM 출력 경로.xlsx]
+    python3 app/tests/make_fixture.py <출력 경로.xlsx> [업체 BOM 출력 경로.xlsx] [회의록 출력 경로.xlsx]
 """
 
 import datetime as dt
@@ -101,7 +101,22 @@ def supplier_bom(out):
     wb.save(out)
 
 
+def meeting(out):
+    """다른 양식의 회의록: 시트 이름 Sheet1, "일시 : …" 한 칸 표기, 조치사항 표, 사진"""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Sheet1"
+    for row in [["회의록"], ["회의명", "1차 DR 회의"], ["일시 : 2026.10.06 14:00~16:00"], ["장소", "본사 3층", "작성", "홍길동"],
+                ["참석자", "고객사 김담당, 홍길동"], [], ["회의 내용", "도면 검토 결과 공유"], [None, "- 수정 사항 3건"], [],
+                ["조치사항"], ["No", "내용", "담당", "기한"], [1, "수정 도면 송부", "홍길동", "2026.10.13"]]:
+        ws.append(row)
+    ws.add_image(png("whiteboard"), "F2")
+    wb.save(out)
+
+
 if __name__ == "__main__":
     main(sys.argv[1])
     if len(sys.argv) > 2:
         supplier_bom(sys.argv[2])
+    if len(sys.argv) > 3:
+        meeting(sys.argv[3])

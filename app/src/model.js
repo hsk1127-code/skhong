@@ -202,39 +202,76 @@ function parseSchedule(sheet) {
   return out;
 }
 
+// 회의록 양식마다 다른 항목 이름 (공백 무시)
+const MEETING_LABELS = {
+  dept: ["부서명", "부서", "주관부서"], writer: ["작성자", "작성", "기록자", "작성인"],
+  date: ["회의일자", "일자", "일시", "회의일시", "날짜", "회의일"], place: ["회의장소", "장소"], time: ["회의시간", "시간"],
+  kind: ["구분"], title: ["제목", "회의명", "회의제목", "안건", "주제"], attendees: ["참석자", "참석인원", "참석"],
+};
+const MEETING_SECTIONS = {
+  content: ["회의내용", "논의내용", "주요내용", "내용", "협의내용", "논의사항", "회의결과"],
+  actions: ["실천의제", "조치사항", "후속조치", "향후일정", "actionitem", "actionitems", "todo", "결정사항"],
+  notes: ["특이사항", "기타사항"],
+};
+const labelKey = (v) => Object.keys(MEETING_LABELS).find((k) => MEETING_LABELS[k].includes(norm(v)));
+const sectionKey = (v) => Object.keys(MEETING_SECTIONS).find((k) => MEETING_SECTIONS[k].includes(norm(v)));
+
+// 회의록 시트인지: 시트 이름이나 제목에 "회의록"이 있거나,
+// 일자·장소·참석자·회의 내용 중 3가지 이상이 있고 그중 장소나 참석자가 있을 때 (날짜·내용 열만 있는 일반 표는 제외)
+function isMeetingSheet(sheet) {
+  const cells = sheetLines(sheet).slice(0, 20).flat();
+  if (norm(sheet.name).includes("회의록") || cells.some((v) => norm(v) === "회의록")) return true;
+  const hits = new Set(cells.map((v) => labelKey(String(v).split(/[:：]/)[0]) || (sectionKey(v) && "s:" + sectionKey(v))).filter(Boolean));
+  return ["date", "place", "attendees", "s:content"].filter((k) => hits.has(k)).length >= 3 && (hits.has("place") || hits.has("attendees"));
+}
+
 function parseMeeting(sheet, fileIds) {
   const lines = sheetLines(sheet);
   const m = { id: Store.uid(), title: titleFromSheet(sheet.name), dept: "", writer: "", date: dateFromText(sheet.name), time: "",
     place: "", kind: "", attendees: "", content: "", actions: [], notes: "", files: fileIds };
-  const LABELS = { 부서명: "dept", 작성자: "writer", 회의일자: "date", 회의장소: "place", 회의시간: "time", 구분: "kind", 제목: "title", 참석자: "attendees" };
+  const set = (key, v) => {
+    v = String(v || "").trim();
+    if (key === "date") {
+      m.date = dateFromText(v) || (isDate(v) ? v : "") || m.date;
+      const t = /\d{1,2}:\d{2}\s*[~\-]\s*\d{1,2}:\d{2}/.exec(v);
+      if (t && !m.time) m.time = t[0];
+    } else if (key === "kind") m.kind = (/■\s*(비?정례)/.exec(v) || [])[1] || v.replace(/[□■]/g, "").trim();
+    else if (v) m[key] = v;
+  };
   let section = "head", lastLabel = "";
   const content = [], notes = [];
   for (const vals of lines) {
     const n0 = norm(vals[0]);
     if (n0 === "회의록") continue;
-    if (n0 === "회의내용") { section = "content"; continue; }
-    if (n0 === "실천의제") { section = "actions"; continue; }
-    if (n0 === "특이사항") { section = "notes"; if (vals.length > 1) notes.push(vals.slice(1).join(" ")); continue; }
+    const sec = sectionKey(vals[0]);
+    if (sec) {
+      section = sec;
+      const rest = vals.slice(1);
+      // 같은 줄 오른쪽에 내용이 있는 양식 (예: "회의 내용 | 1. 개요 …")
+      if (rest.length && !(sec === "actions" && rest.some((v) => ["지시내용", "담당자", "담당"].includes(norm(v))))) {
+        if (sec === "content") content.push(rest.join("  "));
+        else if (sec === "notes") notes.push(rest.join(" "));
+        else m.actions.push({ id: Store.uid(), text: rest[0], owner: rest[1] || "", due: dateFromText(rest[2]) || rest[2] || "", done: false, note: rest[3] || "" });
+      }
+      continue;
+    }
     if (section === "head") {
       let matched = false;
       for (let i = 0; i < vals.length; i++) {
-        const key = LABELS[norm(vals[i])];
-        if (key) {
-          matched = true;
-          lastLabel = key;
-          const v = vals[i + 1] && !LABELS[norm(vals[i + 1])] ? vals[i + 1] : "";
-          if (key === "date") m.date = dateFromText(v) || m.date;
-          else if (key === "kind") m.kind = (/■\s*(비?정례)/.exec(v) || [])[1] || v.replace(/[□■]/g, "").trim();
-          else m[key] = v;
-        }
+        let key = labelKey(vals[i]), v = vals[i + 1] && !labelKey(vals[i + 1]) ? vals[i + 1] : "";
+        // "일시 : 2026.09.16" 처럼 한 칸에 항목과 값이 같이 있는 경우
+        const kv = /^([^:：]{1,8})\s*[:：]\s*(.*)$/.exec(vals[i]);
+        if (!key && kv && labelKey(kv[1])) { key = labelKey(kv[1]); v = kv[2]; }
+        if (key) { matched = true; lastLabel = key; set(key, v); }
       }
       if (!matched && lastLabel === "attendees") m.attendees += "\n" + vals.join(" ");
     } else if (section === "content") {
-      if (norm(vals[0]) === "no" && vals.some((v) => norm(v) === "주요내용")) continue;
+      if (n0 === "no" && vals.some((v) => norm(v) === "주요내용")) continue;
       content.push(/^\d+$/.test(vals[0]) && vals.length > 1 ? `${vals[0]}. ${vals.slice(1).join("  ")}` : vals.join("  "));
     } else if (section === "actions") {
-      if (vals.some((v) => norm(v) === "지시내용")) continue;
-      m.actions.push({ id: Store.uid(), text: vals[0] || "", owner: vals[1] || "", due: dateFromText(vals[2]) || vals[2] || "", done: false, note: vals[3] || "" });
+      if (vals.some((v) => ["지시내용", "조치내용", "내용"].includes(norm(v)))) continue;
+      const v = /^\d+$/.test(vals[0]) && vals.length > 1 ? vals.slice(1) : vals;
+      m.actions.push({ id: Store.uid(), text: v[0] || "", owner: v[1] || "", due: dateFromText(v[2]) || v[2] || "", done: false, note: v[3] || "" });
     } else notes.push(vals.join(" "));
   }
   m.content = content.join("\n");
