@@ -393,7 +393,7 @@ async function buildWorkbook(p) {
   ovRows.push([{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
     [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
-    { v: [x.status, x.paidDate || x.due].filter(Boolean).join(" "), s: "cell" }]);
+    { v: [x.status, x.paidDate].filter(Boolean).join(" "), s: "cell" }]);
   sheets.push({ name: "개요", cols: [16, 60, 24], rows: ovRows, merges: ["A1:C1"] });
 
   sheets.push(table("sw"));
@@ -800,10 +800,10 @@ async function buildClosingWorkbook(projects) {
   // 한 프로젝트만 내려받을 때는 근거 자료 시트도 함께
   if (projects.length === 1) {
     const p = projects[0], c = contractInfo(p);
-    if (c.payments.length) sheets.push({ name: "정산 내역", cols: [3, 12, 9, 16, 18, 12, 12, 10], rows: [
+    if (c.payments.length) sheets.push({ name: "정산 내역", cols: [3, 12, 9, 16, 22, 12, 10], rows: [
       [null, { v: "정산 내역", s: "title" }], [],
-      [null, ...["구분", "비율", "금액", "지급 조건", "예정일", "정산일", "상태"].map(H)],
-      ...c.payments.map((x) => [null, txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" }, money(x.amount), txt(x.cond), date(x.due), date(x.paidDate), txt(x.status)]),
+      [null, ...["구분", "비율", "금액", "지급 조건", "정산일", "상태"].map(H)],
+      ...c.payments.map((x) => [null, txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" }, money(x.amount), txt(x.cond), date(x.paidDate), txt(x.status)]),
       [null, H("합계"), { v: c.ratioSum / 100, s: "pct" }, { v: c.payments.reduce((a, x) => a + x.amount, 0), s: "moneyb" }]] });
     if (p.schedule.length) sheets.push({ name: "일정 실적", cols: [3, 14, 28, 12, 12, 12, 8, 30], rows: [
       [null, { v: "일정 실적", s: "title" }], [],

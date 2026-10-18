@@ -531,13 +531,12 @@ function contractEditHtml(p) {
         const on = c.payments.length && presetLabel(x.stages) === presetLabel(c.payments.map((y) => [y.name, Number(y.ratio)]));
         return `<span class="preset-chip ${on ? "on" : ""} ${x.builtin ? "" : "mine"}"><button type="button" data-preset="${i}" title="${esc(presetLabel(x.stages))}">${esc(x.label)}</button>${x.builtin ? "" : `<button type="button" class="pdx" data-presetdel="${i}" title="저장한 비율 삭제">✕</button>`}</span>`;
       }).join("")}</div>
-    <div class="table-scroll"><table class="grid-table pay-table"><thead><tr><th>구분</th><th>비율(%)</th><th>금액</th><th>지급 조건</th><th>예정일</th><th>정산일</th><th>상태</th><th></th></tr></thead>
+    <div class="table-scroll"><table class="grid-table pay-table"><thead><tr><th>구분</th><th>비율(%)</th><th>금액</th><th>지급 조건</th><th>정산일</th><th>상태</th><th></th></tr></thead>
     <tbody>${c.payments.map((x) => `<tr data-id="${x.id}">
       <td><input data-pf="name" value="${esc(x.name)}" style="width:70px"></td>
       <td><input data-pf="ratio" inputmode="decimal" value="${esc(x.ratio)}" style="width:52px"></td>
       <td class="num" data-amt>${x.amount ? x.amount.toLocaleString("ko-KR") : "-"}</td>
       <td><input data-pf="cond" value="${esc(x.cond)}" style="width:96px"></td>
-      <td><input type="date" data-pf="due" value="${esc(x.due)}" style="width:140px"></td>
       <td><input type="date" data-pf="paidDate" value="${esc(x.paidDate)}" style="width:140px"></td>
       <td><select data-pf="status">${opts(PAYMENT_STATUSES, x.status || "미청구")}</select></td>
       <td class="nowrap"><button type="button" class="icon" data-pmove="-1" title="위로">↑</button><button type="button" class="icon" data-pmove="1" title="아래로">↓</button><button type="button" class="icon" data-pdel title="삭제">✕</button></td></tr>`).join("") || `<tr><td colspan="8" class="muted center pad">위의 비율 버튼을 누르거나 ＋ 단계 추가로 입력하세요.</td></tr>`}</tbody>
@@ -589,7 +588,7 @@ function bindContractEdit(p, card) {
   });
   card.addEventListener("click", (e) => {
     const t = e.target;
-    // 비율을 새로 정할 때 단계 수가 같으면 예정일·정산일·상태는 그대로 둔다
+    // 비율을 새로 정할 때 단계 수가 같으면 정산일·상태는 그대로 둔다
     const applyStages = (stages, label) => {
       const old = o.payments;
       if (old.some((x) => x.status === "수금완료") && old.length !== stages.length
@@ -759,7 +758,7 @@ function tabOverviewView(p, el) {
       ${c.payments.length ? `<div class="paybar">${c.payments.map((x) => `<span class="${payColor[x.status] || "pay-todo"}" style="flex:${Number(x.ratio) || 0}" title="${esc(x.name)} ${esc(x.ratio)}% · ${x.status}"></span>`).join("")}</div>
       <div class="paylist">${c.payments.map((x) => `<div class="payitem"><span class="dot2 ${payColor[x.status] || "pay-todo"}"></span>
         <div><b>${esc(x.name)} ${esc(x.ratio)}%</b><span>${fmtWon(x.amount)}</span>
-        <span class="muted small">${esc(x.cond || "")}${x.status === "수금완료" && x.paidDate ? ` · ${esc(fmtDot(x.paidDate))} 수금` : x.due ? ` · ${esc(fmtDot(x.due))} 예정` : ""}</span></div>
+        <span class="muted small">${esc(x.cond || "")}${x.status === "수금완료" && x.paidDate ? ` · ${esc(fmtDot(x.paidDate))} 수금` : ""}</span></div>
         ${badge(x.status === "수금완료" ? "완료" : x.status === "청구" ? "진행" : "예정")}</div>`).join("")}</div>
       ${c.ratioSum !== 100 ? `<p class="bad small">⚠ 정산 비율 합계가 ${c.ratioSum}% 입니다.</p>` : ""}` : `<p class="muted small">정산 비율이 없습니다.</p>`}
       <div class="contract-foot"><button class="btn sm" data-paydlg>⚙ 정산 비율 설정</button></div>
@@ -1575,8 +1574,8 @@ function reportHtml(p, inc) {
       ["실행목표가", c.targetCost ? fmtWon(c.targetCost) : v(""), "목표 이익률", c.targetRate != null ? pct(c.targetRate) : v("")],
       ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
     ${payBar}
-    ${c.payments.length ? table([14, 9, 19, 22, 13, 13, 10], ["구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, "지급 조건", { t: "예정일", c: "c" }, { t: "정산일", c: "c" }, { t: "상태", c: "c" }],
-      c.payments.map((x) => [esc(x.name), `${esc(x.ratio)}%`, fmtWon(x.amount), v(x.cond), d(x.due), d(x.paidDate),
+    ${c.payments.length ? table([15, 10, 21, 26, 15, 13], ["구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, "지급 조건", { t: "정산일", c: "c" }, { t: "상태", c: "c" }],
+      c.payments.map((x) => [esc(x.name), `${esc(x.ratio)}%`, fmtWon(x.amount), v(x.cond), d(x.paidDate),
         `<span class="rp-pill ${x.status === "수금완료" ? "ok" : x.status === "청구" ? "info" : ""}">${esc(x.status)}</span>`])) : ""}
 
     ${sec("일정 실적", `${sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)} · ${planDays}일 · ` : ""}완료 ${doneCount}/${p.schedule.length}건 · ${diffText}`)}
