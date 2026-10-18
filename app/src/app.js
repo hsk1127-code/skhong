@@ -771,9 +771,11 @@ function tabOverviewView(p, el) {
         <div class="ov-eyebrow">${o.customer ? `🏢 ${esc(o.customer)}` : "고객사 미입력"}</div>
         <h2>${esc(o.project || o.name)}</h2>
         ${o.project ? `<div class="ov-sub">설비/품목명 · ${esc(o.name)}</div>` : ""}
-        <div class="ov-pills">${badge(o.status)}
+        <div class="ov-pills"><span class="pill status-pill" title="프로젝트 상태 (계획/진행/보류/완료) · ✏️ 정보 수정에서 바꿉니다">상태 ${badge(o.status)}</span>
           ${o.manager ? `<span class="pill">👤 ${esc(o.manager)}</span>` : ""}
-          ${s.end ? `<span class="pill">🏁 종료 ${esc(fmtDot(s.end))} · <b>${dday(s.end)}</b></span>` : ""}
+          ${o.status === "완료"
+            ? `<span class="pill">🏁 ${isDate(p.report?.completedDate) ? `${esc(fmtDot(p.report.completedDate))} 완료` : "완료"}</span>`
+            : s.end ? `<span class="pill">🏁 종료 예정 ${esc(fmtDot(s.end))} · <b>${dday(s.end)}</b></span>` : ""}
           ${s.delayed.length ? `<span class="pill bad">⚠ 지연 ${s.delayed.length}건</span>` : ""}</div>
       </div>
       ${ring}
@@ -1389,7 +1391,7 @@ function reportDialog(p) {
   const auto = (k) => (ci.auto[k] ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.auto[k]))})</span>` : "");
   openDialog(`<h3>📄 프로젝트 완료 보고서</h3>
     ${o.status !== "완료" ? `<div class="notice">이 프로젝트는 아직 <b>${esc(o.status)}</b> 상태입니다.
-      <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone" checked> 보고서를 받으면서 상태를 '완료'로 바꾸기</label></div>` : ""}
+      <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone"> 보고서를 받으면서 프로젝트 상태를 '완료'로 바꾸기 <span class="muted small">(최종 완료일 때만 체크)</span></label></div>` : ""}
     <h4>마감 보고서 항목 <span class="muted small">비워 두면 프로그램에 있는 값으로 채웁니다 · 일자는 개요의 주요 일자와 같습니다</span></h4>
     <div class="form three">
       <label>Kick off일자${auto("kickoffDate")}<input type="date" name="kickoffDate" value="${esc(o.kickoffDate || "")}"></label>

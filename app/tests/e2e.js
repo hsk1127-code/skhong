@@ -53,6 +53,8 @@ const assert = require("assert");
   await p.fill("dialog [name=setupDate]", "2026-12-20");
   assert.strictEqual(await p.inputValue("dialog [name=actualCost]"), "90,000,000");
   assert.match(await p.textContent("#profitView"), /30,000,000원.*25\.0%/);
+  assert.strictEqual(await p.isChecked("dialog [name=markDone]"), false); // 실수로 완료 처리되지 않도록 기본은 해제
+  await p.check("dialog [name=markDone]");
   const [cx] = await Promise.all([p.waitForEvent("download"), p.click("dialog button.primary")]);
   const closingPath = path.join(work, "closing.xlsx");
   await cx.saveAs(closingPath);
