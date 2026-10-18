@@ -400,6 +400,10 @@ function renderProject(p) {
   Object.assign(p.overview, { orderDate: p.overview.orderDate ?? "", orderAmount: p.overview.orderAmount ?? "",
     vat: p.overview.vat || "별도", payments: p.overview.payments || [] });
   p.report ||= { summary: "", issues: "", warrantyNote: "", completedDate: "" };
+  for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
+    if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
+    delete p.report[k];
+  }
   const tab = TABS.some(([k]) => k === route.tab) ? route.tab : "overview";
   const s = projectSummary(p);
   const counts = { records: p.records.length, meetings: p.meetings.length, schedule: s.delayed.length ? `⚠${s.delayed.length}` : "",
@@ -444,12 +448,25 @@ function tabOverviewEdit(p, el) {
   el.innerHTML = `<div class="grid2 wide-left">
     <div class="card"><h3>프로젝트 개요</h3><div class="form ov" id="ovForm">
       <label class="full">설비/품목명<input data-k="name" value="${esc(o.name)}"></label>
-      ${OVERVIEW_FIELDS.map(([k, label]) => k === "scope"
+      ${OVERVIEW_FIELDS.filter(([k]) => k !== "warranty").map(([k, label]) => k === "scope"
         ? `<label class="full">${label}<textarea data-k="${k}" rows="3">${esc(o[k])}</textarea></label>`
         : `<label>${label}<input data-k="${k}" ${k === "receiveDate" ? 'type="date"' : ""} value="${esc(o[k])}"></label>`).join("")}
       <label>상태<select data-k="status">${opts(PROJECT_STATUSES, o.status)}</select></label>
       <label>담당자<input data-k="manager" value="${esc(o.manager)}"></label>
     </div>
+    <h3 style="margin-top:20px">주요 일자 · Warranty <span class="muted small" style="font-weight:400">비워 두면 다른 자료에서 자동으로 채웁니다</span></h3>
+    <div class="form three" id="kdForm">${(() => {
+      const kd = keyDates(p);
+      const hint = (x) => (x.autoValue ? `자동: ${fmtDot(x.autoValue)}` : "");
+      return `${KEY_DATES.slice(0, 3).map(([k, label]) => `<label>${label}<input type="date" data-k="${k}" value="${esc(o[k] || "")}" title="${esc(hint(kd[k]))}">
+          <span class="muted small">${kd[k].auto ? `자동: ${esc(fmtDot(kd[k].autoValue))}` : k === "setupDate" ? "직접 입력" : ""}</span></label>`).join("")}
+        <label>Warranty 시작일<input type="date" data-k="warrantyStart" value="${esc(o.warrantyStart || "")}">
+          <span class="muted small">${kd.warranty.startAuto ? `자동: ${esc(fmtDot(kd.warranty.start))} (Setup 완료일 기준)` : "비우면 Setup 완료일"}</span></label>
+        <label>Warranty 기간 (년)<input data-k="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || "")}" placeholder="${kd.warranty.years ? `${kd.warranty.years} (하자보증기간에서)` : "예: 2"}">
+          <span class="muted small" id="wtyText">${esc(kd.warranty.text.replace(/(\d{4})-(\d{2})-(\d{2})/g, "$1.$2.$3"))}</span></label>
+        <label>${KEY_DATES[3][1]}<input type="date" data-k="paidDate" value="${esc(o.paidDate || "")}">
+          <span class="muted small">${kd.paidDate.auto ? `자동: ${esc(fmtDot(kd.paidDate.autoValue))} (정산 완료)` : "정산이 모두 끝나면 자동"}</span></label>`;
+    })()}</div>
     <h3 style="margin-top:18px">추가 항목</h3>
     <div id="extra">${o.extra.map((x, i) => `<div class="extra-row"><input data-ex="${i}" data-f="label" value="${esc(x.label)}" placeholder="항목명">
       <input data-ex="${i}" data-f="value" value="${esc(x.value)}" placeholder="내용"><button class="icon" data-exdel="${i}">✕</button></div>`).join("")}</div>
@@ -467,6 +484,11 @@ function tabOverviewEdit(p, el) {
       renderSidebar();
       $(".page-head h1").innerHTML = `${esc(o.name)} ${badge(o.status)}`;
     }
+  }));
+  $$("#kdForm [data-k]", el).forEach((inp) => (inp.onchange = () => {
+    o[inp.dataset.k] = inp.value.trim();
+    Store.touch(p);
+    rerender(); // 자동 값·Warranty 기간 다시 계산
   }));
   $$("[data-ex]", el).forEach((inp) => (inp.oninput = () => { o.extra[inp.dataset.ex][inp.dataset.f] = inp.value; Store.touch(p); }));
   $$("[data-exdel]", el).forEach((b) => (b.onclick = () => { o.extra.splice(b.dataset.exdel, 1); Store.touch(p); rerender(); }));
@@ -490,7 +512,7 @@ function contractEditHtml(p) {
       <label class="full">발주금액 (원)<input data-ck="orderAmount" inputmode="numeric" value="${c.amount ? c.amount.toLocaleString("ko-KR") : ""}" placeholder="예: 120,000,000">
         <span class="muted small" id="amountWords">${c.amount ? `금 ${koreanAmount(c.amount)}원정` : ""}</span></label>
     </div>
-    <div class="between" style="margin-top:14px"><h4 style="margin:0">정산 비율</h4>
+    <div class="between wrap" style="margin-top:14px"><h4 style="margin:0;white-space:nowrap">정산 비율</h4>
       <span class="row2 small">${Object.keys(PAYMENT_PRESETS).map((k) => `<button class="btn sm" data-preset="${k}">${k}</button>`).join("")}</span></div>
     <table class="grid-table pay-table"><thead><tr><th>구분</th><th>비율(%)</th><th>금액</th><th>지급 조건</th><th>예정일</th><th>정산일</th><th>상태</th><th></th></tr></thead>
     <tbody>${c.payments.map((x) => `<tr data-id="${x.id}">
@@ -616,6 +638,19 @@ function tabOverviewView(p, el) {
     .sort((x, y) => (x.i.status === "진행" ? x.t.end : x.t.start).localeCompare(y.i.status === "진행" ? y.t.end : y.t.start)).slice(0, 5);
   const revs = [...p.revisions].reverse().slice(0, 6);
   const c = contractInfo(p);
+  const kd = keyDates(p);
+  const kdCard = (() => {
+    const steps = [["🚀", "Kick Off", kd.kickoffDate], ["🚚", "납품", kd.deliveryDate], ["🔧", "Setup 완료", kd.setupDate],
+      ["🛡", "Warranty", { value: kd.warranty.start, auto: kd.warranty.startAuto, end: kd.warranty.end }], ["💰", "지급 완료", kd.paidDate]];
+    const nowIdx = steps.map((x) => x[2].value).filter((v) => isDate(v) && v <= base).length;
+    return `<div class="card kd-card"><div class="between"><h3>주요 일자</h3>
+        ${kd.warranty.state ? `<span class="pill ${kd.warranty.state === "만료" ? "bad" : ""}">🛡 Warranty ${kd.warranty.state}${kd.warranty.remain != null && kd.warranty.state === "보증 중" ? ` · ${kd.warranty.remain}일 남음` : ""}</span>` : ""}</div>
+      <div class="kd-steps">${steps.map(([ico, label, x], i) => `<div class="kd-step ${isDate(x.value) ? (x.value <= base ? "done" : "next") : "empty"}">
+        <span class="kd-ico">${ico}</span><span class="kd-label">${label}</span>
+        <b>${isDate(x.value) ? esc(fmtDot(x.value)) : "미정"}</b>
+        <span class="kd-sub">${x.end ? `~ ${esc(fmtDot(x.end))} (${kd.warranty.years}년)` : isDate(x.value) && x.value > base ? dday(x.value) : x.auto ? "자동" : ""}</span></div>`).join("")}</div>
+    </div>`;
+  })();
   const payColor = { 수금완료: "pay-done", 청구: "pay-billed", 미청구: "pay-todo" };
   const contractCard = c.amount || o.orderDate || c.payments.length ? `<div class="card ov-contract">
       <div class="contract-head">
@@ -650,12 +685,13 @@ function tabOverviewView(p, el) {
       <div class="card"><h3>기본 정보</h3><div class="facts">
         ${fact("🔖", "Project No", o.projectNo)}${fact("🧩", "Part No", o.partNo)}
         ${fact("📦", "입고일자", isDate(o.receiveDate) ? fmtDot(o.receiveDate) : o.receiveDate)}${fact("📍", "입고 장소", o.receivePlace)}
-        ${fact("🛡", "하자보증기간", o.warranty)}${fact("👤", "담당자", o.manager)}
+        ${fact("👤", "담당자", o.manager)}${fact("🛡", "Warranty", kd.warranty.end ? `${fmtDot(kd.warranty.start)} ~ ${fmtDot(kd.warranty.end)}` : kd.warranty.text)}
         ${o.extra.filter((x) => x.label).map((x) => fact("•", esc(x.label), x.value)).join("")}
       </div></div>
       <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
     </div>
 
+    ${kdCard}
     ${contractCard}
     ${strip}
 
@@ -1250,14 +1286,14 @@ function reportDialog(p) {
   openDialog(`<h3>📄 프로젝트 완료 보고서</h3>
     ${o.status !== "완료" ? `<div class="notice">이 프로젝트는 아직 <b>${esc(o.status)}</b> 상태입니다.
       <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone" checked> 보고서를 받으면서 상태를 '완료'로 바꾸기</label></div>` : ""}
-    <h4>마감 보고서 항목 <span class="muted small">비워 두면 프로그램에 있는 값으로 채웁니다</span></h4>
+    <h4>마감 보고서 항목 <span class="muted small">비워 두면 프로그램에 있는 값으로 채웁니다 · 일자는 개요의 주요 일자와 같습니다</span></h4>
     <div class="form three">
-      <label>Kick off일자${auto("kickoffDate")}<input type="date" name="kickoffDate" value="${esc(r.kickoffDate || "")}"></label>
-      <label>납품일자${auto("deliveryDate")}<input type="date" name="deliveryDate" value="${esc(r.deliveryDate || "")}"></label>
-      <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(r.setupDate || "")}"></label>
-      <label>Warranty 시작<span class="muted small">(비우면 SET UP 완료일)</span><input type="date" name="warrantyStart" value="${esc(r.warrantyStart || "")}"></label>
-      <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(r.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2"></label>
-      <label>입금완료일${ci.paidDate && !r.paidDate ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.paidDate))})</span>` : ""}<input type="date" name="paidDate" value="${esc(r.paidDate || "")}"></label>
+      <label>Kick off일자${auto("kickoffDate")}<input type="date" name="kickoffDate" value="${esc(o.kickoffDate || "")}"></label>
+      <label>납품일자${auto("deliveryDate")}<input type="date" name="deliveryDate" value="${esc(o.deliveryDate || "")}"></label>
+      <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(o.setupDate || "")}"></label>
+      <label>Warranty 시작<span class="muted small">(비우면 SET UP 완료일)</span><input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}"></label>
+      <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2"></label>
+      <label>입금완료일${ci.paidDate && !o.paidDate ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.paidDate))})</span>` : ""}<input type="date" name="paidDate" value="${esc(o.paidDate || "")}"></label>
       <label>발주가<input value="${ci.orderAmount ? ci.orderAmount.toLocaleString("ko-KR") : "개요에서 입력"}" disabled></label>
       ${money("targetCost", "실행목표가")}
       ${money("actualCost", "실행완료가 (인건비 제외)")}
@@ -1316,8 +1352,10 @@ function reportDialog(p) {
 
   function save(form) {
     const f = (k) => form.elements[k].value.trim();
-    Object.assign(r, { kickoffDate: f("kickoffDate"), deliveryDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
-      warrantyYears: f("warrantyYears"), paidDate: f("paidDate"), targetCost: String(toAmount(f("targetCost")) || ""),
+    // 주요 일자는 개요에 저장 (개요와 보고서가 같은 값을 씀)
+    Object.assign(o, { kickoffDate: f("kickoffDate"), deliveryDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
+      warrantyYears: f("warrantyYears"), paidDate: f("paidDate") });
+    Object.assign(r, { targetCost: String(toAmount(f("targetCost")) || ""),
       actualCost: String(toAmount(f("actualCost")) || ""), salesActual: String(toAmount(f("salesActual")) || ""),
       issues: form.elements.issues.value, unfinished: f("unfinished"), completedDate: f("completedDate"),
       summary: form.elements.summary.value, warrantyNote: form.elements.warrantyNote.value });

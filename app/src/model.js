@@ -384,6 +384,9 @@ async function buildWorkbook(p) {
   for (const x of ov.extra) ovRows.push([{ v: x.label, s: "head" }, { v: x.value, s: "cell" }, { v: "", s: "cell" }]);
   ovRows.push([{ v: "상태", s: "head" }, { v: ov.status, s: "cell" }, { v: "", s: "cell" }],
     [{ v: "담당자", s: "head" }, { v: ov.manager, s: "cell" }, { v: "", s: "cell" }]);
+  const kdx = keyDates(p);
+  for (const [k, label] of KEY_DATES) ovRows.push([{ v: label, s: "head" }, { v: kdx[k].value, s: kdx[k].value ? "date" : "cell" }, { v: kdx[k].auto ? "자동" : "", s: "cell" }]);
+  ovRows.push([{ v: "Warranty 기간", s: "head" }, { v: kdx.warranty.text, s: "cell" }, { v: kdx.warranty.state, s: "cell" }]);
   const ci = contractInfo(p);
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
@@ -646,24 +649,39 @@ const addYears = (s, years) => {
   return d.toISOString().slice(0, 10);
 };
 // 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
-function closingInfo(p) {
-  const o = p.overview, r = p.report || {}, c = contractInfo(p), sm = projectSummary(p);
+// 주요 일자: 개요에 직접 입력한 값이 있으면 그것을, 없으면 다른 자료에서 자동으로
+const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["deliveryDate", "납품일자"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
+function keyDates(p) {
+  const o = p.overview, c = contractInfo(p), sm = projectSummary(p);
   const kickoffMeeting = [...p.meetings].filter((m) => /kick|킥오프/i.test(m.title) && isDate(m.date)).sort((a, b) => a.date.localeCompare(b.date))[0];
   const deliveryTask = p.schedule.filter((t) => /납품/.test(`${t.phase} ${t.name}`) && isDate(t.end)).map((t) => t.end).sort().pop();
+  const paidDates = c.payments.map((x) => x.paidDate).filter(isDate).sort();
+  const allPaid = c.payments.length && c.payments.every((x) => x.status === "수금완료");
   const auto = {
     kickoffDate: kickoffMeeting?.date || o.orderDate || sm.start || "",
     deliveryDate: (isDate(o.receiveDate) ? o.receiveDate : "") || deliveryTask || "",
     setupDate: "",
-    warrantyYears: (/(\d+)\s*년/.exec(o.warranty) || [])[1] || ((/(\d+)\s*개월/.exec(o.warranty) || [])[1] ? String(+(/(\d+)\s*개월/.exec(o.warranty)[1]) / 12) : ""),
+    paidDate: allPaid ? paidDates[paidDates.length - 1] : "",
   };
-  const get = (k) => (r[k] != null && r[k] !== "" ? r[k] : auto[k] ?? "");
-  const setupDate = get("setupDate");
-  const warrantyStart = r.warrantyStart || setupDate || get("deliveryDate");
-  const years = Number(get("warrantyYears")) || 0;
-  const warrantyText = isDate(warrantyStart) && years
-    ? `${warrantyStart} ~ ${addYears(warrantyStart, years)} (${years}년)` : warrantyStart ? `${warrantyStart}${o.warranty ? ` (${o.warranty})` : ""}` : o.warranty || "";
-  const allPaid = c.payments.length && c.payments.every((x) => x.status === "수금완료");
-  const paidDates = c.payments.map((x) => x.paidDate).filter(isDate).sort();
+  const out = {};
+  for (const [k] of KEY_DATES) out[k] = { value: isDate(o[k]) ? o[k] : auto[k] || "", auto: !isDate(o[k]) && !!auto[k], autoValue: auto[k] || "" };
+  // Warranty: 시작일(비우면 Setup 완료일 → 납품일자) + 기간(년). 예전 '하자보증기간' 글자에서 기간을 읽어 온다
+  const parsed = (/(\d+(?:\.\d+)?)\s*년/.exec(o.warranty) || [])[1] || ((/(\d+)\s*개월/.exec(o.warranty) || [])[1] ? String(+(/(\d+)\s*개월/.exec(o.warranty)[1]) / 12) : "");
+  const years = Number(o.warrantyYears || parsed) || 0;
+  const start = isDate(o.warrantyStart) ? o.warrantyStart : out.setupDate.value || out.deliveryDate.value || "";
+  const end = isDate(start) && years ? addYears(start, years) : "";
+  out.warranty = { start, startAuto: !isDate(o.warrantyStart) && !!start, years, end,
+    text: end ? `${start} ~ ${end} (${years}년)` : start ? `${start} 시작${o.warranty ? ` (${o.warranty})` : ""}` : o.warranty || "",
+    state: !end ? "" : today() < start ? "시작 전" : today() > end ? "만료" : "보증 중",
+    remain: end && today() <= end ? dayNo(end) - dayNo(today()) : null };
+  return out;
+}
+
+function closingInfo(p) {
+  const o = p.overview, r = p.report || {}, c = contractInfo(p), sm = projectSummary(p);
+  const kd = keyDates(p);
+  const auto = { kickoffDate: kd.kickoffDate.autoValue, deliveryDate: kd.deliveryDate.autoValue, warrantyYears: kd.warranty.years ? String(kd.warranty.years) : "" };
+  const setupDate = kd.setupDate.value, warrantyStart = kd.warranty.start, warrantyText = kd.warranty.text;
   const orderAmount = c.amount;
   const actualCost = toAmount(r.actualCost), targetCost = toAmount(r.targetCost), salesActual = toAmount(r.salesActual);
   // 미완료 내용: 직접 적은 내용 > 남은 일정·의제·미수금 요약 > "납품완료"
@@ -675,9 +693,9 @@ function closingInfo(p) {
     items: (o.scope || "").split("\n").map((x) => x.trim()).filter(Boolean).join(" / "),
     issues: r.issues || "없음",
     unfinished: r.unfinished || (autoUnfinished.length ? `미완료: ${autoUnfinished.join(", ")}` : "납품완료"),
-    kickoffDate: get("kickoffDate"), deliveryDate: get("deliveryDate"), setupDate, warrantyStart, warrantyYears: get("warrantyYears"), warrantyText,
+    kickoffDate: kd.kickoffDate.value, deliveryDate: kd.deliveryDate.value, setupDate, warrantyStart, warrantyYears: auto.warrantyYears, warrantyText,
     payTerms: c.payments.map((x) => `${x.name} ${x.ratio}%`).join(" / "),
-    paidDate: r.paidDate || (allPaid ? paidDates.pop() : ""),
+    paidDate: kd.paidDate.value,
     orderAmount, targetCost, actualCost, salesActual,
     profit: orderAmount && actualCost ? orderAmount - actualCost : null,
     profitRate: orderAmount && actualCost ? (orderAmount - actualCost) / orderAmount : null,
