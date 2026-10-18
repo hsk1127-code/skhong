@@ -43,11 +43,20 @@ const assert = require("assert");
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");
   await p.click("[data-ovmode=view]");
   assert.match(await p.textContent(".ov-contract"), /120,000,000원[\s\S]*30%/);
-  // 완료 보고서
+  // 완료 보고서: 엑셀(마감 보고서 양식) 다운로드
   await p.evaluate(() => { window.print = () => { window.__printed = true; }; });
   await p.click("#reportBtn");
+  await p.fill("dialog [name=setupDate]", "2026-12-20");
+  await p.type("dialog [name=actualCost]", "90000000");
+  assert.match(await p.textContent("#profitView"), /30,000,000원.*25\.0%/);
+  const [cx] = await Promise.all([p.waitForEvent("download"), p.click("dialog button.primary")]);
+  const closingPath = path.join(work, "closing.xlsx");
+  await cx.saveAs(closingPath);
+  // PDF 인쇄
+  await p.click("#reportBtn");
+  assert.strictEqual(await p.inputValue("dialog [name=setupDate]"), "2026-12-20");
   await p.fill("dialog [name=summary]", "납품 완료");
-  await p.click("dialog button.primary");
+  await p.click("dialog >> text=🖨 인쇄 / PDF");
   await p.waitForFunction(() => window.__printed);
   const rp = await p.textContent("#print");
   assert.match(rp, /프로젝트 완료 보고서/);
@@ -135,5 +144,5 @@ const assert = require("assert");
 
   assert.deepStrictEqual(errors, []);
   await ctx.close();
-  console.log("OK", path.join(work, "out.xlsx"));
+  console.log("OK", path.join(work, "out.xlsx"), path.join(work, "closing.xlsx"));
 })().catch((e) => { console.error(e); process.exit(1); });

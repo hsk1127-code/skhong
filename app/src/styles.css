@@ -354,3 +354,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .rp-list { margin: 4px 0; padding-left: 18px; } .rp-num { white-space: nowrap; }
   .rp-foot { margin-top: 18px; text-align: right; color: #666; font-size: 9px; }
 }
+.form.three { grid-template-columns: repeat(3, 1fr); } .form .span2 { grid-column: span 2; }
+.profit-line { margin-top: 10px; padding: 10px 14px; border-radius: 8px; background: var(--accent-soft); }
+.profit-line b { font-size: 16px; }
+@media (max-width: 800px) { .form.three { grid-template-columns: 1fr; } .form .span2 { grid-column: auto; } }

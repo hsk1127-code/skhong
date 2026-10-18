@@ -156,22 +156,25 @@ const Xlsx = (() => {
     const [y, m, d] = s.split("-").map(Number);
     return (Date.UTC(y, m - 1, d) - Date.UTC(1899, 11, 30)) / 86400000;
   };
-  // 스타일 번호: 0 기본, 1 머리글, 2 테두리+줄바꿈, 3 날짜, 4 제목, 5 줄바꿈
-  const STYLE = { head: 1, cell: 2, date: 3, title: 4, wrap: 5 };
+  // 스타일 번호: 0 기본, 1 머리글, 2 테두리+줄바꿈, 3 날짜, 4 제목, 5 줄바꿈, 6 금액(#,##0), 7 비율(0.0%), 8 굵은 금액
+  const STYLE = { head: 1, cell: 2, date: 3, title: 4, wrap: 5, money: 6, pct: 7, moneyb: 8 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/></numFmts>
+<numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
 <fonts count="3"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font></fonts>
 <fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill></fills>
 <borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="6">
+<cellXfs count="9">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 <xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>
+<xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="165" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="3" fontId="1" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -221,7 +224,8 @@ const Xlsx = (() => {
           const o = typeof cell === "object" ? cell : { v: cell };
           const ref = `${colName(c)}${r + 1}`;
           const s = STYLE[o.s] ? ` s="${STYLE[o.s]}"` : "";
-          if (o.v == null || o.v === "") cells.push(`<c r="${ref}"${s}/>`);
+          if (o.f) cells.push(`<c r="${ref}"${s}><f>${xmlEsc(o.f)}</f>${typeof o.v === "number" && isFinite(o.v) ? `<v>${o.v}</v>` : ""}</c>`);
+          else if (o.v == null || o.v === "") cells.push(`<c r="${ref}"${s}/>`);
           else if (o.s === "date" && /^\d{4}-\d{2}-\d{2}$/.test(o.v)) cells.push(`<c r="${ref}"${s}><v>${dateToSerial(o.v)}</v></c>`);
           else if (typeof o.v === "number" && isFinite(o.v)) cells.push(`<c r="${ref}"${s}><v>${o.v}</v></c>`);
           else cells.push(`<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(o.v)}</t></is></c>`);

@@ -285,7 +285,8 @@ function renderHome() {
   const goto = (p, tab) => `data-goto="${p.id}" data-tab="${tab}"`;
 
   $("#main").innerHTML = `
-    <div class="page-head"><h1>통합 대시보드</h1><span class="muted">기준일 ${esc(base)}</span></div>
+    <div class="page-head"><h1>통합 대시보드</h1><div class="row2"><span class="muted">기준일 ${esc(base)}</span>
+      ${Store.projects.some((p) => p.overview.status === "완료") ? `<button class="btn" id="closingAll" title="완료 상태인 프로젝트를 열로 모은 마감 보고서">📊 완료 프로젝트 마감 보고서</button>` : ""}</div></div>
     ${!Store.projects.length ? `<div class="card empty-big">
       <h2>시작하기</h2><p>왼쪽의 <b>📥</b> 버튼으로 지금 쓰고 있는 프로젝트 엑셀 파일을 불러오거나, <b>＋</b> 버튼으로 새 프로젝트를 만드세요.</p>
       <p class="muted small">엑셀을 불러오면 개요·일정·BOM·회의록·날짜별 문의/자료 시트(캡처 이미지와 첨부 원본 포함)가 자동으로 정리됩니다.</p>
@@ -332,6 +333,17 @@ function renderHome() {
     </div>`}`;
   $("#homeImport")?.addEventListener("click", () => pickFiles(".xlsx", false, (f) => importXlsx(f[0])));
   $("#homeNew")?.addEventListener("click", newProjectDialog);
+  $("#closingAll")?.addEventListener("click", () => {
+    const done = Store.projects.filter((p) => p.overview.status === "완료");
+    openDialog(`<h3>완료 프로젝트 마감 보고서</h3><p class="muted small">고른 프로젝트가 한 시트에 열로 나란히 들어갑니다. (종합 시트 포함)</p>
+      <div class="opts">${done.map((p) => `<label><input type="checkbox" name="pick" value="${p.id}" checked> ${esc(p.overview.customer || "")} · ${esc(p.overview.project || p.overview.name)}
+        <span class="muted small">${esc(p.report?.completedDate ? fmtDot(p.report.completedDate) + " 완료" : "")}</span></label>`).join("")}</div>`,
+    async (form) => {
+      const ids = $$("[name=pick]:checked", form).map((x) => x.value);
+      if (!ids.length) { toast("프로젝트를 하나 이상 고르세요."); return false; }
+      download(await buildClosingWorkbook(done.filter((p) => ids.includes(p.id))), `완료프로젝트_마감보고서_${today()}.xlsx`);
+    }, { okLabel: "📊 엑셀 다운로드" });
+  });
   bindGoto($("#main"));
   $$("[data-action]").forEach((cb) => (cb.onchange = () => {
     const [pid, mid, aid] = cb.dataset.action.split("|");
@@ -1225,33 +1237,85 @@ function reportDialog(p) {
   const lastDone = p.schedule.map((t) => t.doneDate).filter(isDate).sort().pop();
   const completed = r.completedDate || (o.status === "완료" ? lastDone || sm.end : "") || today();
   const warrantyDefault = o.warranty ? `하자보증기간: ${o.warranty}${o.receiveDate ? ` (입고일 ${fmtDot(o.receiveDate)} 기준)` : ""}` : "";
+  const ci = closingInfo(p);
+  const money = (k, label, hint = "") => `<label>${label}<input data-money name="${k}" inputmode="numeric" value="${toAmount(r[k]) ? toAmount(r[k]).toLocaleString("ko-KR") : ""}" placeholder="${hint}"></label>`;
+  const auto = (k) => (ci.auto[k] ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.auto[k]))})</span>` : "");
   openDialog(`<h3>📄 프로젝트 완료 보고서</h3>
     ${o.status !== "완료" ? `<div class="notice">이 프로젝트는 아직 <b>${esc(o.status)}</b> 상태입니다.
-      <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone" checked> 출력하면서 상태를 '완료'로 바꾸기</label></div>` : ""}
+      <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone" checked> 보고서를 받으면서 상태를 '완료'로 바꾸기</label></div>` : ""}
+    <h4>마감 보고서 항목 <span class="muted small">비워 두면 프로그램에 있는 값으로 채웁니다</span></h4>
+    <div class="form three">
+      <label>Kick off일자${auto("kickoffDate")}<input type="date" name="kickoffDate" value="${esc(r.kickoffDate || "")}"></label>
+      <label>납품일자${auto("deliveryDate")}<input type="date" name="deliveryDate" value="${esc(r.deliveryDate || "")}"></label>
+      <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(r.setupDate || "")}"></label>
+      <label>Warranty 시작<span class="muted small">(비우면 SET UP 완료일)</span><input type="date" name="warrantyStart" value="${esc(r.warrantyStart || "")}"></label>
+      <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(r.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2"></label>
+      <label>입금완료일${ci.paidDate && !r.paidDate ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.paidDate))})</span>` : ""}<input type="date" name="paidDate" value="${esc(r.paidDate || "")}"></label>
+      <label>발주가<input value="${ci.orderAmount ? ci.orderAmount.toLocaleString("ko-KR") : "개요에서 입력"}" disabled></label>
+      ${money("targetCost", "실행목표가")}
+      ${money("actualCost", "실행완료가 (인건비 제외)")}
+      ${money("salesActual", "실적가", "종합 시트용 (선택)")}
+      <label class="span2">지급조건<input value="${esc(ci.payTerms || "개요 → 정산 비율에서 입력")}" disabled></label>
+      <label class="full">이슈(특이)사항 · 문제점 및 개선사항<textarea name="issues" rows="2" placeholder="예: 추가 개선사항 유상건 / 없음">${esc(r.issues)}</textarea></label>
+      <label class="full">미완료 내용 <span class="muted small">(비우면 자동: ${esc(closingInfo({ ...p, report: { ...r, unfinished: "" } }).unfinished)})</span><input name="unfinished" value="${esc(r.unfinished || "")}"></label>
+    </div>
+    <div class="between profit-line"><span>이익</span><b id="profitView"></b></div>
+    <h4>PDF 보고서 추가 내용</h4>
     <div class="form">
       <label>완료일<input type="date" name="completedDate" value="${esc(completed)}"></label>
       <label>작성자<input name="writer" value="${esc(Store.state.settings.user || o.manager)}"></label>
-      <label class="full">성과 요약<textarea name="summary" rows="4" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료. 계획 대비 3일 단축.">${esc(r.summary)}</textarea></label>
-      <label class="full">문제점 및 개선사항<textarea name="issues" rows="3" placeholder="예: 전장품 사양 변경으로 BOM 재등록 발생 → 초기 사양 협의 단계에서 메이커리스트 확정 필요">${esc(r.issues)}</textarea></label>
+      <label class="full">성과 요약<textarea name="summary" rows="2" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료.">${esc(r.summary)}</textarea></label>
       <label class="full">하자보증 · 후속 조치<textarea name="warrantyNote" rows="2">${esc(r.warrantyNote || warrantyDefault)}</textarea></label>
     </div>
-    <h4>보고서에 넣을 목록</h4>
     <div class="opts row-opts">
-      <label><input type="checkbox" name="incMeetings" checked> 회의 및 의사결정 (${p.meetings.length})</label>
+      <label><input type="checkbox" name="incMeetings" checked> 회의 (${p.meetings.length})</label>
       <label><input type="checkbox" name="incChanges" checked> 변경사항 (${p.lists.changes.length})</label>
       <label><input type="checkbox" name="incRecords" checked> 자료 이력 (${p.records.length})</label>
-      <label><input type="checkbox" name="incBom" ${p.lists.bom.length ? "" : "disabled"}> BOM 목록 (${p.lists.bom.length})</label>
-    </div>
-    <p class="muted small">인쇄 창에서 대상(프린터)을 <b>PDF로 저장</b>으로 고르면 PDF 파일로 저장됩니다.</p>`,
-  (form) => {
-    Object.assign(r, { completedDate: form.completedDate.value, summary: form.summary.value, issues: form.issues.value, warrantyNote: form.warrantyNote.value });
-    if (form.markDone?.checked) o.status = "완료";
-    Store.touch(p, "프로젝트 완료 보고서 출력", `완료일 ${fmtDot(r.completedDate)}`);
-    $("#print").innerHTML = reportHtml(p, { writer: form.writer.value.trim(), meetings: form.incMeetings.checked,
-      changes: form.incChanges.checked, records: form.incRecords.checked, bom: form.incBom.checked });
+      <label><input type="checkbox" name="incBom" ${p.lists.bom.length ? "" : "disabled"}> BOM (${p.lists.bom.length})</label>
+    </div>`,
+  async (form) => {
+    save(form);
+    download(await buildClosingWorkbook([p]), `완료프로젝트_마감보고서_${o.name}_${today()}.xlsx`);
+    Store.touch(p, "완료 프로젝트 마감 보고서 다운로드", `엑셀 · 완료일 ${fmtDot(r.completedDate)}`);
     rerender();
-    setTimeout(() => window.print(), 50);
-  }, { wide: true, okLabel: "🖨 인쇄 / PDF 저장" });
+    toast("마감 보고서 엑셀을 내려받았습니다.");
+  }, { wide: true, okLabel: "📊 엑셀 보고서 다운로드", onOpen: (dlg, form) => {
+    const pdf = document.createElement("button");
+    pdf.type = "button";
+    pdf.className = "btn";
+    pdf.textContent = "🖨 인쇄 / PDF";
+    $(".actions", dlg).insertBefore(pdf, $(".actions .primary", dlg));
+    pdf.onclick = () => {
+      save(form);
+      Store.touch(p, "프로젝트 완료 보고서 출력", `PDF · 완료일 ${fmtDot(r.completedDate)}`);
+      $("#print").innerHTML = reportHtml(p, { writer: form.writer.value.trim(), meetings: form.incMeetings.checked,
+        changes: form.incChanges.checked, records: form.incRecords.checked, bom: form.incBom.checked });
+      dlg.close();
+      rerender();
+      setTimeout(() => window.print(), 50);
+    };
+    // 금액 칸: 쉼표 표시, 이익 미리 계산
+    const showProfit = () => {
+      const cost = toAmount(form.actualCost.value), amt = ci.orderAmount;
+      $("#profitView", dlg).innerHTML = amt && cost ? `${fmtWon(amt - cost)} <span class="muted small">(이익률 ${(((amt - cost) / amt) * 100).toFixed(1)}%)</span>` : `<span class="muted small">발주가와 실행완료가를 넣으면 계산됩니다</span>`;
+    };
+    $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
+      const n = toAmount(inp.value);
+      inp.value = n ? n.toLocaleString("ko-KR") : "";
+      showProfit();
+    }));
+    showProfit();
+  } });
+
+  function save(form) {
+    const f = (k) => form.elements[k].value.trim();
+    Object.assign(r, { kickoffDate: f("kickoffDate"), deliveryDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
+      warrantyYears: f("warrantyYears"), paidDate: f("paidDate"), targetCost: String(toAmount(f("targetCost")) || ""),
+      actualCost: String(toAmount(f("actualCost")) || ""), salesActual: String(toAmount(f("salesActual")) || ""),
+      issues: form.elements.issues.value, unfinished: f("unfinished"), completedDate: f("completedDate"),
+      summary: form.elements.summary.value, warrantyNote: form.elements.warrantyNote.value });
+    if (form.elements.markDone?.checked) o.status = "완료";
+  }
 }
 
 function reportHtml(p, inc) {

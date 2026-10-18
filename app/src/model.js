@@ -639,3 +639,120 @@ function contractInfo(p) {
   return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
     paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0) };
 }
+
+// ------------------------------------------------- 완료 프로젝트 마감 보고서 (엑셀 양식)
+const addYears = (s, years) => {
+  const d = new Date(Date.UTC(+s.slice(0, 4) + years, +s.slice(5, 7) - 1, +s.slice(8, 10)) - 86400000);
+  return d.toISOString().slice(0, 10);
+};
+// 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
+function closingInfo(p) {
+  const o = p.overview, r = p.report || {}, c = contractInfo(p), sm = projectSummary(p);
+  const kickoffMeeting = [...p.meetings].filter((m) => /kick|킥오프/i.test(m.title) && isDate(m.date)).sort((a, b) => a.date.localeCompare(b.date))[0];
+  const deliveryTask = p.schedule.filter((t) => /납품/.test(`${t.phase} ${t.name}`) && isDate(t.end)).map((t) => t.end).sort().pop();
+  const auto = {
+    kickoffDate: kickoffMeeting?.date || o.orderDate || sm.start || "",
+    deliveryDate: (isDate(o.receiveDate) ? o.receiveDate : "") || deliveryTask || "",
+    setupDate: "",
+    warrantyYears: (/(\d+)\s*년/.exec(o.warranty) || [])[1] || ((/(\d+)\s*개월/.exec(o.warranty) || [])[1] ? String(+(/(\d+)\s*개월/.exec(o.warranty)[1]) / 12) : ""),
+  };
+  const get = (k) => (r[k] != null && r[k] !== "" ? r[k] : auto[k] ?? "");
+  const setupDate = get("setupDate");
+  const warrantyStart = r.warrantyStart || setupDate || get("deliveryDate");
+  const years = Number(get("warrantyYears")) || 0;
+  const warrantyText = isDate(warrantyStart) && years
+    ? `${warrantyStart} ~ ${addYears(warrantyStart, years)} (${years}년)` : warrantyStart ? `${warrantyStart}${o.warranty ? ` (${o.warranty})` : ""}` : o.warranty || "";
+  const allPaid = c.payments.length && c.payments.every((x) => x.status === "수금완료");
+  const paidDates = c.payments.map((x) => x.paidDate).filter(isDate).sort();
+  const orderAmount = c.amount;
+  const actualCost = toAmount(r.actualCost), targetCost = toAmount(r.targetCost), salesActual = toAmount(r.salesActual);
+  // 미완료 내용: 직접 적은 내용 > 남은 일정·의제·미수금 요약 > "납품완료"
+  const openTasks = p.schedule.filter((t) => !t.done).length, unpaid = c.payments.filter((x) => x.status !== "수금완료").length;
+  const autoUnfinished = [openTasks && `일정 ${openTasks}건`, sm.openActions.length && `실천 의제 ${sm.openActions.length}건`,
+    sm.pendingSubmissions.length && `미제출 자료 ${sm.pendingSubmissions.length}건`, unpaid && `미수금 ${unpaid}건`].filter(Boolean);
+  return {
+    header: o.customer || o.name, projectName: o.project || o.name,
+    items: (o.scope || "").split("\n").map((x) => x.trim()).filter(Boolean).join(" / "),
+    issues: r.issues || "없음",
+    unfinished: r.unfinished || (autoUnfinished.length ? `미완료: ${autoUnfinished.join(", ")}` : "납품완료"),
+    kickoffDate: get("kickoffDate"), deliveryDate: get("deliveryDate"), setupDate, warrantyStart, warrantyYears: get("warrantyYears"), warrantyText,
+    payTerms: c.payments.map((x) => `${x.name} ${x.ratio}%`).join(" / "),
+    paidDate: r.paidDate || (allPaid ? paidDates.pop() : ""),
+    orderAmount, targetCost, actualCost, salesActual,
+    profit: orderAmount && actualCost ? orderAmount - actualCost : null,
+    profitRate: orderAmount && actualCost ? (orderAmount - actualCost) / orderAmount : null,
+    auto,
+  };
+}
+
+// projects 를 열(D, E, F…)로 나란히 놓은 "완료 프로젝트 마감 보고서" + 종합 (+ 한 프로젝트면 세부 시트)
+async function buildClosingWorkbook(projects) {
+  const infos = projects.map(closingInfo);
+  const col = (i) => Xlsx.colName(3 + i); // D부터
+  const H = (v) => ({ v, s: "head" });
+  const row = (group, label, cell) => [null, group == null ? null : H(group), H(label), ...infos.map((x, i) => cell(x, i))];
+  const txt = (v) => ({ v: v || "", s: "cell" });
+  const date = (v) => ({ v: v || "", s: isDate(v) ? "date" : "cell" });
+  const money = (v) => ({ v: v || "", s: "money" });
+  const last = col(infos.length - 1);
+  const rows = [
+    [null, { v: "완료 프로젝트 마감 보고서", s: "title" }], [],
+    [null, H("구분"), H("항목"), ...infos.map((x) => H(x.header))],
+    row("프로젝트 내용", "프로젝트명", (x) => txt(x.projectName)),
+    row("", "납품 물품 내역", (x) => txt(x.items)),
+    row("", "이슈(특이)사항", (x) => txt(x.issues)),
+    row("", "미완료 내용", (x) => txt(x.unfinished)),
+    row("진행상황", "Kick off일자", (x) => date(x.kickoffDate)),
+    row("", "납품일자", (x) => date(x.deliveryDate)),
+    row("", "SET UP 완료일", (x) => date(x.setupDate)),
+    row("", "Warranty 시작", (x) => txt(x.warrantyText)),
+    row("정산관련", "지급조건", (x) => txt(x.payTerms)),
+    row("", "입금완료일", (x) => date(x.paidDate)),
+    row("", "발주가", (x) => money(x.orderAmount)),
+    row("", "실행목표가", (x) => money(x.targetCost)),
+    row("", "실행완료가(인건비제외)", (x) => money(x.actualCost)),
+    row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}16`, v: x.profit, s: "moneyb" } : txt(""))),
+    row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}17/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
+    [], [null, { v: `※ 이익 = 발주가 - 실행완료가(인건비제외), 이익률 = 이익 / 발주가 · 출력일 ${today()}`, s: "wrap" }],
+  ];
+  const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows,
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B18", `B20:${last}20`] }];
+
+  // 종합: 프로젝트별 금액
+  const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],
+    [null, ...["발주명", "수주가", "실적가", "실투입재료비", "이익 (수주가 - 재료비)", "이익률 (수주가 기준)", "비고"].map(H)]];
+  infos.forEach((x, i) => {
+    const r = 3 + i;
+    sum.push([null, txt(x.projectName), money(x.orderAmount), money(x.salesActual), money(x.actualCost),
+      x.orderAmount && x.actualCost ? { f: `C${r}-E${r}`, v: x.profit, s: "money" } : txt(""),
+      x.orderAmount && x.actualCost ? { f: `IF(C${r}=0,"",(C${r}-E${r})/C${r})`, v: x.profitRate, s: "pct" } : txt(""),
+      txt(projects[i].report?.summary ? projects[i].report.summary.split("\n")[0] : "")]);
+  });
+  if (infos.length > 1) {
+    const n = infos.length + 2;
+    sum.push([null, H("합계"), { f: `SUM(C3:C${n})`, v: infos.reduce((a, x) => a + (x.orderAmount || 0), 0), s: "moneyb" },
+      { f: `SUM(D3:D${n})`, v: infos.reduce((a, x) => a + (x.salesActual || 0), 0), s: "moneyb" },
+      { f: `SUM(E3:E${n})`, v: infos.reduce((a, x) => a + (x.actualCost || 0), 0), s: "moneyb" },
+      { f: `SUM(F3:F${n})`, s: "moneyb" }, { f: `IF(C${n + 1}=0,"",F${n + 1}/C${n + 1})`, s: "pct" }, txt("")]);
+  }
+  sheets.push({ name: "종합", cols: [3, 40, 16, 16, 16, 18, 14, 40], rows: sum });
+
+  // 한 프로젝트만 내려받을 때는 근거 자료 시트도 함께
+  if (projects.length === 1) {
+    const p = projects[0], c = contractInfo(p);
+    if (c.payments.length) sheets.push({ name: "정산 내역", cols: [3, 12, 9, 16, 18, 12, 12, 10], rows: [
+      [null, { v: "정산 내역", s: "title" }], [],
+      [null, ...["구분", "비율", "금액", "지급 조건", "예정일", "정산일", "상태"].map(H)],
+      ...c.payments.map((x) => [null, txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" }, money(x.amount), txt(x.cond), date(x.due), date(x.paidDate), txt(x.status)]),
+      [null, H("합계"), { v: c.ratioSum / 100, s: "pct" }, { v: c.payments.reduce((a, x) => a + x.amount, 0), s: "moneyb" }]] });
+    if (p.schedule.length) sheets.push({ name: "일정 실적", cols: [3, 14, 28, 12, 12, 12, 8, 30], rows: [
+      [null, { v: "일정 실적", s: "title" }], [],
+      [null, ...["단계", "세부사항", "계획 시작", "계획 종료", "실제 완료", "완료", "비고"].map(H)],
+      ...p.schedule.map((t) => [null, txt(t.phase), txt(t.name), date(t.start), date(t.end), date(t.doneDate), txt(t.done ? "완료" : "미완료"), txt(t.note)])] });
+    if (p.lists.changes.length) sheets.push({ name: "변경사항", cols: [3, 12, 10, 10, 60, 24], rows: [
+      [null, { v: "변경사항", s: "title" }], [],
+      [null, ...["날짜", "작성자", "요청자", "변경 내용", "비고"].map(H)],
+      ...p.lists.changes.map((x) => [null, date(x.date), txt(x.author), txt(x.requester), txt(x.content), txt(x.note)])] });
+  }
+  return Xlsx.write(sheets);
+}
