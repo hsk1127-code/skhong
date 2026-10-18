@@ -27,6 +27,11 @@ const assert = require("assert");
   await fc.setFiles(fixture);
   await p.waitForSelector("#busy", { state: "hidden" });
   await p.waitForSelector(".tabs");
+  // 개요는 요약 화면이 기본, 정보 수정에서 입력
+  await p.waitForSelector(".ov-hero");
+  assert.match(await p.textContent(".ov-hero h2"), /테스트 AMR 도입/);
+  assert.strictEqual(await p.locator(".scope-item").count(), 2);
+  await p.click("[data-ovmode=edit]");
   assert.strictEqual(await p.inputValue("[data-k=name]"), "테스트_설비");
   assert.strictEqual(await p.inputValue("[data-k=scope]"), "AMR : 2EA\nCharger : 1EA");
 
@@ -95,6 +100,7 @@ const assert = require("assert");
 
   // 삭제 후 복원
   await p.click(".tabs [data-tab=overview]");
+  await p.click("[data-ovmode=edit]");
   await p.click("#delProject");
   await p.waitForFunction(() => !document.querySelector(".plist .nav"));
   const [rc] = await Promise.all([p.waitForEvent("filechooser"), p.click("#restoreBtn")]);

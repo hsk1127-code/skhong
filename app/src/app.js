@@ -413,7 +413,7 @@ function rerender() {
 }
 
 // ------------------------------------------------------------- 개요
-function tabOverview(p, el) {
+function tabOverviewEdit(p, el) {
   const o = p.overview;
   const s = projectSummary(p);
   el.innerHTML = `<div class="grid2 wide-left">
@@ -461,6 +461,127 @@ function tabOverview(p, el) {
     await Store.gc();
     go({ view: "home" });
   };
+}
+
+// ------------------------------------------------------------- 개요 (요약 / 정보 수정)
+function tabOverview(p, el) {
+  const mode = route.ovMode === "edit" ? "edit" : "view";
+  el.innerHTML = `<div class="between wrap toolbar"><nav class="seg">
+      <button data-ovmode="view" class="${mode === "view" ? "active" : ""}">📋 요약</button>
+      <button data-ovmode="edit" class="${mode === "edit" ? "active" : ""}">✏️ 정보 수정</button></nav></div><div id="ovBody"></div>`;
+  $$("[data-ovmode]", el).forEach((b) => (b.onclick = () => { route.ovMode = b.dataset.ovmode; rerender(); }));
+  (mode === "edit" ? tabOverviewEdit : tabOverviewView)(p, $("#ovBody", el));
+}
+
+function tabOverviewView(p, el) {
+  const o = p.overview, base = today();
+  const s = projectSummary(p, base);
+  const tasks = p.schedule.map((t) => ({ t, i: taskInfo(t, base) }));
+  const done = tasks.filter((x) => x.i.status === "완료").length;
+  const empty = `<span class="ov-empty">미입력</span>`;
+
+  // 기간 경과 원형 그래프
+  const pctv = s.progress ?? 0, R = 52, C = 2 * Math.PI * R;
+  const ring = `<div class="ov-ring"><svg viewBox="0 0 120 120" aria-hidden="true">
+      <circle cx="60" cy="60" r="${R}" class="ring-bg"/><circle cx="60" cy="60" r="${R}" class="ring-fg ${s.delayed.length ? "late" : ""}"
+        stroke-dasharray="${(C * pctv) / 100} ${C}" transform="rotate(-90 60 60)"/></svg>
+      <div class="ring-text"><b>${s.progress === null ? "–" : pctv + "%"}</b><span>기간 경과</span></div></div>`;
+
+  // 사업 범위: "Conveyor AMR : 2EA" → 이름 + 수량
+  const scope = (o.scope || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = /^(.*?)\s*[:：]\s*(\d+\s*(?:EA|ea|대|개|set|SET|식)?)\s*$/.exec(l);
+    return m ? `<div class="scope-item"><span>${esc(m[1])}</span><b>${esc(m[2])}</b></div>` : `<div class="scope-item"><span>${esc(l)}</span></div>`;
+  }).join("");
+
+  // 주요 일정 띠: 시작~종료 사이에 하루짜리 일정(DR, 검수, 납품 등)을 점으로
+  let strip = "";
+  if (s.start && s.end) {
+    const a = dayNo(s.start), z = dayNo(s.end), span = Math.max(1, z - a);
+    const at = (d) => Math.max(0, Math.min(100, ((dayNo(d) - a) / span) * 100));
+    const suspect = suspectTasks(p.schedule);
+    // 같은 날 일정은 하나로 합치고, 글자가 겹치지 않게 위/아래 자리를 고른다 (자리가 없으면 점만 표시)
+    const byDate = new Map();
+    tasks.filter((x) => x.t.start && x.t.start === x.t.end && !suspect.has(x.t.id))
+      .sort((x, y) => x.t.start.localeCompare(y.t.start))
+      .forEach((x) => { if (!byDate.has(x.t.start)) byDate.set(x.t.start, []); byDate.get(x.t.start).push(x); });
+    // 글자 너비를 실제 화면 너비 기준 %로 계산 (휴대폰에서도 겹치지 않게)
+    const stripW = Math.max(240, (el.clientWidth || 1000) - 60);
+    const pw = (px) => (px / stripW) * 100;
+    const lanes = { up: -100, down: at(base) + pw(30) };
+    const ms = [...byDate.values()].slice(0, 10).map((list) => {
+      const x = list[0], pos = at(x.t.start);
+      const name = x.t.name.replace(/^[-\s]+/, "") + (list.length > 1 ? ` 외 ${list.length - 1}` : "");
+      const w = pw(Math.min(130, name.length * 7 + 14));
+      const lane = ["up", "down"].sort((l1, l2) => lanes[l1] - lanes[l2]).find((l) => pos - w / 2 > lanes[l] && !(l === "down" && Math.abs(pos - at(base)) < pw(30))) || "";
+      if (lane) lanes[lane] = pos + w / 2;
+      const status = list.some((y) => y.i.status === "지연") ? "지연" : list.every((y) => y.i.status === "완료") ? "완료" : x.i.status;
+      return { x, list, pos, name, lane, status };
+    });
+    strip = `<div class="card ov-strip"><div class="between"><h3>주요 일정</h3><span class="muted small">${esc(fmtDot(s.start))} ~ ${esc(fmtDot(s.end))} · ${dday(s.end)}</span></div>
+      <div class="strip"><div class="strip-line"><span style="width:${at(base)}%"></span></div>
+        <span class="strip-now" style="left:${at(base)}%"><em>오늘</em></span>
+        ${ms.map((m) => `<span class="strip-dot st-${m.status} ${m.lane} ${m.pos > 96 ? "edge-r" : m.pos < 4 ? "edge-l" : ""}" style="left:${m.pos}%" title="${esc(m.list.map((y) => y.t.name).join(", "))} · ${esc(m.x.t.start)}">
+          ${m.lane ? `<em><b>${esc(m.name)}</b>${esc(fmtDot(m.x.t.start).slice(5))}</em>` : ""}</span>`).join("")}
+      </div>
+      <div class="between small muted"><span>시작 ${esc(fmtDot(s.start))}</span><span>종료 ${esc(fmtDot(s.end))}</span></div></div>`;
+  }
+
+  const fact = (icon, label, v) => `<div class="fact"><span class="fact-icon">${icon}</span><div><span>${label}</span><b>${v ? esc(v) : empty}</b></div></div>`;
+  const tile = (tab, icon, label, value, cls = "", extra = "") =>
+    `<button class="stat ${cls}" data-goto="${p.id}" data-tab="${tab}" ${extra}><span class="stat-icon">${icon}</span><b>${value}</b><span>${label}</span></button>`;
+  const upcoming = tasks.filter((x) => x.i.status !== "완료" && isDate(x.t.end) && dayNo(x.t.end) >= dayNo(base))
+    .sort((x, y) => (x.i.status === "진행" ? x.t.end : x.t.start).localeCompare(y.i.status === "진행" ? y.t.end : y.t.start)).slice(0, 5);
+  const revs = [...p.revisions].reverse().slice(0, 6);
+
+  el.innerHTML = `
+    <div class="card ov-hero">
+      <div class="ov-hero-main">
+        <div class="ov-eyebrow">${o.customer ? `🏢 ${esc(o.customer)}` : "고객사 미입력"}</div>
+        <h2>${esc(o.project || o.name)}</h2>
+        ${o.project ? `<div class="ov-sub">설비/품목명 · ${esc(o.name)}</div>` : ""}
+        <div class="ov-pills">${badge(o.status)}
+          ${o.manager ? `<span class="pill">👤 ${esc(o.manager)}</span>` : ""}
+          ${s.end ? `<span class="pill">🏁 종료 ${esc(fmtDot(s.end))} · <b>${dday(s.end)}</b></span>` : ""}
+          ${s.delayed.length ? `<span class="pill bad">⚠ 지연 ${s.delayed.length}건</span>` : ""}</div>
+      </div>
+      ${ring}
+    </div>
+
+    <div class="ov-grid">
+      <div class="card"><h3>기본 정보</h3><div class="facts">
+        ${fact("🔖", "Project No", o.projectNo)}${fact("🧩", "Part No", o.partNo)}
+        ${fact("📦", "입고일자", isDate(o.receiveDate) ? fmtDot(o.receiveDate) : o.receiveDate)}${fact("📍", "입고 장소", o.receivePlace)}
+        ${fact("🛡", "하자보증기간", o.warranty)}${fact("👤", "담당자", o.manager)}
+        ${o.extra.filter((x) => x.label).map((x) => fact("•", esc(x.label), x.value)).join("")}
+      </div></div>
+      <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
+    </div>
+
+    ${strip}
+
+    <div class="stats-row">
+      ${tile("schedule", "📅", "일정 완료", `${done}<small>/${tasks.length}</small>`)}
+      ${tile("schedule", "⚠", "지연 일정", s.delayed.length, s.delayed.length ? "bad" : "")}
+      ${tile("records", "📨", "자료 이력", p.records.length)}
+      ${tile("meetings", "📝", "미완료 의제", s.openActions.length, s.openActions.length ? "warn" : "")}
+      ${tile("parts", "🔩", "BOM 품목", p.lists.bom.filter((r) => !/^■/.test(r.item || "")).length)}
+      ${tile("submissions", "📤", "미제출 자료", s.pendingSubmissions.length, s.pendingSubmissions.length ? "warn" : "")}
+    </div>
+
+    <div class="ov-grid three">
+      <div class="card"><h3>다가오는 일정</h3>${upcoming.length ? `<ul class="mini">${upcoming.map((x) => `
+        <li data-goto="${p.id}" data-tab="schedule"><span>${x.i.status === "진행" ? badge("진행") : ""} ${esc(x.t.name)}</span>
+        <b>${x.i.status === "진행" ? `${x.i.remain}일 남음` : `${esc(fmtDot(x.t.start).slice(5))} <span class="muted">${dday(x.t.start)}</span>`}</b></li>`).join("")}</ul>`
+        : `<p class="muted small">예정된 일정이 없습니다.</p>`}</div>
+      <div class="card"><h3>미완료 실천 의제</h3>${s.openActions.length ? `<ul class="mini">${s.openActions.slice(0, 5).map((a) => `
+        <li data-goto="${p.id}" data-tab="meetings" data-meeting="${a.meeting.id}"><span>${esc(a.text)}</span><b class="muted">${esc(a.owner)}</b></li>`).join("")}</ul>`
+        : `<p class="muted small">남은 의제가 없습니다.</p>`}</div>
+      <div class="card"><h3>최근 기록 <span class="muted small">Revision</span></h3>${revs.length ? `<ul class="mini">${revs.map((r) => `
+        <li data-goto="${p.id}" data-tab="revisions"><span>${esc(r.content)}</span><b class="muted">${esc(fmtDot(r.date).slice(5))}</b></li>`).join("")}</ul>`
+        : `<p class="muted small">기록이 없습니다.</p>`}</div>
+    </div>`;
+  bindGoto(el);
+  $("[data-ovedit]", el)?.addEventListener("click", (e) => { e.preventDefault(); route.ovMode = "edit"; rerender(); });
 }
 
 // ------------------------------------------------------------- 일정 (간트)
