@@ -110,7 +110,7 @@ a { color: var(--accent); }
 .progress { height: 8px; background: var(--plan-soft); border-radius: 4px; overflow: hidden; }
 .progress.big { height: 12px; margin: 6px 0; } .progress span { display: block; height: 100%; background: var(--accent); }
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 14px; align-items: start; }
-.grid2 > .card { margin: 0; } .grid2.wide-left { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.grid2 > .card { margin: 0; } .grid2.wide-left { grid-template-columns: minmax(0, 1.25fr) minmax(400px, 1fr); }
 table { border-collapse: collapse; width: 100%; }
 table.list td { padding: 7px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 table.list tr[data-goto], td[data-goto] { cursor: pointer; } table.list tr[data-goto]:hover { background: var(--accent-soft); }
@@ -359,7 +359,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
 
 /* 계약·정산 */
 .pay-table { margin-top: 8px; } .pay-table tfoot td { padding: 8px 6px; border-top: 2px solid var(--line); }
-.ov-contract .contract-head { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 16px; }
+.ov-contract .contract-head { display: grid; grid-template-columns: 1.6fr 1fr 1.3fr 0.9fr; gap: 18px; }
 .contract-head > div { display: flex; flex-direction: column; gap: 2px; }
 .contract-head b { font-size: 17px; } .contract-head b.amount { font-size: 22px; color: var(--accent); }
 .paybar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; margin: 16px 0 10px; }
@@ -492,8 +492,8 @@ dialog[open] { animation: pop .16s ease-out; }
 .grid-table tr.sec-row input { font-weight: 700; color: var(--accent-ink); }
 
 /* 개요: 주요 일자 */
-.kd-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0; position: relative; margin-top: 6px; }
-.kd-steps::before { content: ""; position: absolute; left: 10%; right: 10%; top: 22px; height: 3px; background: var(--plan-soft); border-radius: 2px; }
+.kd-steps { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0; position: relative; margin-top: 6px; }
+.kd-steps::before { content: ""; position: absolute; left: 8%; right: 8%; top: 22px; height: 3px; background: var(--plan-soft); border-radius: 2px; }
 .kd-step { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding: 0 6px; }
 .kd-ico { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; font-size: 19px; background: var(--panel);
   border: 3px solid var(--plan-soft); z-index: 1; margin-bottom: 6px; }
@@ -515,3 +515,13 @@ dialog[open] { animation: pop .16s ease-out; }
 .preset-chip.on { border-color: var(--accent); background: var(--accent-soft); } .preset-chip.on button { color: var(--accent-ink); font-weight: 700; }
 .contract-foot { display: flex; justify-content: flex-end; margin-top: 12px; }
 #payBox > h3:first-child { display: none; } /* 창 제목과 겹치는 소제목 숨김 */
+
+/* 계약·정산: 이익 계산 */
+.cost-view { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.cv { background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); padding: 8px 12px; display: flex; flex-direction: column; }
+.cv span { font-size: 11px; color: var(--muted); } .cv b { font-size: 15px; } .cv small { font-size: 11px; color: var(--muted); }
+.cv.bad b { color: var(--bad); } .cv.good b { color: var(--ok); }
+.contract-head b.bad { color: var(--bad); }
+@media (max-width: 1100px) { .ov-contract .contract-head { grid-template-columns: 1fr 1fr; } }
+#contractCard .form { grid-template-columns: 1fr 1fr; } #contractCard .form input, #contractCard .form select { width: 100%; }
+.cv b { font-size: 14px; white-space: nowrap; } .cost-view { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }

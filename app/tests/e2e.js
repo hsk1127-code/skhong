@@ -34,10 +34,15 @@ const assert = require("assert");
   await p.click("[data-ovmode=edit]");
   assert.strictEqual(await p.inputValue("[data-k=name]"), "테스트_설비");
   // 발주금액·정산 비율
-  await p.fill("[data-ck=orderDate]", "2026-09-11");
+  await p.fill("#kdForm [data-k=orderDate]", "2026-09-11");
+  await p.locator("#kdForm [data-k=orderDate]").dispatchEvent("change");
   await p.type("[data-ck=orderAmount]", "120000000");
   assert.strictEqual(await p.inputValue("[data-ck=orderAmount]"), "120,000,000");
   assert.strictEqual(await p.textContent("#amountWords"), "금 일억이천만원정");
+  // 실행목표가·실행가 → 이익
+  await p.type("[data-ck=targetCost]", "80000000");
+  await p.type("[data-ck=actualCost]", "90000000");
+  assert.match(await p.textContent("#costView"), /목표 이익40,000,000원[\s\S]*실제 이익30,000,000원[\s\S]*25\.0%[\s\S]*\+10,000,000원/);
   await p.click('.preset-chip button:text-is("30 : 70")');
   assert.deepStrictEqual(await p.$$eval(".pay-table [data-amt]", (els) => els.map((e) => e.textContent)), ["36,000,000", "84,000,000"]);
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");
@@ -47,7 +52,7 @@ const assert = require("assert");
   await p.evaluate(() => { window.print = () => { window.__printed = true; }; });
   await p.click("#reportBtn");
   await p.fill("dialog [name=setupDate]", "2026-12-20");
-  await p.type("dialog [name=actualCost]", "90000000");
+  assert.strictEqual(await p.inputValue("dialog [name=actualCost]"), "90,000,000");
   assert.match(await p.textContent("#profitView"), /30,000,000원.*25\.0%/);
   const [cx] = await Promise.all([p.waitForEvent("download"), p.click("dialog button.primary")]);
   const closingPath = path.join(work, "closing.xlsx");
