@@ -467,7 +467,7 @@ function tabOverviewEdit(p, el) {
       const kd = keyDates(p);
       const hint = (x) => (x.autoValue ? `자동: ${fmtDot(x.autoValue)}` : "");
       return `${KEY_DATES.filter(([k]) => k !== "paidDate").map(([k, label]) => `<label>${label}<input type="date" data-k="${k}" value="${esc(o[k] || "")}" title="${esc(hint(kd[k]))}">
-          <span class="muted small">${kd[k].auto ? `자동: ${esc(fmtDot(kd[k].autoValue))}${k === "receiveDate" ? " ('납품' 일정)" : ""}` : k === "setupDate" ? "Setup 완료되면 입력 → Warranty 시작" : k === "receiveDate" ? "위 개요의 입고일자와 같은 값" : k === "orderDate" ? "계약·정산의 발주와 같은 값" : ""}</span></label>`).join("")}
+          <span class="muted small">${kd[k].auto ? `자동: ${esc(fmtDot(kd[k].autoValue))}${k === "receiveDate" ? " ('납품' 일정)" : ""}` : k === "setupDate" ? "Setup 완료되면 입력 → Warranty 시작" : k === "receiveDate" ? "위 개요의 입고일자와 같은 값" : ""}</span></label>`).join("")}
         <label>Warranty 시작일<input type="date" data-k="warrantyStart" value="${esc(o.warrantyStart || "")}">
           <span class="muted small">${kd.warranty.startAuto ? `Setup 완료일 ${esc(fmtDot(kd.warranty.start))}부터` : isDate(o.warrantyStart) ? "직접 입력" : "비우면 Setup 완료일부터 (아직 시작 전)"}</span></label>
         <label>Warranty 기간 (년)<input data-k="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || "")}" placeholder="${kd.warranty.years ? `${kd.warranty.years} (하자보증기간에서)` : "예: 2"}">
@@ -515,11 +515,12 @@ function contractEditHtml(p) {
   const o = p.overview, c = contractInfo(p);
   return `<h3>계약 · 정산</h3>
     <div class="form">
+      <label>발주일<input type="date" data-ck="orderDate" value="${esc(o.orderDate || "")}"></label>
+      <label>부가세<select data-ck="vat">${opts(["별도", "포함"], o.vat || "별도")}</select></label>
       <label class="full">발주금액 (원)<input data-ck="orderAmount" data-money inputmode="numeric" value="${c.amount ? c.amount.toLocaleString("ko-KR") : ""}" placeholder="예: 120,000,000">
         <span class="muted small" id="amountWords">${c.amount ? `금 ${koreanAmount(c.amount)}원정` : ""}</span></label>
       <label>실행목표가 (원)<input data-ck="targetCost" data-money inputmode="numeric" value="${c.targetCost ? c.targetCost.toLocaleString("ko-KR") : ""}" placeholder="예: 140,000,000"></label>
       <label>실행가 (원, 인건비 제외)<input data-ck="actualCost" data-money inputmode="numeric" value="${c.actualCost ? c.actualCost.toLocaleString("ko-KR") : ""}" placeholder="실제 투입 금액"></label>
-      <label>부가세<select data-ck="vat">${opts(["별도", "포함"], o.vat || "별도")}</select></label>
     </div>
     <div class="cost-view" id="costView">${costViewHtml(c)}</div>
     <h4 style="margin:18px 0 8px">정산 비율</h4>
@@ -727,7 +728,7 @@ function tabOverviewView(p, el) {
   const c = contractInfo(p);
   const kd = keyDates(p);
   const kdCard = (() => {
-    const steps = [["📝", "발주", kd.orderDate], ["🚀", "Kick Off", kd.kickoffDate], ["🚚", "납품 (입고)", kd.receiveDate], ["🔧", "Setup 완료", kd.setupDate],
+    const steps = [["🚀", "Kick Off", kd.kickoffDate], ["🚚", "납품 (입고)", kd.receiveDate], ["🔧", "Setup 완료", kd.setupDate],
       ["🛡", "Warranty", { value: kd.warranty.start, end: kd.warranty.end, pending: !kd.warranty.started }], ["💰", "지급 완료", kd.paidDate]];
     const nowIdx = steps.map((x) => x[2].value).filter((v) => isDate(v) && v <= base).length;
     return `<div class="card kd-card"><div class="between"><h3>주요 일자</h3>
@@ -744,10 +745,11 @@ function tabOverviewView(p, el) {
     </div>`;
   })();
   const payColor = { 수금완료: "pay-done", 청구: "pay-billed", 미청구: "pay-todo" };
-  const contractCard = c.amount || c.targetCost || c.actualCost || c.payments.length ? `<div class="card ov-contract">
+  const contractCard = c.amount || o.orderDate || c.targetCost || c.actualCost || c.payments.length ? `<div class="card ov-contract">
       <div class="contract-head">
+        <div><span class="muted small">발주일</span><b>${isDate(o.orderDate) ? esc(fmtDot(o.orderDate)) : empty}</b></div>
         <div><span class="muted small">발주금액 (부가세 ${esc(o.vat || "별도")})</span><b class="amount">${c.amount ? fmtWon(c.amount) : empty}</b>
-          ${c.amount ? `<span class="muted small">금 ${koreanAmount(c.amount)}원정${o.orderDate ? ` · ${esc(fmtDot(o.orderDate))} 발주` : ""}</span>` : ""}</div>
+          ${c.amount ? `<span class="muted small">금 ${koreanAmount(c.amount)}원정</span>` : ""}</div>
         <div><span class="muted small">실행목표가</span><b>${c.targetCost ? fmtWon(c.targetCost) : empty}</b>
           <span class="muted small">${c.targetRate != null ? `목표 이익률 ${pctText(c.targetRate)}` : ""}</span></div>
         <div><span class="muted small">실행가 (인건비 제외)</span><b class="${c.overBudget > 0 ? "bad" : ""}">${c.actualCost ? fmtWon(c.actualCost) : empty}</b>
@@ -761,7 +763,7 @@ function tabOverviewView(p, el) {
         ${badge(x.status === "수금완료" ? "완료" : x.status === "청구" ? "진행" : "예정")}</div>`).join("")}</div>
       ${c.ratioSum !== 100 ? `<p class="bad small">⚠ 정산 비율 합계가 ${c.ratioSum}% 입니다.</p>` : ""}` : `<p class="muted small">정산 비율이 없습니다.</p>`}
       <div class="contract-foot"><button class="btn sm" data-paydlg>⚙ 정산 비율 설정</button></div>
-    </div>` : `<div class="card ov-contract between"><span class="muted small">발주금액·실행가·정산 비율이 아직 없습니다.</span>
+    </div>` : `<div class="card ov-contract between"><span class="muted small">발주일·발주금액·실행가·정산 비율이 아직 없습니다.</span>
       <span class="row2"><button class="btn sm" data-paydlg>⚙ 정산 비율 설정</button><button class="btn sm" data-ovedit>✏️ 정보 수정</button></span></div>`;
 
   el.innerHTML = `

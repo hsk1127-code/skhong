@@ -388,7 +388,8 @@ async function buildWorkbook(p) {
   for (const [k, label] of KEY_DATES.filter(([k]) => k !== "receiveDate")) ovRows.push([{ v: label, s: "head" }, { v: kdx[k].value, s: kdx[k].value ? "date" : "cell" }, { v: kdx[k].auto ? "자동" : "", s: "cell" }]);
   ovRows.push([{ v: "Warranty 기간", s: "head" }, { v: kdx.warranty.text, s: "cell" }, { v: kdx.warranty.state, s: "cell" }]);
   const ci = contractInfo(p);
-  ovRows.push([{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
+  ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
+    [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
   ovRows.push([{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }],
     [{ v: "실행가 (인건비 제외)", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
@@ -677,7 +678,7 @@ const addYears = (s, years) => {
 // 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
 // 주요 일자: 개요에 직접 입력한 값이 있으면 그것을, 없으면 다른 자료에서 자동으로
 // 납품일자는 개요의 입고일자(receiveDate)를 그대로 쓴다
-const KEY_DATES = [["orderDate", "발주일"], ["kickoffDate", "Kick Off 일자"], ["receiveDate", "입고일자 (납품일자)"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
+const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["receiveDate", "입고일자 (납품일자)"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
 function keyDates(p) {
   const o = p.overview, c = contractInfo(p), sm = projectSummary(p);
   const kickoffMeeting = [...p.meetings].filter((m) => /kick|킥오프/i.test(m.title) && isDate(m.date)).sort((a, b) => a.date.localeCompare(b.date))[0];
@@ -685,7 +686,6 @@ function keyDates(p) {
   const paidDates = c.payments.map((x) => x.paidDate).filter(isDate).sort();
   const allPaid = c.payments.length && c.payments.every((x) => x.status === "수금완료");
   const auto = {
-    orderDate: "",
     kickoffDate: kickoffMeeting?.date || o.orderDate || sm.start || "",
     receiveDate: deliveryTask || "",
     setupDate: "",

@@ -34,8 +34,7 @@ const assert = require("assert");
   await p.click("[data-ovmode=edit]");
   assert.strictEqual(await p.inputValue("[data-k=name]"), "테스트_설비");
   // 발주금액·정산 비율
-  await p.fill("#kdForm [data-k=orderDate]", "2026-09-11");
-  await p.locator("#kdForm [data-k=orderDate]").dispatchEvent("change");
+  await p.fill("[data-ck=orderDate]", "2026-09-11");
   await p.type("[data-ck=orderAmount]", "120000000");
   assert.strictEqual(await p.inputValue("[data-ck=orderAmount]"), "120,000,000");
   assert.strictEqual(await p.textContent("#amountWords"), "금 일억이천만원정");
