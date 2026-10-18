@@ -390,8 +390,8 @@ async function buildWorkbook(p) {
   const ci = contractInfo(p);
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
-  ovRows.push([{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }],
-    [{ v: "실행가 (인건비 제외)", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }]);
+  ovRows.push([{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+    [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
     { v: [x.status, x.paidDate || x.due].filter(Boolean).join(" "), s: "cell" }]);
   sheets.push({ name: "개요", cols: [16, 60, 24], rows: ovRows, merges: ["A1:C1"] });
@@ -663,7 +663,7 @@ function contractInfo(p) {
   const rate = (cost) => (amount && cost ? (amount - cost) / amount : null);
   return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
     paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0),
-    // 실행목표가·실행가(인건비 제외)와 이익
+    // 실행가·실행목표가와 이익
     targetCost, actualCost,
     targetProfit: amount && targetCost ? amount - targetCost : null, targetRate: rate(targetCost),
     profit: amount && actualCost ? amount - actualCost : null, profitRate: rate(actualCost),
@@ -761,11 +761,11 @@ async function buildClosingWorkbook(projects) {
     row("정산관련", "지급조건", (x) => txt(x.payTerms)),
     row("", "입금완료일", (x) => date(x.paidDate)),
     row("", "발주가", (x) => money(x.orderAmount)),
+    row("", "실행가", (x) => money(x.actualCost)),
     row("", "실행목표가", (x) => money(x.targetCost)),
-    row("", "실행완료가(인건비제외)", (x) => money(x.actualCost)),
-    row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}16`, v: x.profit, s: "moneyb" } : txt(""))),
+    row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}15`, v: x.profit, s: "moneyb" } : txt(""))),
     row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}17/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
-    [], [null, { v: `※ 이익 = 발주가 - 실행완료가(인건비제외), 이익률 = 이익 / 발주가 · 출력일 ${today()}`, s: "wrap" }],
+    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);

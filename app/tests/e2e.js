@@ -41,7 +41,7 @@ const assert = require("assert");
   // 실행목표가·실행가 → 이익
   await p.type("[data-ck=targetCost]", "80000000");
   await p.type("[data-ck=actualCost]", "90000000");
-  assert.match(await p.textContent("#costView"), /목표 이익40,000,000원[\s\S]*실제 이익30,000,000원[\s\S]*25\.0%[\s\S]*\+10,000,000원/);
+  assert.match(await p.textContent("#costView"), /실제 이익30,000,000원[\s\S]*25\.0%[\s\S]*목표 이익40,000,000원[\s\S]*\+10,000,000원/);
   await p.click('.preset-chip button:text-is("30 : 70")');
   assert.deepStrictEqual(await p.$$eval(".pay-table [data-amt]", (els) => els.map((e) => e.textContent)), ["36,000,000", "84,000,000"]);
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");
