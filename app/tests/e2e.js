@@ -136,7 +136,8 @@ const assert = require("assert");
   assert.strictEqual(await p.inputValue(".actions-table [data-af=due]"), "2026-10-13");
   await p.click(".tabs [data-tab=revisions]");
   const revs = await p.$$eval("[data-grid=revisions] [data-f=content]", (els) => els.map((e) => e.value));
-  assert.strictEqual(revs.filter((v) => v === "회의록: 1차 DR 회의").length, 1);
+  // Revision 은 자료 이력·회의록이 추가될 때만 기록 (BOM 가져오기·정산 설정 등은 기록 안 함)
+  assert.deepStrictEqual(revs, ["신규 작성", "1차 DR 회의"]);
 
   await p.click(".tabs [data-tab=records]");
   assert.strictEqual(await p.textContent(".rec .rec-title"), "전장품 문의");

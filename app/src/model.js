@@ -389,7 +389,6 @@ async function importWorkbook(file, onProgress = () => {}) {
     }
   }
   if (!p.revisions.length) p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: "신규 작성", note: "" });
-  p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: `엑셀에서 가져옴: ${file.name}`, note: "" });
   p.records.sort((a, b) => a.date.localeCompare(b.date));
   p.meetings.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   return p;

@@ -443,7 +443,7 @@ function renderProject(p) {
   $("#exportZip").onclick = () => busy("ZIP 파일을 만드는 중…", async () => download(await buildProjectZip(p), `${p.overview.name}_${today()}.zip`));
   ({ overview: tabOverview, schedule: tabSchedule, records: tabRecords, meetings: tabMeetings, spec: tabSpec, parts: tabParts,
     submissions: (p, el) => el.innerHTML = gridCard(p, "submissions"), changes: (p, el) => el.innerHTML = gridCard(p, "changes"),
-    revisions: (p, el) => el.innerHTML = gridCard(p, "revisions", "작업 내역이 자동으로 기록되며, 직접 추가할 수도 있습니다.") })[tab](p, $("#tab"));
+    revisions: (p, el) => el.innerHTML = gridCard(p, "revisions", "자료 이력·회의록이 추가되면 자동으로 기록되며, 직접 추가할 수도 있습니다.") })[tab](p, $("#tab"));
   bindGrids(p, $("#tab"));
   loadImages($("#tab"));
 }
@@ -607,7 +607,7 @@ function bindContractEdit(p, card) {
         const keep = old.length === stages.length ? old[i] : null;
         return { id: keep?.id || Store.uid(), name, ratio, cond: cond || keep?.cond || "", due: keep?.due || "", paidDate: keep?.paidDate || "", status: keep?.status || "미청구" };
       });
-      Store.touch(p, `정산 비율 설정: ${label}`);
+      Store.touch(p);
       return true;
     };
     if (t.dataset.preset) {
@@ -1125,7 +1125,7 @@ function bindGrids(p, root) {
       const i = rows.findIndex((r) => r.id === tr.dataset.id);
       const [row] = rows.splice(i, 1);
       to.bom.push(row);
-      Store.touch(p, `BOM 이동: ${row.item || row.model || ""} → ${to.name}`);
+      Store.touch(p);
       toast(`'${row.item || row.model || "행"}'을 ${to.name}(으)로 옮겼습니다.`);
       rerender();
     });
@@ -1147,14 +1147,14 @@ function bindGrids(p, root) {
         pickFiles("*/*", true, async (files) => {
           const r = rows[i];
           for (const f of files) r.files.push(await Store.addFile(f, f.name));
-          Store.touch(p, `${def.title} 첨부: ${files.map((f) => f.name).join(", ")}`);
+          Store.touch(p);
           rerender();
         });
       }
     });
     $("[data-addrow]", card).onclick = () => {
       rows.push(blank());
-      Store.touch(p, key === "changes" ? "변경사항 추가" : "");
+      Store.touch(p);
       rerender();
       const last = $$("tbody tr", $(`[data-grid="${key}"]`)).pop();
       $("input, textarea", last)?.focus();
@@ -1199,7 +1199,7 @@ function tabRecords(p, el) {
     const r = p.records.find((x) => x.id === b.dataset.delrec);
     if (!confirm(`'${r.title}' 자료와 첨부 파일을 삭제할까요?`)) return;
     p.records = p.records.filter((x) => x !== r);
-    Store.touch(p, `자료 삭제: ${r.title}`);
+    Store.touch(p);
     await Store.gc();
     rerender();
   }));
@@ -1232,7 +1232,8 @@ function recordDialog(p, rec) {
       to: form.to.value.trim(), memo: form.memo.value });
     if (rec) Object.assign(rec, d);
     else p.records.push(d);
-    Store.touch(p, rec ? `자료 수정: ${d.title}` : d.title, `자료 이력 · ${d.kind} (${fmtDot(d.date)})`);
+    if (rec) Store.touch(p);
+    else Store.addRevision(p, d.title, `자료 이력 · ${d.kind} (${fmtDot(d.date)})`);
     rerender();
   }, { wide: true, onOpen: (dlg) => {
     refresh(dlg);
@@ -1289,7 +1290,7 @@ function tabMeetings(p, el) {
   ed.addEventListener("change", (e) => {
     if (e.target.dataset.mf !== "title" || !cur.title.trim() || cur.logged) return;
     cur.logged = true;
-    Store.touch(p, `회의록: ${cur.title.trim()}`, `직접 작성 (${fmtDot(cur.date)})`);
+    Store.addRevision(p, cur.title.trim(), `회의록 · ${fmtDot(cur.date)}`);
   });
   ed.addEventListener("input", (e) => {
     const t = e.target;
@@ -1311,7 +1312,7 @@ function tabMeetings(p, el) {
       if (!confirm(`'${cur.title}' 회의록을 삭제할까요?`)) return;
       p.meetings = p.meetings.filter((m) => m !== cur);
       route.meeting = null;
-      Store.touch(p, `회의록 삭제: ${cur.title}`);
+      Store.touch(p);
       await Store.gc();
     } else return;
     Store.touch(p);
@@ -1320,7 +1321,7 @@ function tabMeetings(p, el) {
   });
   attachDropzone($(".dropzone", ed), async (files) => {
     for (const f of files) cur.files.push(await Store.addFile(f, f.name));
-    Store.touch(p, `회의록 첨부: ${files.map((f) => f.name).join(", ")}`);
+    Store.touch(p);
     tabMeetings(p, el);
     loadImages(el);
   }, ed);
@@ -1354,7 +1355,7 @@ async function importMeetings(p, files) {
         p.meetings.push(m);
         lastId = m.id;
         added++;
-        Store.touch(p, `회의록: ${m.title}`, `엑셀 가져오기 · ${file.name} (${fmtDot(m.date)})`);
+        Store.addRevision(p, m.title, `회의록 · ${fmtDot(m.date)} (엑셀 가져오기)`);
       }
     }
     await Store.gc();
@@ -1455,7 +1456,7 @@ function reportDialog(p) {
   async (form) => {
     save(form);
     download(await buildClosingWorkbook([p]), `완료프로젝트_마감보고서_${o.name}_${today()}.xlsx`);
-    Store.touch(p, "완료 프로젝트 마감 보고서 다운로드", `엑셀 · 완료일 ${fmtDot(r.completedDate)}`);
+    Store.touch(p);
     rerender();
     toast("마감 보고서 엑셀을 내려받았습니다.");
   }, { wide: true, okLabel: "📊 엑셀 보고서 다운로드", onOpen: (dlg, form) => {
@@ -1466,7 +1467,7 @@ function reportDialog(p) {
     $(".actions", dlg).insertBefore(pdf, $(".actions .primary", dlg));
     pdf.onclick = () => {
       save(form);
-      Store.touch(p, "프로젝트 완료 보고서 출력", `PDF · 완료일 ${fmtDot(r.completedDate)}`);
+      Store.touch(p);
       $("#print").innerHTML = reportHtml(p, { writer: form.writer.value.trim(), meetings: form.incMeetings.checked,
         changes: form.incChanges.checked, records: form.incRecords.checked, bom: form.incBom.checked });
       dlg.close();
@@ -1659,7 +1660,7 @@ function tabSpec(p, el) {
   const card = el.lastElementChild;
   attachDropzone($(".dropzone", card), async (files) => {
     for (const f of files) p.hwImages.push(await Store.addFile(f, f.name));
-    Store.touch(p, `HW 주요 Spec 자료 추가: ${files.map((f) => f.name).join(", ")}`);
+    Store.touch(p);
     rerender();
   }, card);
   card.addEventListener("click", async (e) => {
@@ -1727,19 +1728,19 @@ function tabParts(p, el) {
   if (undo) $("#partsUndo").onclick = () => {
     setPartRows(p, key, undo.rows);
     partsUndo = null;
-    Store.touch(p, `${partTitle(p, key)} 되돌리기: ${undo.label}`);
+    Store.touch(p);
     rerender();
   };
   if (unit) {
     $("#unitName").onchange = (e) => {
       const old = unit.name;
       unit.name = e.target.value.trim() || old;
-      Store.touch(p, `설비 이름 변경: ${old} → ${unit.name}`);
+      Store.touch(p);
       rerender();
     };
     $("#unitQty").onchange = (e) => {
       unit.qty = Math.max(0, Number(String(e.target.value).replace(/[^\d.]/g, "")) || 0);
-      Store.touch(p, `설비 대수 변경: ${unit.name} ×${unit.qty}`);
+      Store.touch(p);
       rerender();
     };
     $("#delUnit").onclick = () => {
@@ -1748,7 +1749,7 @@ function tabParts(p, el) {
       p.units = units.filter((u) => u !== unit);
       delete p.listFiles[key];
       route.unit = p.units[0].id;
-      Store.touch(p, `설비 삭제: ${unit.name}`);
+      Store.touch(p);
       Store.gc();
       rerender();
     };
@@ -1774,7 +1775,7 @@ function tabParts(p, el) {
       const u = { id: Store.uid(), name: name.trim(), qty, bom: [] };
       units.push(u);
       route.unit = u.id;
-      Store.touch(p, `설비 추가: ${u.name} ×${qty}`);
+      Store.touch(p);
       rerender();
     });
     $("#syncUnits")?.addEventListener("click", () => {
@@ -1786,7 +1787,7 @@ function tabParts(p, el) {
         if (!u) { units.push({ id: Store.uid(), name: x.name, qty: x.qty, bom: [] }); added++; }
         else if (Number(u.qty) !== x.qty) { u.qty = x.qty; changed++; }
       }
-      Store.touch(p, added || changed ? `사업 범위에서 설비 가져오기: 추가 ${added}, 대수 변경 ${changed}` : "");
+      Store.touch(p);
       toast(added || changed ? `설비 ${added}개 추가, 대수 ${changed}개 변경했습니다.` : "사업 범위와 설비 목록이 이미 같습니다.");
       rerender();
     });
@@ -1855,7 +1856,7 @@ async function partsImportDialog(p, key, file) {
       p.listFiles ||= {};
       (p.listFiles[target] ||= []).push(await Store.addFile(file, file.name));
     }
-    Store.touch(p, `${partTitle(p, target)} 엑셀 가져오기: ${file.name}`, `${cur.sh.name} 시트, ${stats.after}행`);
+    Store.touch(p);
     if (target.startsWith("unit:")) { route.sub = "bom"; route.unit = target.slice(5); } else route.sub = target;
     rerender();
     toast(`${stats.after}행을 가져왔습니다.`);
@@ -1898,7 +1899,7 @@ function partsOrganizeDialog(p, key) {
     const { rows, stats } = run(form);
     partsUndo = { pid: p.id, key, rows: structuredClone(listRows(p, key)), label: "자동 정리" };
     setPartRows(p, key, rows);
-    Store.touch(p, `${partTitle(p, key)} 자동 정리`, organizeSummary(stats).replace(/<[^>]+>/g, ""));
+    Store.touch(p);
     rerender();
     toast("정리했습니다. 마음에 들지 않으면 ↩ 되돌리기를 누르세요.", 4000);
   }, { wide: true, okLabel: "정리하기", onOpen: (dlg, form) => {

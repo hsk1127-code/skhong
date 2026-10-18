@@ -85,11 +85,15 @@ const Store = (() => {
     };
   }
 
-  // revision 을 주면 Revision 목록에 오늘 날짜로 자동 기록
-  function touch(p, revision, note = "") {
+  // 변경 저장 (Revision 은 남기지 않음)
+  function touch(p) {
     p.updated = today();
-    if (revision) p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content: revision, note });
     changed();
+  }
+  // Revision 기록: 자료 이력·회의록이 추가될 때만 사용
+  function addRevision(p, content, note = "") {
+    p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content, note });
+    touch(p);
   }
 
   // ------------------------------------------------------------ backup
@@ -125,7 +129,7 @@ const Store = (() => {
   }
 
   return {
-    open, flush, changed, touch, uid, addFile, fileMeta, getBlob, gc, newProject, exportBackup, importBackup,
+    open, flush, changed, touch, addRevision, uid, addFile, fileMeta, getBlob, gc, newProject, exportBackup, importBackup,
     get state() { return state; },
     get projects() { return state.projects; },
     project: (id) => state.projects.find((p) => p.id === id),
