@@ -384,6 +384,11 @@ async function buildWorkbook(p) {
   for (const x of ov.extra) ovRows.push([{ v: x.label, s: "head" }, { v: x.value, s: "cell" }, { v: "", s: "cell" }]);
   ovRows.push([{ v: "상태", s: "head" }, { v: ov.status, s: "cell" }, { v: "", s: "cell" }],
     [{ v: "담당자", s: "head" }, { v: ov.manager, s: "cell" }, { v: "", s: "cell" }]);
+  const ci = contractInfo(p);
+  ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
+    [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
+  for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
+    { v: [x.status, x.paidDate || x.due].filter(Boolean).join(" "), s: "cell" }]);
   sheets.push({ name: "개요", cols: [16, 60, 24], rows: ovRows, merges: ["A1:C1"] });
 
   sheets.push(table("sw"));
@@ -594,4 +599,43 @@ function organizeParts(input, { fillKind = true, merge = true, group = true } = 
   }
   stats.after = out.filter((r) => !/^■/.test(r.item)).length;
   return { rows: out, stats };
+}
+
+// ------------------------------------------------------------- 계약·정산
+const PAYMENT_STATUSES = ["미청구", "청구", "수금완료"];
+const PAYMENT_PRESETS = {
+  "30 : 70": [["선급금", 30, "발주 후"], ["잔금", 70, "납품·검수 후"]],
+  "30 : 40 : 30": [["선급금", 30, "발주 후"], ["중도금", 40, "출하 전"], ["잔금", 30, "검수 후"]],
+  "10 : 80 : 10": [["선급금", 10, "발주 후"], ["중도금", 80, "납품 후"], ["잔금", 10, "하자보증 후"]],
+  "100": [["일시불", 100, "검수 후"]],
+};
+const toAmount = (v) => Number(String(v ?? "").replace(/[^\d.-]/g, "")) || 0;
+const fmtWon = (n) => (n ? `${Math.round(n).toLocaleString("ko-KR")}원` : "-");
+// 120000000 → "일억이천만"
+function koreanAmount(n) {
+  n = Math.floor(n);
+  if (!n) return "영";
+  const digits = ["", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구"];
+  const small = ["", "십", "백", "천"], big = ["", "만", "억", "조"];
+  let out = "", unit = 0;
+  while (n > 0) {
+    const part = n % 10000;
+    if (part) {
+      let s = "";
+      String(part).padStart(4, "0").split("").forEach((d, i) => { if (+d) s += digits[+d] + small[3 - i]; });
+      out = s + big[unit] + out;
+    }
+    n = Math.floor(n / 10000);
+    unit++;
+  }
+  return out;
+}
+function contractInfo(p) {
+  const o = p.overview;
+  const amount = toAmount(o.orderAmount);
+  const payments = (o.payments || []).map((x) => ({ ...x, amount: Math.round((amount * (Number(x.ratio) || 0)) / 100) }));
+  const ratioSum = payments.reduce((a, x) => a + (Number(x.ratio) || 0), 0);
+  const paid = payments.filter((x) => x.status === "수금완료");
+  return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
+    paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0) };
 }

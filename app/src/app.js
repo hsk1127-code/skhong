@@ -378,6 +378,10 @@ function renderSearch() {
 
 // ------------------------------------------------------------- 프로젝트 화면
 function renderProject(p) {
+  // 예전 버전에서 만든 프로젝트에 새 항목 채우기
+  Object.assign(p.overview, { orderDate: p.overview.orderDate ?? "", orderAmount: p.overview.orderAmount ?? "",
+    vat: p.overview.vat || "별도", payments: p.overview.payments || [] });
+  p.report ||= { summary: "", issues: "", warrantyNote: "", completedDate: "" };
   const tab = TABS.some(([k]) => k === route.tab) ? route.tab : "overview";
   const s = projectSummary(p);
   const counts = { records: p.records.length, meetings: p.meetings.length, schedule: s.delayed.length ? `⚠${s.delayed.length}` : "",
@@ -390,12 +394,14 @@ function renderProject(p) {
       <div class="row2">
         <button class="btn" id="exportXlsx" title="이 프로젝트를 기존 양식의 엑셀 파일로 저장">📊 엑셀로 내보내기</button>
         <button class="btn" id="exportZip" title="엑셀 + 첨부 원본 파일을 폴더 구조로 저장">🗂 전체 자료 ZIP</button>
+        <button class="btn ${p.overview.status === "완료" ? "primary" : ""}" id="reportBtn" title="프로젝트 완료 보고서를 인쇄하거나 PDF로 저장">📄 완료 보고서</button>
       </div>
     </div>
     <nav class="tabs">${TABS.map(([k, label]) => `<button data-tab="${k}" class="${k === tab ? "active" : ""}">${label}${counts[k] ? ` <small>${counts[k]}</small>` : ""}</button>`).join("")}</nav>
     <section id="tab"></section>`;
   $$(".tabs button").forEach((b) => (b.onclick = () => go({ view: "project", id: p.id, tab: b.dataset.tab })));
   $("#exportXlsx").onclick = () => busy("엑셀 파일을 만드는 중…", async () => download(await buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`));
+  $("#reportBtn").onclick = () => reportDialog(p);
   $("#exportZip").onclick = () => busy("ZIP 파일을 만드는 중…", async () => download(await buildProjectZip(p), `${p.overview.name}_${today()}.zip`));
   ({ overview: tabOverview, schedule: tabSchedule, records: tabRecords, meetings: tabMeetings, spec: tabSpec, parts: tabParts,
     submissions: (p, el) => el.innerHTML = gridCard(p, "submissions"), changes: (p, el) => el.innerHTML = gridCard(p, "changes"),
@@ -430,22 +436,14 @@ function tabOverviewEdit(p, el) {
       <input data-ex="${i}" data-f="value" value="${esc(x.value)}" placeholder="내용"><button class="icon" data-exdel="${i}">✕</button></div>`).join("")}</div>
     <button class="btn sm" id="addExtra">＋ 항목 추가</button>
     <div class="danger-zone"><button class="btn danger sm" id="delProject">프로젝트 삭제</button></div></div>
-    <div class="card"><h3>현황</h3>
-      ${s.progress !== null ? `<div class="between small"><span>${esc(fmtDot(s.start))}</span><span>${esc(fmtDot(s.end))}</span></div>
-      <div class="progress big"><span style="width:${s.progress}%"></span></div><p>전체 기간 경과 <b>${s.progress}%</b> · 종료 ${dday(s.end)}</p>` : `<p class="muted">일정 탭에서 일정을 등록하면 진행률이 표시됩니다.</p>`}
-      <ul class="stats">
-        <li><span>지연 일정</span><b class="${s.delayed.length ? "bad" : ""}">${s.delayed.length}</b></li>
-        <li><span>진행 중 일정</span><b>${s.active.length}</b></li>
-        <li><span>다음 일정</span><b>${s.next ? `${esc(s.next.name)} (${esc(fmtDot(s.next.start))})` : "-"}</b></li>
-        <li><span>자료 이력</span><b>${p.records.length}건</b></li>
-        <li><span>회의록 / 미완료 의제</span><b>${p.meetings.length}건 / ${s.openActions.length}건</b></li>
-        <li><span>BOM / 소모품 / 지정품</span><b>${p.lists.bom.length} / ${p.lists.consumables.length} / ${p.lists.supplied.length}</b></li>
-        <li><span>미제출 자료</span><b>${s.pendingSubmissions.length}건</b></li>
-        <li><span>변경사항</span><b>${p.lists.changes.length}건</b></li>
-      </ul></div></div>`;
-  $$("[data-k]", el).forEach((inp) => (inp.oninput = () => {
+    <div class="card" id="contractCard">${contractEditHtml(p)}</div></div>`;
+  bindContractEdit(p, $("#contractCard", el));
+  $$("#ovForm [data-k]", el).forEach((inp) => (inp.oninput = () => {
+    const before = o[inp.dataset.k];
     o[inp.dataset.k] = inp.value;
     Store.touch(p);
+    if (inp.dataset.k === "status" && inp.value === "완료" && before !== "완료")
+      toast("프로젝트를 완료로 바꿨습니다. 위쪽 📄 완료 보고서 버튼으로 보고서를 출력할 수 있습니다.", 6000);
     if (["name", "status", "customer"].includes(inp.dataset.k)) {
       renderSidebar();
       $(".page-head h1").innerHTML = `${esc(o.name)} ${badge(o.status)}`;
@@ -461,6 +459,72 @@ function tabOverviewEdit(p, el) {
     await Store.gc();
     go({ view: "home" });
   };
+}
+
+// ------------------------------------------------------------- 계약·정산 (정보 수정 화면)
+function contractEditHtml(p) {
+  const o = p.overview, c = contractInfo(p);
+  return `<h3>계약 · 정산</h3>
+    <div class="form">
+      <label>발주일<input type="date" data-ck="orderDate" value="${esc(o.orderDate)}"></label>
+      <label>부가세<select data-ck="vat">${opts(["별도", "포함"], o.vat || "별도")}</select></label>
+      <label class="full">발주금액 (원)<input data-ck="orderAmount" inputmode="numeric" value="${c.amount ? c.amount.toLocaleString("ko-KR") : ""}" placeholder="예: 120,000,000">
+        <span class="muted small" id="amountWords">${c.amount ? `금 ${koreanAmount(c.amount)}원정` : ""}</span></label>
+    </div>
+    <div class="between" style="margin-top:14px"><h4 style="margin:0">정산 비율</h4>
+      <span class="row2 small">${Object.keys(PAYMENT_PRESETS).map((k) => `<button class="btn sm" data-preset="${k}">${k}</button>`).join("")}</span></div>
+    <table class="grid-table pay-table"><thead><tr><th>구분</th><th>비율(%)</th><th>금액</th><th>지급 조건</th><th>예정일</th><th>정산일</th><th>상태</th><th></th></tr></thead>
+    <tbody>${c.payments.map((x) => `<tr data-id="${x.id}">
+      <td><input data-pf="name" value="${esc(x.name)}" style="width:70px"></td>
+      <td><input data-pf="ratio" inputmode="decimal" value="${esc(x.ratio)}" style="width:52px"></td>
+      <td class="num" data-amt>${x.amount ? x.amount.toLocaleString("ko-KR") : "-"}</td>
+      <td><input data-pf="cond" value="${esc(x.cond)}" style="width:96px"></td>
+      <td><input type="date" data-pf="due" value="${esc(x.due)}" style="width:140px"></td>
+      <td><input type="date" data-pf="paidDate" value="${esc(x.paidDate)}" style="width:140px"></td>
+      <td><select data-pf="status">${opts(PAYMENT_STATUSES, x.status || "미청구")}</select></td>
+      <td><button class="icon" data-pdel title="삭제">✕</button></td></tr>`).join("") || `<tr><td colspan="8" class="muted center pad">위의 비율 버튼을 누르거나 ＋ 단계 추가로 입력하세요.</td></tr>`}</tbody>
+    <tfoot><tr><td><b>합계</b></td><td class="num ${c.payments.length && c.ratioSum !== 100 ? "bad" : ""}"><b>${c.ratioSum}%</b></td>
+      <td class="num"><b>${fmtWon(c.payments.reduce((a, x) => a + x.amount, 0))}</b></td>
+      <td colspan="5" class="small ${c.payments.length && c.ratioSum !== 100 ? "bad" : "muted"}">${c.payments.length && c.ratioSum !== 100 ? "⚠ 비율 합계가 100%가 아닙니다" : `정산 완료 ${c.paidRatio}% · ${fmtWon(c.paidAmount)}`}</td></tr></tfoot></table>
+    <button class="btn sm" data-padd>＋ 단계 추가</button>`;
+}
+function bindContractEdit(p, card) {
+  const o = p.overview;
+  const redraw = () => { card.innerHTML = contractEditHtml(p); };
+  card.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.dataset.ck === "orderAmount") {
+      const n = toAmount(t.value);
+      o.orderAmount = n ? String(n) : "";
+      const pos = t.value.length - t.selectionStart;
+      t.value = n ? n.toLocaleString("ko-KR") : "";
+      t.setSelectionRange(Math.max(0, t.value.length - pos), Math.max(0, t.value.length - pos));
+      $("#amountWords", card).textContent = n ? `금 ${koreanAmount(n)}원정` : "";
+      contractInfo(p).payments.forEach((x) => { const td = $(`tr[data-id="${x.id}"] [data-amt]`, card); if (td) td.textContent = x.amount ? x.amount.toLocaleString("ko-KR") : "-"; });
+    } else if (t.dataset.ck) o[t.dataset.ck] = t.value;
+    else if (t.dataset.pf) {
+      const x = o.payments.find((y) => y.id === t.closest("tr").dataset.id);
+      x[t.dataset.pf] = t.value;
+      if (t.dataset.pf === "paidDate" && t.value && x.status !== "수금완료") x.status = "수금완료";
+    } else return;
+    Store.touch(p);
+  });
+  card.addEventListener("change", (e) => { if (["ratio", "status", "paidDate"].includes(e.target.dataset.pf)) redraw(); });
+  card.addEventListener("click", (e) => {
+    const t = e.target;
+    if (t.dataset.preset) {
+      if (o.payments.length && !confirm("정산 비율을 새로 채울까요? (지금 입력된 단계는 지워집니다)")) return;
+      o.payments = PAYMENT_PRESETS[t.dataset.preset].map(([name, ratio, cond]) => ({ id: Store.uid(), name, ratio, cond, due: "", paidDate: "", status: "미청구" }));
+      Store.touch(p, `정산 비율 설정: ${t.dataset.preset}`);
+    } else if ("padd" in t.dataset) {
+      o.payments.push({ id: Store.uid(), name: "", ratio: Math.max(0, 100 - contractInfo(p).ratioSum), cond: "", due: "", paidDate: "", status: "미청구" });
+      Store.touch(p);
+    } else if ("pdel" in t.dataset) {
+      o.payments = o.payments.filter((y) => y.id !== t.closest("tr").dataset.id);
+      Store.touch(p);
+    } else return;
+    redraw();
+  });
 }
 
 // ------------------------------------------------------------- 개요 (요약 / 정보 수정)
@@ -532,6 +596,22 @@ function tabOverviewView(p, el) {
   const upcoming = tasks.filter((x) => x.i.status !== "완료" && isDate(x.t.end) && dayNo(x.t.end) >= dayNo(base))
     .sort((x, y) => (x.i.status === "진행" ? x.t.end : x.t.start).localeCompare(y.i.status === "진행" ? y.t.end : y.t.start)).slice(0, 5);
   const revs = [...p.revisions].reverse().slice(0, 6);
+  const c = contractInfo(p);
+  const payColor = { 수금완료: "pay-done", 청구: "pay-billed", 미청구: "pay-todo" };
+  const contractCard = c.amount || o.orderDate || c.payments.length ? `<div class="card ov-contract">
+      <div class="contract-head">
+        <div><span class="muted small">발주일</span><b>${o.orderDate ? esc(fmtDot(o.orderDate)) : empty}</b></div>
+        <div><span class="muted small">발주금액 (부가세 ${esc(o.vat || "별도")})</span><b class="amount">${c.amount ? fmtWon(c.amount) : empty}</b>
+          ${c.amount ? `<span class="muted small">금 ${koreanAmount(c.amount)}원정</span>` : ""}</div>
+        <div><span class="muted small">정산 진행</span><b>${c.paidRatio}%</b><span class="muted small">${fmtWon(c.paidAmount)} 수금</span></div>
+      </div>
+      ${c.payments.length ? `<div class="paybar">${c.payments.map((x) => `<span class="${payColor[x.status] || "pay-todo"}" style="flex:${Number(x.ratio) || 0}" title="${esc(x.name)} ${esc(x.ratio)}% · ${x.status}"></span>`).join("")}</div>
+      <div class="paylist">${c.payments.map((x) => `<div class="payitem"><span class="dot2 ${payColor[x.status] || "pay-todo"}"></span>
+        <div><b>${esc(x.name)} ${esc(x.ratio)}%</b><span>${fmtWon(x.amount)}</span>
+        <span class="muted small">${esc(x.cond || "")}${x.status === "수금완료" && x.paidDate ? ` · ${esc(fmtDot(x.paidDate))} 수금` : x.due ? ` · ${esc(fmtDot(x.due))} 예정` : ""}</span></div>
+        ${badge(x.status === "수금완료" ? "완료" : x.status === "청구" ? "진행" : "예정")}</div>`).join("")}</div>
+      ${c.ratioSum !== 100 ? `<p class="bad small">⚠ 정산 비율 합계가 ${c.ratioSum}% 입니다.</p>` : ""}` : `<p class="muted small">정산 비율이 없습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}
+    </div>` : `<div class="card ov-contract muted small">발주일·발주금액·정산 비율이 아직 없습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</div>`;
 
   el.innerHTML = `
     <div class="card ov-hero">
@@ -557,6 +637,7 @@ function tabOverviewView(p, el) {
       <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
     </div>
 
+    ${contractCard}
     ${strip}
 
     <div class="stats-row">
@@ -581,7 +662,7 @@ function tabOverviewView(p, el) {
         : `<p class="muted small">기록이 없습니다.</p>`}</div>
     </div>`;
   bindGoto(el);
-  $("[data-ovedit]", el)?.addEventListener("click", (e) => { e.preventDefault(); route.ovMode = "edit"; rerender(); });
+  $$("[data-ovedit]", el).forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); route.ovMode = "edit"; rerender(); }));
 }
 
 // ------------------------------------------------------------- 일정 (간트)
@@ -624,6 +705,7 @@ function tabScheduleEdit(p, el) {
     if (!tr) return;
     const t = find(tr), f = e.target.dataset.f;
     t[f] = f === "done" ? e.target.checked : e.target.value;
+    if (f === "done") t.doneDate = t.done ? today() : "";
     if (f === "start" && isDate(t.start) && (!isDate(t.end) || t.end < t.start)) { t.end = t.start; $("[data-f=end]", tr).value = t.end; }
     Store.touch(p);
     if (["done", "start", "end"].includes(f)) {
@@ -1135,6 +1217,133 @@ function printMeeting(p, m) {
     <tr><th>특이사항</th><td colspan="3">${nl2br(m.notes)}</td></tr></table>
     <p class="pfoot">${esc(p.overview.name)}</p>`;
   window.print();
+}
+
+// ------------------------------------------------------------- 프로젝트 완료 보고서
+function reportDialog(p) {
+  const o = p.overview, r = p.report, sm = projectSummary(p);
+  const lastDone = p.schedule.map((t) => t.doneDate).filter(isDate).sort().pop();
+  const completed = r.completedDate || (o.status === "완료" ? lastDone || sm.end : "") || today();
+  const warrantyDefault = o.warranty ? `하자보증기간: ${o.warranty}${o.receiveDate ? ` (입고일 ${fmtDot(o.receiveDate)} 기준)` : ""}` : "";
+  openDialog(`<h3>📄 프로젝트 완료 보고서</h3>
+    ${o.status !== "완료" ? `<div class="notice">이 프로젝트는 아직 <b>${esc(o.status)}</b> 상태입니다.
+      <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone" checked> 출력하면서 상태를 '완료'로 바꾸기</label></div>` : ""}
+    <div class="form">
+      <label>완료일<input type="date" name="completedDate" value="${esc(completed)}"></label>
+      <label>작성자<input name="writer" value="${esc(Store.state.settings.user || o.manager)}"></label>
+      <label class="full">성과 요약<textarea name="summary" rows="4" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료. 계획 대비 3일 단축.">${esc(r.summary)}</textarea></label>
+      <label class="full">문제점 및 개선사항<textarea name="issues" rows="3" placeholder="예: 전장품 사양 변경으로 BOM 재등록 발생 → 초기 사양 협의 단계에서 메이커리스트 확정 필요">${esc(r.issues)}</textarea></label>
+      <label class="full">하자보증 · 후속 조치<textarea name="warrantyNote" rows="2">${esc(r.warrantyNote || warrantyDefault)}</textarea></label>
+    </div>
+    <h4>보고서에 넣을 목록</h4>
+    <div class="opts row-opts">
+      <label><input type="checkbox" name="incMeetings" checked> 회의 및 의사결정 (${p.meetings.length})</label>
+      <label><input type="checkbox" name="incChanges" checked> 변경사항 (${p.lists.changes.length})</label>
+      <label><input type="checkbox" name="incRecords" checked> 자료 이력 (${p.records.length})</label>
+      <label><input type="checkbox" name="incBom" ${p.lists.bom.length ? "" : "disabled"}> BOM 목록 (${p.lists.bom.length})</label>
+    </div>
+    <p class="muted small">인쇄 창에서 대상(프린터)을 <b>PDF로 저장</b>으로 고르면 PDF 파일로 저장됩니다.</p>`,
+  (form) => {
+    Object.assign(r, { completedDate: form.completedDate.value, summary: form.summary.value, issues: form.issues.value, warrantyNote: form.warrantyNote.value });
+    if (form.markDone?.checked) o.status = "완료";
+    Store.touch(p, "프로젝트 완료 보고서 출력", `완료일 ${fmtDot(r.completedDate)}`);
+    $("#print").innerHTML = reportHtml(p, { writer: form.writer.value.trim(), meetings: form.incMeetings.checked,
+      changes: form.incChanges.checked, records: form.incRecords.checked, bom: form.incBom.checked });
+    rerender();
+    setTimeout(() => window.print(), 50);
+  }, { wide: true, okLabel: "🖨 인쇄 / PDF 저장" });
+}
+
+function reportHtml(p, inc) {
+  const o = p.overview, r = p.report, base = r.completedDate || today();
+  const sm = projectSummary(p, base), c = contractInfo(p);
+  const v = (x) => (x ? esc(x) : "-");
+  const d = (x) => (isDate(x) ? esc(fmtDot(x)) : v(x));
+  let n = 0;
+  const h2 = (t) => `<h2>${++n}. ${t}</h2>`;
+  const table = (heads, rows, empty = "해당 없음") => rows.length
+    ? `<table class="rp-t"><thead><tr>${heads.map((x) => `<th>${x}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((x) => `<td>${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+    : `<p class="rp-none">${empty}</p>`;
+
+  // 일정 실적: 단계별 계획 대비 완료
+  const groups = [];
+  for (const t of p.schedule) {
+    const g = groups.find((x) => x.phase === (t.phase || "기타"));
+    if (g) g.items.push(t); else groups.push({ phase: t.phase || "기타", items: [t] });
+  }
+  const suspect = suspectTasks(p.schedule);
+  const phaseRows = groups.map((g) => {
+    const dated = g.items.filter((t) => isDate(t.start) && !suspect.has(t.id));
+    const done = g.items.filter((t) => t.done).length;
+    const actual = g.items.map((t) => t.doneDate).filter(isDate).sort().pop();
+    const planEnd = dated.map((t) => t.end).filter(isDate).sort().pop();
+    return [esc(g.phase), d(dated.map((t) => t.start).sort()[0]), d(planEnd), d(actual), `${done} / ${g.items.length}`,
+      done === g.items.length ? "완료" : `<b class="rp-bad">미완료</b>`];
+  });
+  const planDays = sm.start && sm.end ? dayNo(sm.end) - dayNo(sm.start) + 1 : 0;
+  const diff = sm.end && isDate(r.completedDate) ? dayNo(r.completedDate) - dayNo(sm.end) : null;
+  const doneCount = p.schedule.filter((t) => t.done).length;
+
+  const openTasks = p.schedule.filter((t) => !t.done);
+  const unpaid = c.payments.filter((x) => x.status !== "수금완료");
+  const pending = [
+    // 미완료 일정은 단계별로 한 줄씩
+    ...groups.map((g) => [g.phase, g.items.filter((t) => !t.done)]).filter(([, l]) => l.length)
+      .map(([ph, l]) => `일정 미완료 · <b>${esc(ph)}</b> ${l.length}건: ${l.map((t) => `${esc(t.name.replace(/^[-\s└┗]+/, ""))}${isDate(t.end) ? ` (${esc(fmtDot(t.end).slice(5))})` : ""}`).join(", ")}`),
+    ...sm.openActions.map((a) => `실천 의제 미완료: ${esc(a.text)} (${v(a.owner)}, ${d(a.due)})`),
+    ...sm.pendingSubmissions.map((x) => `미제출 자료: ${esc(x.item)}${x.to ? ` → ${esc(x.to)}` : ""}`),
+    ...unpaid.map((x) => `미수금: ${esc(x.name)} ${esc(x.ratio)}% ${fmtWon(x.amount)} (${esc(x.status)})`),
+  ];
+  const para = (t) => (t ? `<div class="rp-para">${nl2br(t)}</div>` : `<p class="rp-none">-</p>`);
+
+  return `<div class="rp">
+    <div class="rp-top"><div><div class="rp-kicker">${v(o.customer)}</div><h1>프로젝트 완료 보고서</h1></div>
+      <table class="rp-sign"><tr><th rowspan="2">결<br>재</th><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table></div>
+    <table class="rp-meta"><tr><th>프로젝트</th><td colspan="3"><b>${v(o.project || o.name)}</b></td></tr>
+      <tr><th>설비/품목명</th><td>${v(o.name)}</td><th>고객사</th><td>${v(o.customer)}</td></tr>
+      <tr><th>보고일</th><td>${d(today())}</td><th>작성자</th><td>${v(inc.writer)}</td></tr></table>
+
+    ${h2("프로젝트 개요")}
+    <table class="rp-kv"><tr><th>Project No</th><td>${v(o.projectNo)}</td><th>Part No</th><td>${v(o.partNo)}</td></tr>
+      <tr><th>입고일자</th><td>${d(o.receiveDate)}</td><th>입고 장소</th><td>${v(o.receivePlace)}</td></tr>
+      <tr><th>담당자</th><td>${v(o.manager)}</td><th>하자보증기간</th><td>${v(o.warranty)}</td></tr>
+      <tr><th>사업 범위</th><td colspan="3">${o.scope ? nl2br(o.scope) : "-"}</td></tr>
+      ${o.extra.filter((x) => x.label).map((x) => `<tr><th>${esc(x.label)}</th><td colspan="3">${v(x.value)}</td></tr>`).join("")}</table>
+
+    ${h2("계약 및 정산")}
+    <table class="rp-kv"><tr><th>발주일</th><td>${d(o.orderDate)}</td><th>부가세</th><td>${v(o.vat)}</td></tr>
+      <tr><th>발주금액</th><td colspan="3">${c.amount ? `<b>${fmtWon(c.amount)}</b> (금 ${koreanAmount(c.amount)}원정)` : "-"}</td></tr>
+      <tr><th>정산 현황</th><td colspan="3">${c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : "-"}</td></tr></table>
+    ${c.payments.length ? table(["구분", "비율", "금액", "지급 조건", "예정일", "정산일", "상태"],
+      c.payments.map((x) => [v(x.name), `${v(x.ratio)}%`, `<span class="rp-num">${fmtWon(x.amount)}</span>`, v(x.cond), d(x.due), d(x.paidDate), v(x.status)])) : ""}
+
+    ${h2("일정 실적")}
+    <table class="rp-kv"><tr><th>계획 기간</th><td>${sm.start ? `${d(sm.start)} ~ ${d(sm.end)} (${planDays}일)` : "-"}</td><th>완료일</th><td>${d(r.completedDate)}</td></tr>
+      <tr><th>계획 대비</th><td>${diff === null ? "-" : diff === 0 ? "계획대로 완료" : diff < 0 ? `<b>${-diff}일 단축</b>` : `<b class="rp-bad">${diff}일 지연</b>`}</td>
+      <th>완료 일정</th><td>${doneCount} / ${p.schedule.length}건</td></tr></table>
+    ${table(["단계", "계획 시작", "계획 종료", "실제 완료", "완료/전체", "상태"], phaseRows)}
+
+    ${inc.meetings ? `${h2("회의 및 의사결정")}${table(["일자", "회의", "실천 의제"], [...p.meetings].sort((a, b) => (a.date || "").localeCompare(b.date || ""))
+      .map((m) => [d(m.date), esc(m.title), m.actions.filter((a) => a.text).map((a) => `${a.done ? "☑" : "☐"} ${esc(a.text)}${a.owner ? ` (${esc(a.owner)})` : ""}`).join("<br>") || "-"]))}` : ""}
+    ${inc.changes ? `${h2("변경 사항")}${table(["일자", "요청자", "변경 내용", "비고"], p.lists.changes.map((x) => [d(x.date), v(x.requester), nl2br(x.content), v(x.note)]))}` : ""}
+    ${inc.records ? `${h2("자료 이력")}${table(["일자", "구분", "제목", "첨부"], [...p.records].sort((a, b) => a.date.localeCompare(b.date))
+      .map((x) => [d(x.date), esc(x.kind), esc(x.title), `${x.images.length + x.files.length}건`]))}` : ""}
+
+    ${h2("자재")}
+    <table class="rp-kv"><tr><th>BOM</th><td>${p.lists.bom.filter((x) => !/^■/.test(x.item || "")).length}개 품목</td><th>소모품</th><td>${p.lists.consumables.filter((x) => !/^■/.test(x.item || "")).length}개 품목</td></tr>
+      <tr><th>지정품/지급품</th><td>${p.lists.supplied.filter((x) => !/^■/.test(x.item || "")).length}개 품목</td><th>제출 자료</th><td>${p.lists.submissions.length}건 (미제출 ${sm.pendingSubmissions.length})</td></tr></table>
+    ${inc.bom ? table(["구분", "품목", "모델명", "업체명", "개수", "비고"], p.lists.bom.map((x) => /^■/.test(x.item || "")
+      ? [`<b>${esc(x.item)}</b>`, "", "", "", "", ""] : [v(x.kind), v(x.item), v(x.model), v(x.maker), v(x.qty), v(x.note)])) : ""}
+
+    ${h2("미결 사항")}
+    ${pending.length ? `<ul class="rp-list">${pending.map((x) => `<li>${x}</li>`).join("")}</ul>` : `<p class="rp-ok">✔ 남은 일정·의제·미제출 자료·미수금이 없습니다.</p>`}
+
+    ${h2("종합 의견")}
+    <h3>성과 요약</h3>${para(r.summary)}
+    <h3>문제점 및 개선사항</h3>${para(r.issues)}
+    <h3>하자보증 · 후속 조치</h3>${para(r.warrantyNote)}
+    <p class="rp-foot">${esc(o.name)} · 프로젝트 완료 보고서 · ${d(today())}</p>
+  </div>`;
 }
 
 // ------------------------------------------------------------- 사양, 자재

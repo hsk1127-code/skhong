@@ -317,3 +317,40 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
 }
 .strip-dot.edge-r em { transform: rotate(-45deg) translateX(-88%); text-align: right; }
 .strip-dot.edge-l em { transform: rotate(-45deg) translateX(-12%); text-align: left; }
+
+/* 계약·정산 */
+.pay-table { margin-top: 8px; } .pay-table tfoot td { padding: 8px 6px; border-top: 2px solid var(--line); }
+.ov-contract .contract-head { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: 16px; }
+.contract-head > div { display: flex; flex-direction: column; gap: 2px; }
+.contract-head b { font-size: 17px; } .contract-head b.amount { font-size: 22px; color: var(--accent); }
+.paybar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; margin: 16px 0 10px; }
+.pay-done { background: var(--ok); } .pay-billed { background: var(--accent); } .pay-todo { background: var(--plan-soft); }
+.paylist { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.payitem { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.payitem > div { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.dot2 { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; flex: none; }
+.dot2.pay-todo { background: var(--plan); }
+.row-opts { flex-direction: row; flex-wrap: wrap; gap: 6px 18px; }
+@media (max-width: 800px) { .ov-contract .contract-head { grid-template-columns: 1fr; } }
+
+/* 완료 보고서 (인쇄) */
+@media print {
+  @page { size: A4; margin: 14mm 13mm; }
+  .rp { font-size: 11px; color: #000; }
+  .rp-top { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #1f3b70; padding-bottom: 8px; margin-bottom: 12px; }
+  .rp-top h1 { font-size: 24px; margin: 0; letter-spacing: .15em; text-align: left; }
+  .rp-kicker { color: #1f3b70; font-weight: 700; font-size: 12px; }
+  .rp table { width: 100%; border-collapse: collapse; margin: 6px 0 4px; page-break-inside: auto; }
+  .rp tr { page-break-inside: avoid; } .rp thead { display: table-header-group; }
+  .rp th, .rp td { border: 1px solid #9aa3b0; padding: 4px 6px; vertical-align: top; text-align: left; }
+  .rp th { background: #eef2f8; font-weight: 600; white-space: nowrap; }
+  .rp-kv th { width: 90px; } .rp-meta th { width: 90px; } .rp-meta td { font-size: 12px; }
+  .rp-sign { width: auto !important; } .rp-sign th { width: 56px; text-align: center; font-weight: 500; } .rp-sign th:first-child { width: 22px; }
+  .rp-sign td { height: 48px; }
+  .rp h2 { font-size: 14px; margin: 16px 0 4px; padding-left: 8px; border-left: 4px solid #1f3b70; page-break-after: avoid; }
+  .rp h3 { font-size: 12px; margin: 10px 0 4px; }
+  .rp-para { border: 1px solid #9aa3b0; padding: 8px 10px; min-height: 36px; }
+  .rp-none { color: #666; margin: 4px 0; } .rp-ok { color: #1d6b3d; font-weight: 600; } .rp-bad { color: #b42318; }
+  .rp-list { margin: 4px 0; padding-left: 18px; } .rp-num { white-space: nowrap; }
+  .rp-foot { margin-top: 18px; text-align: right; color: #666; font-size: 9px; }
+}
