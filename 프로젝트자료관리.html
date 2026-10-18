@@ -596,6 +596,11 @@ dialog[open] { animation: pop .16s ease-out; }
 .cv b { font-size: 14px; white-space: nowrap; } .cost-view { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
 .status-pill { padding: 2px 4px 2px 10px; gap: 6px; color: var(--muted); } .status-pill .badge { font-size: 11.5px; }
 
+/* 입력 칸 줄 맞춤: 이름 → 입력칸 → 안내 줄(고정 높이) */
+.form.aligned { align-items: start; }
+.form.aligned label > input, .form.aligned label > select, .form.aligned label > .row2 { height: 38px; }
+.fhint { display: block; min-height: 17px; font-size: 11.5px !important; color: var(--muted) !important; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 </style>
 </head>
 <body>
@@ -3355,30 +3360,31 @@ function reportDialog(p) {
   const completed = r.completedDate || (o.status === "완료" ? lastDone || sm.end : "") || today();
   const warrantyDefault = o.warranty ? `하자보증기간: ${o.warranty}${o.receiveDate ? ` (입고일 ${fmtDot(o.receiveDate)} 기준)` : ""}` : "";
   const ci = closingInfo(p);
-  const money = (k, label, hint = "") => {
-    const v = toAmount(k === "salesActual" ? r[k] : o[k]);
-    return `<label>${label}<input data-money name="${k}" inputmode="numeric" value="${v ? v.toLocaleString("ko-KR") : ""}" placeholder="${hint}"></label>`;
+  // 모든 칸은 "이름 → 입력칸 → 안내 줄" 순서로 같은 높이를 쓴다 (줄 맞춤)
+  const hint = (t) => `<span class="fhint">${t ? esc(t) : ""}</span>`;
+  const money = (k, label, placeholder = "", note = "") => {
+    const v = toAmount(k === "salesActual" ? r[k] : k === "orderAmount" ? o.orderAmount : o[k]);
+    return `<label>${label}<input data-money name="${k}" inputmode="numeric" value="${v ? v.toLocaleString("ko-KR") : ""}" placeholder="${placeholder}">${hint(note)}</label>`;
   };
-  const auto = (k) => (ci.auto[k] ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.auto[k]))})</span>` : "");
   openDialog(`<h3>📄 프로젝트 완료 보고서</h3>
     ${o.status !== "완료" ? `<div class="notice">이 프로젝트는 아직 <b>${esc(o.status)}</b> 상태입니다.
       <label class="row2" style="margin-top:6px"><input type="checkbox" name="markDone"> 보고서를 받으면서 프로젝트 상태를 '완료'로 바꾸기 <span class="muted small">(최종 완료일 때만 체크)</span></label></div>` : ""}
     <h4>마감 보고서 항목 <span class="muted small">비워 두면 프로그램에 있는 값으로 채웁니다 · 일자는 개요의 주요 일자와 같습니다</span></h4>
-    <div class="form three">
-      <label>Kick off일자${auto("kickoffDate")}<input type="date" name="kickoffDate" value="${esc(o.kickoffDate || "")}"></label>
-      <label>납품일자 (입고일자)${auto("deliveryDate")}<input type="date" name="deliveryDate" value="${esc(o.receiveDate || "")}"></label>
-      <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(o.setupDate || "")}"></label>
-      <label>Warranty 시작<span class="muted small">(비우면 SET UP 완료일부터)</span><input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}"></label>
-      <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2"></label>
-      <label>입금완료일${ci.paidDate && !o.paidDate ? ` <span class="muted small">(자동: ${esc(fmtDot(ci.paidDate))})</span>` : ""}<input type="date" name="paidDate" value="${esc(o.paidDate || "")}"></label>
-      <label>발주가<input value="${ci.orderAmount ? ci.orderAmount.toLocaleString("ko-KR") : "개요에서 입력"}" disabled></label>
+    <div class="form three aligned">
+      <label>Kick off일자<input type="date" name="kickoffDate" value="${esc(o.kickoffDate || "")}">${hint(ci.auto.kickoffDate && `비우면 자동: ${fmtDot(ci.auto.kickoffDate)}`)}</label>
+      <label>납품일자 (입고일자)<input type="date" name="deliveryDate" value="${esc(o.receiveDate || "")}">${hint(ci.auto.deliveryDate && !o.receiveDate && `비우면 자동: ${fmtDot(ci.auto.deliveryDate)}`)}</label>
+      <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(o.setupDate || "")}">${hint("Warranty 시작 기준")}</label>
+      <label>Warranty 시작<input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}">${hint("비우면 SET UP 완료일부터")}</label>
+      <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2">${hint("")}</label>
+      <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}">${hint(ci.paidDate && !o.paidDate ? `비우면 자동: ${fmtDot(ci.paidDate)}` : "정산이 모두 끝나면 자동")}</label>
+      ${money("orderAmount", "발주가", "", "개요의 발주금액과 같은 값")}
       ${money("actualCost", "실행가")}
       ${money("targetCost", "실행목표가")}
-      ${money("salesActual", "실적가", "종합 시트용 (선택)")}
+      ${money("salesActual", "실적가", "", "종합 시트용 (선택)")}
       <label class="span2">지급조건<span class="row2" style="flex-wrap:nowrap"><input value="${esc(ci.payTerms || "정산 비율 미입력")}" disabled style="flex:1">
-        <button type="button" class="btn sm" data-paydlg-report>⚙ 설정</button></span></label>
+        <button type="button" class="btn sm" data-paydlg-report>⚙ 설정</button></span>${hint("")}</label>
       <label class="full">이슈(특이)사항 · 문제점 및 개선사항<textarea name="issues" rows="2" placeholder="예: 추가 개선사항 유상건 / 없음">${esc(r.issues)}</textarea></label>
-      <label class="full">미완료 내용 <span class="muted small">(비우면 자동: ${esc(closingInfo({ ...p, report: { ...r, unfinished: "" } }).unfinished)})</span><input name="unfinished" value="${esc(r.unfinished || "")}"></label>
+      <label class="full">미완료 내용<input name="unfinished" value="${esc(r.unfinished || "")}" placeholder="비우면 자동으로 채웁니다">${hint(`비우면 자동: ${closingInfo({ ...p, report: { ...r, unfinished: "" } }).unfinished}`)}</label>
     </div>
     <div class="between profit-line"><span>이익</span><b id="profitView"></b></div>
     <h4>PDF 보고서 추가 내용</h4>
@@ -3418,8 +3424,8 @@ function reportDialog(p) {
     $("[data-paydlg-report]", dlg).onclick = () => { dlg.close(); payDialog(p); };
     // 금액 칸: 쉼표 표시, 이익 미리 계산
     const showProfit = () => {
-      const cost = toAmount(form.actualCost.value), amt = ci.orderAmount;
-      $("#profitView", dlg).innerHTML = amt && cost ? `${fmtWon(amt - cost)} <span class="muted small">(이익률 ${(((amt - cost) / amt) * 100).toFixed(1)}%)</span>` : `<span class="muted small">발주가와 실행완료가를 넣으면 계산됩니다</span>`;
+      const cost = toAmount(form.actualCost.value), amt = toAmount(form.orderAmount.value);
+      $("#profitView", dlg).innerHTML = amt && cost ? `${fmtWon(amt - cost)} <span class="muted small">(이익률 ${(((amt - cost) / amt) * 100).toFixed(1)}%)</span>` : `<span class="muted small">발주가와 실행가를 넣으면 계산됩니다</span>`;
     };
     $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
       const n = toAmount(inp.value);
@@ -3434,6 +3440,7 @@ function reportDialog(p) {
     // 주요 일자는 개요에 저장 (개요와 보고서가 같은 값을 씀)
     Object.assign(o, { kickoffDate: f("kickoffDate"), receiveDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
       warrantyYears: f("warrantyYears"), paidDate: f("paidDate") });
+    o.orderAmount = String(toAmount(f("orderAmount")) || "");
     o.targetCost = String(toAmount(f("targetCost")) || "");
     o.actualCost = String(toAmount(f("actualCost")) || "");
     Object.assign(r, { salesActual: String(toAmount(f("salesActual")) || ""),
