@@ -1,0 +1,746 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>프로젝트 문서 관리</title>
+<!-- 자동 생성 파일: standalone/build.py 로 만듭니다. 직접 수정하지 마세요. -->
+<style>
+:root {
+  --bg: #f5f6f8; --panel: #fff; --text: #1f2430; --muted: #6b7280; --line: #e3e6eb;
+  --accent: #2f6fde; --accent-soft: #e8f0fd; --danger: #d64545;
+  --s-draft: #8a6d00; --s-draft-bg: #fff6d6; --s-review: #1d5fbf; --s-review-bg: #e3eefc;
+  --s-ok: #1b7a43; --s-ok-bg: #def5e7; --s-off: #6b7280; --s-off-bg: #eceef1;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161b; --panel: #1d2027; --text: #e6e8ec; --muted: #9aa1ad; --line: #2e323b;
+    --accent: #6c9cf0; --accent-soft: #23314d; --danger: #f07070;
+    --s-draft: #f0cf5a; --s-draft-bg: #3a3214; --s-review: #8db5f5; --s-review-bg: #1f2d47;
+    --s-ok: #6fd69a; --s-ok-bg: #173527; --s-off: #9aa1ad; --s-off-bg: #2a2d34;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  background: var(--bg); color: var(--text); font-size: 14px; }
+header { display: flex; align-items: center; gap: 24px; padding: 0 24px; height: 56px;
+  background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; }
+header h1 { font-size: 16px; margin: 0; white-space: nowrap; }
+nav { display: flex; gap: 4px; }
+nav button { background: none; border: 0; padding: 8px 14px; border-radius: 6px; color: var(--muted);
+  font: inherit; cursor: pointer; }
+nav button.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+main { max-width: 1200px; margin: 0 auto; padding: 24px; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+.toolbar h2 { margin: 0 auto 0 0; font-size: 18px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+.grid { display: grid; gap: 16px; }
+.kpis { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin-bottom: 16px; }
+.kpi .label { color: var(--muted); font-size: 13px; }
+.kpi .value { font-size: 28px; font-weight: 700; margin-top: 4px; }
+.two { grid-template-columns: 1fr 1fr; }
+.card h3 { margin: 0 0 12px; font-size: 15px; }
+.bar-row { display: grid; grid-template-columns: 72px 1fr 36px; align-items: center; gap: 8px; margin: 6px 0; }
+.bar { height: 10px; background: var(--accent-soft); border-radius: 5px; overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+.bar-row .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--accent-soft); }
+.table-wrap { overflow-x: auto; }
+.mono { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12.5px; }
+.muted { color: var(--muted); }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.b-작성중, .b-계획 { color: var(--s-draft); background: var(--s-draft-bg); }
+.b-검토중, .b-진행 { color: var(--s-review); background: var(--s-review-bg); }
+.b-승인, .b-완료 { color: var(--s-ok); background: var(--s-ok-bg); }
+.b-폐기, .b-보류 { color: var(--s-off); background: var(--s-off-bg); }
+.tag { display: inline-block; padding: 1px 6px; margin: 1px 2px 1px 0; border-radius: 4px;
+  background: var(--s-off-bg); color: var(--muted); font-size: 12px; }
+input, select, textarea { font: inherit; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 7px 10px; }
+textarea { width: 100%; min-height: 140px; resize: vertical; }
+.btn { font: inherit; text-decoration: none; display: inline-block; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+  padding: 7px 14px; border-radius: 6px; cursor: pointer; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.danger { color: var(--danger); }
+.projects { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+.project { cursor: pointer; }
+.project:hover { border-color: var(--accent); }
+.project .top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+.project h4 { margin: 0 0 6px; font-size: 15px; }
+.project p { margin: 0 0 10px; color: var(--muted); min-height: 1.4em; }
+.project .foot { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+.activity li { list-style: none; padding: 7px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; }
+.activity { margin: 0; padding: 0; }
+.activity .when { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.empty { text-align: center; color: var(--muted); padding: 40px 0; }
+dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(760px, 94vw);
+  background: var(--panel); color: var(--text); }
+dialog::backdrop { background: rgba(0,0,0,.4); }
+dialog form, dialog .body { padding: 20px; }
+dialog h3 { margin: 0 0 16px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.form-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.form-grid .full { grid-column: 1 / -1; }
+.actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+.actions .left { margin-right: auto; }
+.meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.meta div span { display: block; color: var(--muted); font-size: 12px; }
+.rev { border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+.rev .head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 6px; }
+.rev pre { white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; font-family: inherit;
+  background: var(--bg); padding: 10px; border-radius: 6px; max-height: 260px; overflow: auto; }
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--text);
+  color: var(--panel); padding: 10px 18px; border-radius: 8px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+@media (max-width: 640px) {
+  header { gap: 8px; padding: 0 12px; } header h1 { display: none; }
+  main { padding: 16px; } .form-grid, .two { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>📁 프로젝트 문서 관리</h1>
+  <nav>
+    <button data-view="dashboard" class="active">대시보드</button>
+    <button data-view="projects">프로젝트</button>
+    <button data-view="documents">문서 대장</button>
+  </nav>
+  <div style="margin-left:auto;display:flex;gap:6px">
+    <button class="btn" id="backupBtn" title="모든 데이터와 첨부 파일을 파일 하나로 저장">💾 백업</button>
+    <button class="btn" id="restoreBtn" title="백업 파일에서 데이터 복원">📂 복원</button>
+    <input type="file" id="restoreFile" accept=".json,application/json" hidden>
+  </div>
+</header>
+<main id="app"></main>
+
+<dialog id="projectDialog">
+  <form method="dialog" id="projectForm">
+    <h3 id="projectDialogTitle">프로젝트 등록</h3>
+    <div class="form-grid">
+      <label>프로젝트 코드 *<input name="code" required placeholder="예: ERP2026" maxlength="20"></label>
+      <label>프로젝트명 *<input name="name" required></label>
+      <label>상태<select name="status"></select></label>
+      <label>PM / 담당자<input name="manager"></label>
+      <label>시작일<input type="date" name="start_date"></label>
+      <label>종료일<input type="date" name="end_date"></label>
+      <label class="full">설명<textarea name="description" style="min-height:80px"></textarea></label>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn danger left" id="projectDelete" hidden>삭제</button>
+      <button type="button" class="btn" data-close>취소</button>
+      <button type="submit" class="btn primary">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="docDialog">
+  <form method="dialog" id="docForm">
+    <h3>문서 등록</h3>
+    <div class="form-grid">
+      <label>프로젝트 *<select name="project_id" required></select></label>
+      <label>분류<select name="category"></select></label>
+      <label class="full">제목 *<input name="title" required></label>
+      <label>작성자<input name="author"></label>
+      <label>태그 (쉼표로 구분)<input name="tags" placeholder="예: 1차, 고객사"></label>
+      <label class="full">내용<textarea name="content"></textarea></label>
+      <label class="full">첨부 파일<input type="file" name="file"></label>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" data-close>취소</button>
+      <button type="submit" class="btn primary">등록</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="detailDialog"><div class="body" id="detailBody"></div></dialog>
+
+<dialog id="revDialog">
+  <form method="dialog" id="revForm">
+    <h3>새 개정판 등록</h3>
+    <div class="form-grid">
+      <label>작성자<input name="author"></label>
+      <label>변경 사유 *<input name="note" required placeholder="예: 고객 피드백 반영"></label>
+      <label class="full">내용<textarea name="content"></textarea></label>
+      <label class="full">첨부 파일<input type="file" name="file"></label>
+    </div>
+    <div class="actions">
+      <button type="button" class="btn" data-close>취소</button>
+      <button type="submit" class="btn primary">개정 등록</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ---------------------------------------------------------------------------
+// 브라우저 내장 저장소(IndexedDB) 기반 백엔드: Python 서버의 store.py 와 같은 규칙
+// ---------------------------------------------------------------------------
+const PROJECT_STATUSES = ["계획", "진행", "보류", "완료"];
+const DOC_STATUSES = ["작성중", "검토중", "승인", "폐기"];
+const CATEGORIES = { 기획: "PLN", 요구사항: "REQ", 설계: "DES", 개발: "DEV", 테스트: "TST",
+  회의록: "MOM", 보고서: "RPT", 계약: "CTR", 기타: "ETC" };
+
+const EMPTY_STATE = () => ({ projects: [], documents: [], revisions: [], activity: [],
+  seq: { project: 0, document: 0, revision: 0, activity: 0 } });
+let DB = EMPTY_STATE();
+let idb;
+
+class ApiError extends Error {}
+const fail = (msg) => { throw new ApiError(msg); };
+const clean = (v) => (v == null ? "" : String(v).trim());
+const pad = (n) => String(n).padStart(2, "0");
+function now() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+const byRecent = (a, b) => b.updated_at.localeCompare(a.updated_at) || b.id - a.id;
+
+// ------------------------------------------------------------ IndexedDB
+const req = (r) => new Promise((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+async function openDb() {
+  const open = indexedDB.open("project-docmanager", 1);
+  open.onupgradeneeded = () => {
+    open.result.createObjectStore("state");
+    open.result.createObjectStore("files");
+  };
+  idb = await req(open);
+  DB = (await req(idb.transaction("state").objectStore("state").get("main"))) || EMPTY_STATE();
+  navigator.storage?.persist?.(); // 브라우저가 임의로 데이터를 지우지 않도록 요청
+}
+const tx = (store, mode = "readonly") => idb.transaction(store, mode).objectStore(store);
+const save = () => req(tx("state", "readwrite").put(DB, "main"));
+const putFile = (key, blob) => req(tx("files", "readwrite").put(blob, key));
+const getFile = (key) => req(tx("files").get(key));
+const removeFiles = (keys) => Promise.all(keys.filter(Boolean).map((k) => req(tx("files", "readwrite").delete(k))));
+
+function log(action, detail, project_id = null, document_id = null) {
+  DB.activity.push({ id: ++DB.seq.activity, project_id, document_id, action, detail, created_at: now() });
+  if (DB.activity.length > 500) DB.activity.splice(0, DB.activity.length - 500);
+}
+
+// ------------------------------------------------------------- projects
+const withCount = (p) => ({ ...p, document_count: DB.documents.filter((d) => d.project_id === p.id).length });
+const listProjects = () => DB.projects.map(withCount).sort(byRecent);
+function findProject(id) {
+  return DB.projects.find((p) => p.id === Number(id)) || fail("프로젝트를 찾을 수 없습니다.");
+}
+function validateProject(data, partial) {
+  const out = {};
+  for (const k of ["code", "name", "description", "status", "manager", "start_date", "end_date"])
+    if (k in data || !partial) out[k] = clean(data[k]);
+  if ("code" in out) {
+    out.code = out.code.toUpperCase();
+    if (!/^[A-Z0-9_-]{2,20}$/.test(out.code)) fail("프로젝트 코드는 영문/숫자/-/_ 2~20자여야 합니다.");
+  }
+  if ("name" in out && !out.name) fail("프로젝트명은 필수입니다.");
+  if ("status" in out) {
+    out.status ||= PROJECT_STATUSES[0];
+    if (!PROJECT_STATUSES.includes(out.status)) fail("잘못된 프로젝트 상태입니다.");
+  }
+  for (const k of ["start_date", "end_date"])
+    if (out[k] && !/^\d{4}-\d{2}-\d{2}$/.test(out[k])) fail("날짜는 YYYY-MM-DD 형식이어야 합니다.");
+  if (out.start_date && out.end_date && out.start_date > out.end_date) fail("종료일은 시작일 이후여야 합니다.");
+  return out;
+}
+async function createProject(data) {
+  const p = validateProject(data, false);
+  if (DB.projects.some((x) => x.code === p.code)) fail("이미 존재하는 프로젝트 코드입니다.");
+  const t = now();
+  const project = { id: ++DB.seq.project, ...p, created_at: t, updated_at: t };
+  DB.projects.push(project);
+  log("프로젝트 생성", `[${p.code}] ${p.name}`, project.id);
+  await save();
+  return withCount(project);
+}
+async function updateProject(id, data) {
+  const project = findProject(id);
+  const p = validateProject(data, true);
+  delete p.code; // 코드는 문서 번호의 기준이므로 변경 불가
+  Object.assign(project, p, { updated_at: now() });
+  log("프로젝트 수정", Object.keys(p).join(", "), project.id);
+  await save();
+  return withCount(project);
+}
+async function deleteProject(id) {
+  const project = findProject(id);
+  const docIds = new Set(DB.documents.filter((d) => d.project_id === project.id).map((d) => d.id));
+  const keys = DB.revisions.filter((r) => docIds.has(r.document_id)).map((r) => r.file_key);
+  DB.projects = DB.projects.filter((p) => p !== project);
+  DB.documents = DB.documents.filter((d) => !docIds.has(d.id));
+  DB.revisions = DB.revisions.filter((r) => !docIds.has(r.document_id));
+  DB.activity = DB.activity.filter((a) => a.project_id !== project.id);
+  log("프로젝트 삭제", `[${project.code}] ${project.name}`);
+  await save();
+  await removeFiles(keys);
+}
+
+// ------------------------------------------------------------ documents
+function docView(d) {
+  const p = DB.projects.find((x) => x.id === d.project_id);
+  return { ...d, project_code: p.code, project_name: p.name };
+}
+const findDoc = (id) => DB.documents.find((d) => d.id === Number(id)) || fail("문서를 찾을 수 없습니다.");
+const revisionsOf = (docId) => DB.revisions.filter((r) => r.document_id === docId);
+
+function listDocuments({ project_id = "", q = "", status = "", category = "" }) {
+  q = q.toLowerCase();
+  return DB.documents.filter((d) => {
+    if (project_id && d.project_id !== Number(project_id)) return false;
+    if (status && d.status !== status) return false;
+    if (category && d.category !== category) return false;
+    if (!q) return true;
+    const latest = revisionsOf(d.id).find((r) => r.version === d.current_version) || {};
+    return [d.title, d.doc_no, d.tags, d.author, latest.content, latest.file_name]
+      .some((v) => (v || "").toLowerCase().includes(q));
+  }).sort(byRecent).map(docView);
+}
+function getDocument(id) {
+  const d = findDoc(id);
+  return { ...docView(d), revisions: revisionsOf(d.id).sort((a, b) => b.version - a.version) };
+}
+function validateDoc(data, partial) {
+  const out = {};
+  for (const k of ["title", "category", "status", "author", "tags"])
+    if (k in data || !partial) out[k] = clean(data[k]);
+  if ("title" in out && !out.title) fail("문서 제목은 필수입니다.");
+  if ("category" in out) {
+    out.category ||= "기타";
+    if (!(out.category in CATEGORIES)) fail("잘못된 문서 분류입니다.");
+  }
+  if ("status" in out) {
+    out.status ||= DOC_STATUSES[0];
+    if (!DOC_STATUSES.includes(out.status)) fail("잘못된 문서 상태입니다.");
+  }
+  if ("tags" in out) out.tags = [...new Set(out.tags.split(/[,\s]+/).filter(Boolean))].join(",");
+  return out;
+}
+function nextDocNo(code, category) {
+  const prefix = `${code}-${CATEGORIES[category]}-`;
+  const max = Math.max(0, ...DB.documents.filter((d) => d.doc_no.startsWith(prefix))
+    .map((d) => parseInt(d.doc_no.slice(prefix.length), 10) || 0));
+  return prefix + String(max + 1).padStart(3, "0");
+}
+function touch(projectId, t) {
+  const p = DB.projects.find((x) => x.id === projectId);
+  if (p) p.updated_at = t;
+}
+async function createDocument(data) {
+  if (!data.project_id) fail("프로젝트를 선택하세요.");
+  const project = findProject(data.project_id);
+  const d = validateDoc(data, false);
+  const t = now();
+  const doc = { id: ++DB.seq.document, project_id: project.id, doc_no: nextDocNo(project.code, d.category),
+    ...d, current_version: 0, created_at: t, updated_at: t };
+  DB.documents.push(doc);
+  log("문서 등록", `${doc.doc_no} ${doc.title}`, project.id, doc.id);
+  touch(project.id, t);
+  // 최초 등록 시 v1 개정을 함께 생성한다.
+  return addRevision(doc.id, { content: data.content, note: data.note || "최초 작성",
+    author: d.author, file_name: data.file_name, file: data.file });
+}
+async function updateDocument(id, data) {
+  const doc = findDoc(id);
+  const d = validateDoc(data, true);
+  delete d.category; // 분류는 문서 번호에 포함되므로 변경 불가
+  const detail = d.status && d.status !== doc.status ? `상태 ${doc.status} → ${d.status}` : Object.keys(d).join(", ");
+  const t = now();
+  Object.assign(doc, d, { updated_at: t });
+  log("문서 수정", `${doc.doc_no} ${detail}`, doc.project_id, doc.id);
+  touch(doc.project_id, t);
+  await save();
+  return getDocument(id);
+}
+async function deleteDocument(id) {
+  const doc = findDoc(id);
+  const keys = revisionsOf(doc.id).map((r) => r.file_key);
+  DB.documents = DB.documents.filter((d) => d !== doc);
+  DB.revisions = DB.revisions.filter((r) => r.document_id !== doc.id);
+  log("문서 삭제", `${doc.doc_no} ${doc.title}`, doc.project_id);
+  await save();
+  await removeFiles(keys);
+}
+
+// ------------------------------------------------------------ revisions
+async function addRevision(id, data) {
+  const doc = findDoc(id);
+  let file_name = "", file_key = "", file_size = 0;
+  if (data.file) {
+    file_name = clean(data.file_name) || data.file.name;
+    file_key = crypto.randomUUID();
+    file_size = data.file.size;
+    await putFile(file_key, data.file);
+  }
+  const t = now();
+  const version = doc.current_version + 1;
+  DB.revisions.push({ id: ++DB.seq.revision, document_id: doc.id, version, content: clean(data.content),
+    note: clean(data.note), author: clean(data.author) || doc.author, file_name, file_key, file_size, created_at: t });
+  doc.current_version = version;
+  doc.updated_at = t;
+  if (version > 1) log("개정 등록", `${doc.doc_no} v${version}`, doc.project_id, doc.id);
+  touch(doc.project_id, t);
+  await save();
+  return getDocument(doc.id);
+}
+async function downloadRevisionFile(revId) {
+  const r = DB.revisions.find((x) => x.id === Number(revId) && x.file_key) || fail("첨부 파일이 없습니다.");
+  const blob = await getFile(r.file_key);
+  if (!blob) fail("첨부 파일이 저장소에 없습니다.");
+  downloadBlob(blob, r.file_name);
+}
+
+// ------------------------------------------------------- dashboard, csv
+function countBy(list, key) {
+  return list.reduce((acc, x) => ((acc[x[key]] = (acc[x[key]] || 0) + 1), acc), {});
+}
+function stats() {
+  return {
+    project_count: DB.projects.length, document_count: DB.documents.length, revision_count: DB.revisions.length,
+    projects_by_status: countBy(DB.projects, "status"),
+    documents_by_status: countBy(DB.documents, "status"),
+    documents_by_category: countBy(DB.documents, "category"),
+    recent_activity: DB.activity.slice(-15).reverse(),
+  };
+}
+function exportCsv(project_id) {
+  const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const rows = [["문서번호", "프로젝트", "제목", "분류", "상태", "작성자", "태그", "현재버전", "등록일", "수정일"]];
+  for (const d of listDocuments({ project_id }))
+    rows.push([d.doc_no, `[${d.project_code}] ${d.project_name}`, d.title, d.category, d.status, d.author,
+      d.tags, `v${d.current_version}`, d.created_at, d.updated_at]);
+  // 엑셀에서 한글이 깨지지 않도록 BOM 추가
+  downloadBlob(new Blob(["﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n")],
+    { type: "text/csv;charset=utf-8" }), "문서대장.csv");
+}
+
+// ------------------------------------------------------- backup/restore
+const toBase64 = (blob) => new Promise((ok, no) => {
+  const r = new FileReader();
+  r.onload = () => ok(r.result.split(",")[1] || "");
+  r.onerror = () => no(r.error);
+  r.readAsDataURL(blob);
+});
+async function exportBackup() {
+  const files = {};
+  for (const r of DB.revisions.filter((x) => x.file_key)) {
+    const blob = await getFile(r.file_key);
+    if (blob) files[r.file_key] = { type: blob.type, data: await toBase64(blob) };
+  }
+  const stamp = now().slice(0, 10);
+  downloadBlob(new Blob([JSON.stringify({ app: "project-docmanager", version: 1, state: DB, files })],
+    { type: "application/json" }), `문서관리_백업_${stamp}.json`);
+}
+async function importBackup(file) {
+  let backup;
+  try { backup = JSON.parse(await file.text()); } catch { fail("백업 파일을 읽을 수 없습니다."); }
+  if (backup?.app !== "project-docmanager" || !backup.state?.projects) fail("올바른 백업 파일이 아닙니다.");
+  await req(tx("files", "readwrite").clear());
+  for (const [key, f] of Object.entries(backup.files || {})) {
+    const bytes = Uint8Array.from(atob(f.data), (c) => c.charCodeAt(0));
+    await putFile(key, new Blob([bytes], { type: f.type }));
+  }
+  DB = { ...EMPTY_STATE(), ...backup.state };
+  await save();
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// ------------------------------------------------------ API 라우터
+const ROUTES = [
+  ["GET", /^\/api\/meta$/, () => ({ project_statuses: PROJECT_STATUSES, doc_statuses: DOC_STATUSES,
+    categories: Object.keys(CATEGORIES) })],
+  ["GET", /^\/api\/stats$/, () => stats()],
+  ["GET", /^\/api\/projects$/, () => listProjects()],
+  ["POST", /^\/api\/projects$/, (b) => createProject(b)],
+  ["PUT", /^\/api\/projects\/(\d+)$/, (b, q, id) => updateProject(id, b)],
+  ["DELETE", /^\/api\/projects\/(\d+)$/, (b, q, id) => deleteProject(id)],
+  ["GET", /^\/api\/documents$/, (b, q) => listDocuments(q)],
+  ["POST", /^\/api\/documents$/, (b) => createDocument(b)],
+  ["GET", /^\/api\/documents\/(\d+)$/, (b, q, id) => getDocument(id)],
+  ["PUT", /^\/api\/documents\/(\d+)$/, (b, q, id) => updateDocument(id, b)],
+  ["DELETE", /^\/api\/documents\/(\d+)$/, (b, q, id) => deleteDocument(id)],
+  ["POST", /^\/api\/documents\/(\d+)\/revisions$/, (b, q, id) => addRevision(id, b)],
+];
+let ready;
+async function api(path, options = {}) {
+  await (ready ||= openDb());
+  const [pathname, search = ""] = path.split("?");
+  const method = options.method || "GET";
+  for (const [m, re, fn] of ROUTES) {
+    const match = pathname.match(re);
+    if (match && m === method) {
+      const result = await fn(options.body || {}, Object.fromEntries(new URLSearchParams(search)), ...match.slice(1));
+      return result ?? { ok: true };
+    }
+  }
+  fail("API를 찾을 수 없습니다.");
+}
+
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const badge = (s) => `<span class="badge b-${esc(s)}">${esc(s)}</span>`;
+const tags = (t) => (t || "").split(",").filter(Boolean).map((x) => `<span class="tag">#${esc(x)}</span>`).join("");
+const size = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`;
+const opts = (list, sel, all) => (all ? `<option value="">${all}</option>` : "") +
+  list.map((v) => `<option ${v == sel ? "selected" : ""}>${esc(v)}</option>`).join("");
+
+let META = {};
+const state = { view: "dashboard", filters: { project_id: "", q: "", status: "", category: "" } };
+try { Object.assign(state.filters, JSON.parse(localStorage.getItem("dm.filters") || "{}")); } catch {}
+
+
+function toast(msg) {
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("show"), 2200);
+}
+
+function readFile(input) {
+  const file = input.files[0];
+  if (!file) return Promise.resolve({});
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve({ file_name: file.name, file });
+    r.onerror = () => reject(new Error("파일을 읽을 수 없습니다."));
+    r.readAsDataURL(file);
+  });
+}
+
+// ------------------------------------------------------------------ views
+async function renderDashboard() {
+  const s = await api("/api/stats");
+  const bars = (obj, keys) => {
+    const max = Math.max(1, ...Object.values(obj));
+    return keys.map((k) => `<div class="bar-row"><span>${esc(k)}</span>
+      <div class="bar"><span style="width:${((obj[k] || 0) / max) * 100}%"></span></div>
+      <span class="n">${obj[k] || 0}</span></div>`).join("");
+  };
+  $("#app").innerHTML = `
+    <div class="toolbar"><h2>대시보드</h2></div>
+    <div class="grid kpis">
+      <div class="card kpi"><div class="label">전체 프로젝트</div><div class="value">${s.project_count}</div></div>
+      <div class="card kpi"><div class="label">진행 중 프로젝트</div><div class="value">${s.projects_by_status["진행"] || 0}</div></div>
+      <div class="card kpi"><div class="label">전체 문서</div><div class="value">${s.document_count}</div></div>
+      <div class="card kpi"><div class="label">검토 대기 문서</div><div class="value">${s.documents_by_status["검토중"] || 0}</div></div>
+    </div>
+    <div class="grid two">
+      <div class="card"><h3>문서 상태</h3>${bars(s.documents_by_status, META.doc_statuses)}</div>
+      <div class="card"><h3>문서 분류</h3>${bars(s.documents_by_category, META.categories)}</div>
+      <div class="card" style="grid-column:1/-1"><h3>최근 활동</h3>
+        ${s.recent_activity.length ? `<ul class="activity">${s.recent_activity.map((a) =>
+          `<li><span class="when">${esc(a.created_at)}</span><b>${esc(a.action)}</b><span>${esc(a.detail)}</span></li>`).join("")}</ul>`
+          : `<div class="empty">아직 활동이 없습니다. 프로젝트를 등록해 보세요.</div>`}
+      </div>
+    </div>`;
+}
+
+async function renderProjects() {
+  const list = await api("/api/projects");
+  $("#app").innerHTML = `
+    <div class="toolbar"><h2>프로젝트 (${list.length})</h2>
+      <button class="btn primary" id="newProject">+ 프로젝트 등록</button></div>
+    ${list.length ? `<div class="grid projects">${list.map((p) => `
+      <div class="card project" data-id="${p.id}">
+        <div class="top"><span class="mono muted">${esc(p.code)}</span>${badge(p.status)}</div>
+        <h4>${esc(p.name)}</h4><p>${esc(p.description)}</p>
+        <div class="foot"><span>👤 ${esc(p.manager || "-")} · 📄 문서 ${p.document_count}건</span>
+          <span>${esc(p.start_date || "")}${p.end_date ? " ~ " + esc(p.end_date) : ""}</span></div>
+        <div class="actions" style="margin-top:10px">
+          <button class="btn" data-edit="${p.id}">수정</button>
+          <button class="btn primary" data-docs="${p.id}">문서 보기</button></div>
+      </div>`).join("")}</div>`
+      : `<div class="card empty">등록된 프로젝트가 없습니다.</div>`}`;
+  $("#newProject").onclick = () => openProject();
+  $("#app").querySelectorAll(".project").forEach((el) => el.onclick = (e) => {
+    const p = list.find((x) => x.id == el.dataset.id);
+    if (e.target.dataset.edit) return openProject(p);
+    state.filters = { ...state.filters, project_id: String(p.id) };
+    go("documents");
+  });
+}
+
+async function renderDocuments() {
+  const f = state.filters;
+  const [projects, docs] = await Promise.all([
+    api("/api/projects"),
+    api("/api/documents?" + new URLSearchParams(f)),
+  ]);
+  $("#app").innerHTML = `
+    <div class="toolbar"><h2>문서 대장 (${docs.length})</h2>
+      <a class="btn" href="#" id="csvBtn">⬇ CSV 내보내기</a>
+      <button class="btn primary" id="newDoc" ${projects.length ? "" : "disabled title='먼저 프로젝트를 등록하세요'"}>+ 문서 등록</button></div>
+    <div class="toolbar">
+      <select id="fProject"><option value="">전체 프로젝트</option>${projects.map((p) =>
+        `<option value="${p.id}" ${p.id == f.project_id ? "selected" : ""}>[${esc(p.code)}] ${esc(p.name)}</option>`).join("")}</select>
+      <select id="fCategory">${opts(META.categories, f.category, "전체 분류")}</select>
+      <select id="fStatus">${opts(META.doc_statuses, f.status, "전체 상태")}</select>
+      <input id="fQ" type="search" placeholder="제목·번호·태그·내용 검색" value="${esc(f.q)}" style="flex:1;min-width:180px">
+    </div>
+    <div class="card table-wrap">${docs.length ? `<table>
+      <thead><tr><th>문서번호</th><th>제목</th><th>프로젝트</th><th>분류</th><th>상태</th><th>버전</th><th>작성자</th><th>수정일</th></tr></thead>
+      <tbody>${docs.map((d) => `<tr data-id="${d.id}">
+        <td class="mono">${esc(d.doc_no)}</td><td><b>${esc(d.title)}</b><br>${tags(d.tags)}</td>
+        <td class="muted">${esc(d.project_code)}</td><td>${esc(d.category)}</td><td>${badge(d.status)}</td>
+        <td>v${d.current_version}</td><td>${esc(d.author)}</td><td class="muted">${esc(d.updated_at.slice(0, 16))}</td></tr>`).join("")}
+      </tbody></table>` : `<div class="empty">조건에 맞는 문서가 없습니다.</div>`}</div>`;
+  const apply = () => {
+    state.filters = { project_id: $("#fProject").value, category: $("#fCategory").value,
+      status: $("#fStatus").value, q: $("#fQ").value.trim() };
+    try { localStorage.setItem("dm.filters", JSON.stringify(state.filters)); } catch {}
+    renderDocuments();
+  };
+  ["#fProject", "#fCategory", "#fStatus"].forEach((s) => $(s).onchange = apply);
+  let h; $("#fQ").oninput = () => { clearTimeout(h); h = setTimeout(apply, 300); };
+  $("#newDoc").onclick = () => openNewDoc(projects);
+  $("#csvBtn").onclick = (e) => { e.preventDefault(); exportCsv(f.project_id); };
+  $("#app").querySelectorAll("tbody tr").forEach((tr) => tr.onclick = () => openDetail(tr.dataset.id));
+}
+
+const views = { dashboard: renderDashboard, projects: renderProjects, documents: renderDocuments };
+function go(view) {
+  state.view = view;
+  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  views[view]().catch((e) => toast(e.message));
+}
+const refresh = () => go(state.view);
+
+// ---------------------------------------------------------------- dialogs
+function openProject(p) {
+  const form = $("#projectForm"); form.reset();
+  $("#projectDialogTitle").textContent = p ? "프로젝트 수정" : "프로젝트 등록";
+  form.status.innerHTML = opts(META.project_statuses, p?.status);
+  for (const k of ["code", "name", "manager", "start_date", "end_date", "description"]) form[k].value = p?.[k] || "";
+  form.code.disabled = !!p;
+  $("#projectDelete").hidden = !p;
+  $("#projectDelete").onclick = async () => {
+    if (!confirm(`'${p.name}' 프로젝트와 모든 문서(${p.document_count}건)를 삭제할까요?`)) return;
+    await api(`/api/projects/${p.id}`, { method: "DELETE" });
+    $("#projectDialog").close(); toast("삭제했습니다."); refresh();
+  };
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const body = Object.fromEntries(new FormData(form));
+    try {
+      if (p) await api(`/api/projects/${p.id}`, { method: "PUT", body });
+      else await api("/api/projects", { method: "POST", body });
+      $("#projectDialog").close(); toast("저장했습니다."); refresh();
+    } catch (err) { toast(err.message); }
+  };
+  $("#projectDialog").showModal();
+}
+
+function openNewDoc(projects) {
+  const form = $("#docForm"); form.reset();
+  form.project_id.innerHTML = projects.map((p) =>
+    `<option value="${p.id}" ${p.id == state.filters.project_id ? "selected" : ""}>[${esc(p.code)}] ${esc(p.name)}</option>`).join("");
+  form.category.innerHTML = opts(META.categories, "기타");
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(form); fd.delete("file");
+      const body = { ...Object.fromEntries(fd), ...(await readFile(form.file)) };
+      const doc = await api("/api/documents", { method: "POST", body });
+      $("#docDialog").close(); toast(`${doc.doc_no} 등록 완료`); refresh();
+    } catch (err) { toast(err.message); }
+  };
+  $("#docDialog").showModal();
+}
+
+async function openDetail(id) {
+  let d;
+  try { d = await api(`/api/documents/${id}`); } catch (e) { return toast(e.message); }
+  $("#detailBody").innerHTML = `
+    <div class="toolbar"><h2 style="font-size:17px">${esc(d.title)}</h2>${badge(d.status)}</div>
+    <div class="meta">
+      <div><span>문서번호</span><b class="mono">${esc(d.doc_no)}</b></div>
+      <div><span>프로젝트</span>[${esc(d.project_code)}] ${esc(d.project_name)}</div>
+      <div><span>분류</span>${esc(d.category)}</div>
+      <div><span>현재 버전</span>v${d.current_version}</div>
+      <div><span>작성자</span>${esc(d.author || "-")}</div>
+      <div><span>등록일</span>${esc(d.created_at)}</div>
+    </div>
+    <div class="form-grid" id="docEdit">
+      <label>제목<input name="title" value="${esc(d.title)}"></label>
+      <label>상태<select name="status">${opts(META.doc_statuses, d.status)}</select></label>
+      <label>작성자<input name="author" value="${esc(d.author)}"></label>
+      <label>태그<input name="tags" value="${esc(d.tags)}"></label>
+    </div>
+    <div class="actions">
+      <button class="btn danger left" id="dDelete">문서 삭제</button>
+      <button class="btn" id="dSave">정보 저장</button>
+      <button class="btn primary" id="dRev">+ 새 개정판</button>
+    </div>
+    <h3 style="margin-top:20px">개정 이력 (${d.revisions.length})</h3>
+    ${d.revisions.map((r) => `<div class="rev"><div class="head">
+        <b>v${r.version}</b>${r.version === d.current_version ? '<span class="badge b-승인">최신</span>' : ""}
+        <span>${esc(r.note)}</span><span class="muted" style="margin-left:auto">${esc(r.author)} · ${esc(r.created_at)}</span></div>
+        ${r.file_name ? `<a href="#" data-file="${r.id}">📎 ${esc(r.file_name)}</a> <span class="muted">(${size(r.file_size)})</span>` : ""}
+        ${r.content ? `<pre>${esc(r.content)}</pre>` : ""}</div>`).join("")}
+    <div class="actions"><button class="btn" data-close>닫기</button></div>`;
+  const dlg = $("#detailDialog");
+  $("#dSave").onclick = async () => {
+    const body = {};
+    $("#docEdit").querySelectorAll("[name]").forEach((el) => body[el.name] = el.value);
+    try { await api(`/api/documents/${id}`, { method: "PUT", body }); toast("저장했습니다."); openDetail(id); refresh(); }
+    catch (e) { toast(e.message); }
+  };
+  $("#dDelete").onclick = async () => {
+    if (!confirm(`${d.doc_no} 문서와 모든 개정 이력을 삭제할까요?`)) return;
+    await api(`/api/documents/${id}`, { method: "DELETE" });
+    dlg.close(); toast("삭제했습니다."); refresh();
+  };
+  $("#dRev").onclick = () => openRevision(d);
+  if (!dlg.open) dlg.showModal();
+}
+
+function openRevision(d) {
+  const form = $("#revForm"); form.reset();
+  form.author.value = d.author;
+  form.content.value = d.revisions[0]?.content || "";
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(form); fd.delete("file");
+      const body = { ...Object.fromEntries(fd), ...(await readFile(form.file)) };
+      await api(`/api/documents/${d.id}/revisions`, { method: "POST", body });
+      $("#revDialog").close(); toast("개정판을 등록했습니다."); openDetail(d.id); refresh();
+    } catch (err) { toast(err.message); }
+  };
+  $("#revDialog").showModal();
+}
+
+document.addEventListener("click", (e) => {
+  if (e.target.matches("[data-close]")) e.target.closest("dialog").close();
+  if (e.target.dataset.file) {
+    e.preventDefault();
+    downloadRevisionFile(e.target.dataset.file).catch((err) => toast(err.message));
+  }
+});
+document.querySelectorAll("nav button").forEach((b) => b.onclick = () => go(b.dataset.view));
+
+$("#backupBtn").onclick = () => api("/api/meta").then(exportBackup).then(() => toast("백업 파일을 저장했습니다.")).catch((e) => toast(e.message));
+$("#restoreBtn").onclick = () => $("#restoreFile").click();
+$("#restoreFile").onchange = async (e) => {
+  const file = e.target.files[0]; e.target.value = "";
+  if (!file || !confirm("현재 데이터를 모두 지우고 백업 파일 내용으로 바꿀까요?")) return;
+  try { await api("/api/meta"); await importBackup(file); toast("복원했습니다."); refresh(); }
+  catch (err) { toast(err.message); }
+};
+
+api("/api/meta").then((m) => { META = m; go("dashboard"); }).catch((e) => toast(e.message));
+</script>
+</body>
+</html>
