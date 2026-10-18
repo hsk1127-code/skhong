@@ -598,7 +598,8 @@ function gridInput(c, v) {
   v = v ?? "";
   if (c.type === "textarea") return `<textarea data-f="${c.key}" rows="1" style="min-width:${c.w * 7}px">${esc(v)}</textarea>`;
   if (c.type === "select") return `<select data-f="${c.key}">${opts(["", ...c.options], v)}</select>`;
-  return `<input data-f="${c.key}" ${c.type === "date" ? 'type="date"' : c.type === "number" ? 'inputmode="decimal"' : ""} value="${esc(v)}" style="width:${c.w * 8}px">`;
+  // 날짜 칸은 달력 아이콘까지 다 보이도록 고정 너비
+  return `<input data-f="${c.key}" ${c.type === "date" ? 'type="date"' : c.type === "number" ? 'inputmode="decimal"' : ""} value="${esc(v)}" style="width:${c.type === "date" ? 150 : c.w * 8}px">`;
 }
 function bindGrids(p, root) {
   for (const card of $$("[data-grid]", root)) {
@@ -722,7 +723,7 @@ function recordDialog(p, rec) {
       to: form.to.value.trim(), memo: form.memo.value });
     if (rec) Object.assign(rec, d);
     else p.records.push(d);
-    Store.touch(p, rec ? `자료 수정: ${d.title}` : `${d.title}`);
+    Store.touch(p, rec ? `자료 수정: ${d.title}` : d.title, `자료 이력 · ${d.kind} (${fmtDot(d.date)})`);
     rerender();
   }, { wide: true, onOpen: (dlg) => {
     refresh(dlg);

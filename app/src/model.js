@@ -28,7 +28,7 @@ const LISTS = {
     { key: "note", label: "비고", w: 20 }] },
   revisions: { title: "Revision", sheet: "Revision", cols: [
     { key: "date", label: "날짜", w: 12, type: "date" }, { key: "author", label: "작성자", w: 10 },
-    { key: "content", label: "내용", w: 50, type: "textarea" }, { key: "note", label: "비고", w: 20 }] },
+    { key: "content", label: "내용", w: 50, type: "textarea" }, { key: "note", label: "비고", w: 32 }] },
 };
 const OVERVIEW_FIELDS = [
   ["project", "Project"], ["projectNo", "Project No"], ["partNo", "Part No"], ["customer", "고객사"],

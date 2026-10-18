@@ -83,9 +83,10 @@ const Store = (() => {
     };
   }
 
-  function touch(p, revision) {
+  // revision 을 주면 Revision 목록에 오늘 날짜로 자동 기록
+  function touch(p, revision, note = "") {
     p.updated = today();
-    if (revision) p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content: revision, note: "" });
+    if (revision) p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content: revision, note });
     changed();
   }
 

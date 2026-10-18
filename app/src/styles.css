@@ -111,7 +111,7 @@ table.list tr[data-goto], td[data-goto] { cursor: pointer; } table.list tr[data-
 /* 일정 */
 .sched td { vertical-align: middle; } .sched tr.phase-start td { border-top: 2px solid var(--line); }
 .w-phase { width: 110px; } .w-name { width: 220px; } .w-owner { width: 80px; } .w-note { width: 140px; }
-.sched input[type=date] { width: 132px; }
+.sched input[type=date] { width: 150px; }
 .gantt, .gantt-head { position: relative; min-width: 360px; width: 40%; }
 .gantt { height: 34px; }
 .gantt-head span { position: absolute; top: 6px; font-weight: 400; border-left: 1px solid var(--line); padding-left: 3px; }

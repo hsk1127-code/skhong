@@ -119,7 +119,7 @@ table.list tr[data-goto], td[data-goto] { cursor: pointer; } table.list tr[data-
 /* 일정 */
 .sched td { vertical-align: middle; } .sched tr.phase-start td { border-top: 2px solid var(--line); }
 .w-phase { width: 110px; } .w-name { width: 220px; } .w-owner { width: 80px; } .w-note { width: 140px; }
-.sched input[type=date] { width: 132px; }
+.sched input[type=date] { width: 150px; }
 .gantt, .gantt-head { position: relative; min-width: 360px; width: 40%; }
 .gantt { height: 34px; }
 .gantt-head span { position: absolute; top: 6px; font-weight: 400; border-left: 1px solid var(--line); padding-left: 3px; }
@@ -678,9 +678,10 @@ const Store = (() => {
     };
   }
 
-  function touch(p, revision) {
+  // revision 을 주면 Revision 목록에 오늘 날짜로 자동 기록
+  function touch(p, revision, note = "") {
     p.updated = today();
-    if (revision) p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content: revision, note: "" });
+    if (revision) p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content: revision, note });
     changed();
   }
 
@@ -764,7 +765,7 @@ const LISTS = {
     { key: "note", label: "비고", w: 20 }] },
   revisions: { title: "Revision", sheet: "Revision", cols: [
     { key: "date", label: "날짜", w: 12, type: "date" }, { key: "author", label: "작성자", w: 10 },
-    { key: "content", label: "내용", w: 50, type: "textarea" }, { key: "note", label: "비고", w: 20 }] },
+    { key: "content", label: "내용", w: 50, type: "textarea" }, { key: "note", label: "비고", w: 32 }] },
 };
 const OVERVIEW_FIELDS = [
   ["project", "Project"], ["projectNo", "Project No"], ["partNo", "Part No"], ["customer", "고객사"],
@@ -1750,7 +1751,8 @@ function gridInput(c, v) {
   v = v ?? "";
   if (c.type === "textarea") return `<textarea data-f="${c.key}" rows="1" style="min-width:${c.w * 7}px">${esc(v)}</textarea>`;
   if (c.type === "select") return `<select data-f="${c.key}">${opts(["", ...c.options], v)}</select>`;
-  return `<input data-f="${c.key}" ${c.type === "date" ? 'type="date"' : c.type === "number" ? 'inputmode="decimal"' : ""} value="${esc(v)}" style="width:${c.w * 8}px">`;
+  // 날짜 칸은 달력 아이콘까지 다 보이도록 고정 너비
+  return `<input data-f="${c.key}" ${c.type === "date" ? 'type="date"' : c.type === "number" ? 'inputmode="decimal"' : ""} value="${esc(v)}" style="width:${c.type === "date" ? 150 : c.w * 8}px">`;
 }
 function bindGrids(p, root) {
   for (const card of $$("[data-grid]", root)) {
@@ -1874,7 +1876,7 @@ function recordDialog(p, rec) {
       to: form.to.value.trim(), memo: form.memo.value });
     if (rec) Object.assign(rec, d);
     else p.records.push(d);
-    Store.touch(p, rec ? `자료 수정: ${d.title}` : `${d.title}`);
+    Store.touch(p, rec ? `자료 수정: ${d.title}` : d.title, `자료 이력 · ${d.kind} (${fmtDot(d.date)})`);
     rerender();
   }, { wide: true, onOpen: (dlg) => {
     refresh(dlg);
