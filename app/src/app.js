@@ -1473,93 +1473,139 @@ function reportDialog(p) {
 
 function reportHtml(p, inc) {
   const o = p.overview, r = p.report, base = r.completedDate || today();
-  const sm = projectSummary(p, base), c = contractInfo(p);
-  const v = (x) => (x ? esc(x) : "-");
+  const sm = projectSummary(p, base), c = contractInfo(p), kd = keyDates(p);
+  const v = (x) => (x ? esc(x) : `<span class="rp-dash">-</span>`);
   const d = (x) => (isDate(x) ? esc(fmtDot(x)) : v(x));
+  const won = (n) => (n ? `${Math.round(n).toLocaleString("ko-KR")}<small>원</small>` : `<span class="rp-dash">-</span>`);
+  const pct = (x) => (x == null ? "-" : `${(x * 100).toFixed(1)}%`);
   let n = 0;
-  const h2 = (t) => `<h2>${++n}. ${t}</h2>`;
-  const table = (heads, rows, empty = "해당 없음") => rows.length
-    ? `<table class="rp-t"><thead><tr>${heads.map((x) => `<th>${x}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${row.map((x) => `<td>${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+  const sec = (title, sub = "") => `<h2><span class="rp-no">${String(++n).padStart(2, "0")}</span>${title}${sub ? `<small>${sub}</small>` : ""}</h2>`;
+  // 모든 표는 칸 너비를 고정해 위아래 줄이 맞도록 한다
+  const table = (cols, heads, rows, empty = "해당 없음") => rows.length
+    ? `<table class="rp-t"><colgroup>${cols.map((w) => `<col style="width:${w}%">`).join("")}</colgroup>
+        <thead><tr>${heads.map((h) => `<th class="${h.c || ""}">${h.t ?? h}</th>`).join("")}</tr></thead>
+        <tbody>${rows.map((row) => `<tr class="${row.cls || ""}">${row.map((x, i) => `<td class="${heads[i].c || ""}">${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`
     : `<p class="rp-none">${empty}</p>`;
+  // 개요형 표: 항목 | 값 | 항목 | 값 (18 / 32 / 18 / 32)
+  const kv = (rows) => `<table class="rp-kv"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup><tbody>${rows.map((row) =>
+    row.length === 2 ? `<tr><th>${row[0]}</th><td colspan="3">${row[1]}</td></tr>` : `<tr><th>${row[0]}</th><td>${row[1]}</td><th>${row[2]}</th><td>${row[3]}</td></tr>`).join("")}</tbody></table>`;
 
   // 일정 실적: 단계별 계획 대비 완료
+  const suspect = suspectTasks(p.schedule);
   const groups = [];
   for (const t of p.schedule) {
     const g = groups.find((x) => x.phase === (t.phase || "기타"));
     if (g) g.items.push(t); else groups.push({ phase: t.phase || "기타", items: [t] });
   }
-  const suspect = suspectTasks(p.schedule);
   const phaseRows = groups.map((g) => {
     const dated = g.items.filter((t) => isDate(t.start) && !suspect.has(t.id));
-    const done = g.items.filter((t) => t.done).length;
+    const done = g.items.filter((t) => t.done).length, ratio = done / g.items.length;
     const actual = g.items.map((t) => t.doneDate).filter(isDate).sort().pop();
-    const planEnd = dated.map((t) => t.end).filter(isDate).sort().pop();
-    return [esc(g.phase), d(dated.map((t) => t.start).sort()[0]), d(planEnd), d(actual), `${done} / ${g.items.length}`,
-      done === g.items.length ? "완료" : `<b class="rp-bad">미완료</b>`];
+    return [`<b>${esc(g.phase)}</b>`, d(dated.map((t) => t.start).sort()[0]), d(dated.map((t) => t.end).filter(isDate).sort().pop()), d(actual),
+      `<span class="rp-bar"><span style="width:${ratio * 100}%" class="${ratio === 1 ? "ok" : ""}"></span></span><span class="rp-frac">${done}/${g.items.length}</span>`,
+      ratio === 1 ? `<span class="rp-pill ok">완료</span>` : `<span class="rp-pill bad">미완료</span>`];
   });
   const planDays = sm.start && sm.end ? dayNo(sm.end) - dayNo(sm.start) + 1 : 0;
   const diff = sm.end && isDate(r.completedDate) ? dayNo(r.completedDate) - dayNo(sm.end) : null;
   const doneCount = p.schedule.filter((t) => t.done).length;
+  const diffText = diff === null ? "-" : diff === 0 ? "계획대로" : diff < 0 ? `${-diff}일 단축` : `${diff}일 지연`;
 
-  const openTasks = p.schedule.filter((t) => !t.done);
+  // 미결 사항
   const unpaid = c.payments.filter((x) => x.status !== "수금완료");
   const pending = [
-    // 미완료 일정은 단계별로 한 줄씩
     ...groups.map((g) => [g.phase, g.items.filter((t) => !t.done)]).filter(([, l]) => l.length)
-      .map(([ph, l]) => `일정 미완료 · <b>${esc(ph)}</b> ${l.length}건: ${l.map((t) => `${esc(t.name.replace(/^[-\s└┗]+/, ""))}${isDate(t.end) ? ` (${esc(fmtDot(t.end).slice(5))})` : ""}`).join(", ")}`),
-    ...sm.openActions.map((a) => `실천 의제 미완료: ${esc(a.text)} (${v(a.owner)}, ${d(a.due)})`),
-    ...sm.pendingSubmissions.map((x) => `미제출 자료: ${esc(x.item)}${x.to ? ` → ${esc(x.to)}` : ""}`),
-    ...unpaid.map((x) => `미수금: ${esc(x.name)} ${esc(x.ratio)}% ${fmtWon(x.amount)} (${esc(x.status)})`),
+      .map(([ph, l]) => `<b>일정 · ${esc(ph)}</b> ${l.length}건 — ${l.map((t) => esc(t.name.replace(/^[-\s└┗]+/, ""))).join(", ")}`),
+    ...sm.openActions.map((a) => `<b>실천 의제</b> ${esc(a.text)} (${v(a.owner)}${isDate(a.due) ? `, ${d(a.due)}` : ""})`),
+    ...sm.pendingSubmissions.map((x) => `<b>미제출 자료</b> ${esc(x.item)}${x.to ? ` → ${esc(x.to)}` : ""}`),
+    ...unpaid.map((x) => `<b>미수금</b> ${esc(x.name)} ${esc(x.ratio)}% · ${fmtWon(x.amount)} (${esc(x.status)})`),
   ];
-  const para = (t) => (t ? `<div class="rp-para">${nl2br(t)}</div>` : `<p class="rp-none">-</p>`);
+  const para = (t) => (t ? `<div class="rp-para">${nl2br(t)}</div>` : `<div class="rp-para rp-empty">-</div>`);
+
+  // 핵심 숫자
+  const kpi = (label, value, sub = "", cls = "") => `<div class="rp-kpi ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
+  const kpis = [
+    kpi("발주금액", won(c.amount), c.amount ? `부가세 ${esc(o.vat || "별도")}` : ""),
+    kpi("실행가", won(c.actualCost), c.targetCost ? `목표 ${fmtWon(c.targetCost)}` : "인건비 제외", c.overBudget > 0 ? "bad" : ""),
+    kpi("이익", c.profit != null ? won(c.profit) : "-", c.profitRate != null ? `이익률 ${pct(c.profitRate)}${c.targetRate != null ? ` (목표 ${pct(c.targetRate)})` : ""}` : "", c.profit < 0 ? "bad" : "accent"),
+    kpi("정산", c.payments.length ? `${c.paidRatio}<small>%</small>` : "-", c.payments.length ? `수금 ${fmtWon(c.paidAmount)}` : "정산 비율 미입력", c.paidRatio === 100 ? "ok" : ""),
+    kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)}` : ""),
+    kpi("계획 대비", diffText, isDate(r.completedDate) ? `완료 ${fmtDot(r.completedDate)}` : "", diff > 0 ? "bad" : diff !== null ? "ok" : ""),
+    kpi("일정 완료", p.schedule.length ? `${Math.round((doneCount / p.schedule.length) * 100)}<small>%</small>` : "-", `${doneCount} / ${p.schedule.length}건`, doneCount === p.schedule.length && doneCount ? "ok" : ""),
+    kpi("Warranty", kd.warranty.years ? `${kd.warranty.years}<small>년</small>` : "-", kd.warranty.end ? `~ ${fmtDot(kd.warranty.end)}` : kd.warranty.started ? "" : "Setup 완료 후 시작"),
+  ].join("");
+
+  // 주요 일자 흐름
+  const steps = [["발주", o.orderDate], ["Kick Off", kd.kickoffDate.value], ["납품", kd.receiveDate.value], ["Setup 완료", kd.setupDate.value],
+    ["지급 완료", kd.paidDate.value], ["Warranty 종료", kd.warranty.end]];
+  const flow = `<div class="rp-flow">${steps.map(([label, dt]) => `<div class="rp-step ${isDate(dt) ? (dt <= base ? "done" : "plan") : "none"}">
+      <i></i><span>${label}</span><b>${isDate(dt) ? esc(fmtDot(dt)) : "미정"}</b></div>`).join("")}</div>`;
+
+  const payBar = c.payments.length ? `<div class="rp-paybar">${c.payments.map((x) => `<span class="${x.status === "수금완료" ? "ok" : x.status === "청구" ? "billed" : ""}" style="flex:${Number(x.ratio) || 0}">
+      ${esc(x.name)} ${esc(x.ratio)}%</span>`).join("")}</div>` : "";
 
   return `<div class="rp">
-    <div class="rp-top"><div><div class="rp-kicker">${v(o.customer)}</div><h1>프로젝트 완료 보고서</h1></div>
-      <table class="rp-sign"><tr><th rowspan="2">결<br>재</th><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table></div>
-    <table class="rp-meta"><tr><th>프로젝트</th><td colspan="3"><b>${v(o.project || o.name)}</b></td></tr>
-      <tr><th>설비/품목명</th><td>${v(o.name)}</td><th>고객사</th><td>${v(o.customer)}</td></tr>
-      <tr><th>보고일</th><td>${d(today())}</td><th>작성자</th><td>${v(inc.writer)}</td></tr></table>
+    <header class="rp-head">
+      <div class="rp-title">
+        <div class="rp-kicker">PROJECT COMPLETION REPORT</div>
+        <h1>프로젝트 완료 보고서</h1>
+        <div class="rp-pname">${v(o.project || o.name)}</div>
+      </div>
+      <table class="rp-sign"><tr><th rowspan="2">결<br>재</th><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table>
+    </header>
+    <div class="rp-meta">
+      <div><span>고객사</span><b>${v(o.customer)}</b></div><div><span>설비/품목명</span><b>${v(o.name)}</b></div>
+      <div><span>Project No</span><b>${v(o.projectNo)}</b></div><div><span>보고일 · 작성자</span><b>${d(today())} · ${v(inc.writer)}</b></div>
+    </div>
 
-    ${h2("프로젝트 개요")}
-    <table class="rp-kv"><tr><th>Project No</th><td>${v(o.projectNo)}</td><th>Part No</th><td>${v(o.partNo)}</td></tr>
-      <tr><th>입고일자</th><td>${d(o.receiveDate)}</td><th>입고 장소</th><td>${v(o.receivePlace)}</td></tr>
-      <tr><th>담당자</th><td>${v(o.manager)}</td><th>하자보증기간</th><td>${v(o.warranty)}</td></tr>
-      <tr><th>사업 범위</th><td colspan="3">${o.scope ? nl2br(o.scope) : "-"}</td></tr>
-      ${o.extra.filter((x) => x.label).map((x) => `<tr><th>${esc(x.label)}</th><td colspan="3">${v(x.value)}</td></tr>`).join("")}</table>
+    <div class="rp-kpis">${kpis}</div>
+    ${flow}
 
-    ${h2("계약 및 정산")}
-    <table class="rp-kv"><tr><th>발주일</th><td>${d(o.orderDate)}</td><th>부가세</th><td>${v(o.vat)}</td></tr>
-      <tr><th>발주금액</th><td colspan="3">${c.amount ? `<b>${fmtWon(c.amount)}</b> (금 ${koreanAmount(c.amount)}원정)` : "-"}</td></tr>
-      <tr><th>정산 현황</th><td colspan="3">${c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : "-"}</td></tr></table>
-    ${c.payments.length ? table(["구분", "비율", "금액", "지급 조건", "예정일", "정산일", "상태"],
-      c.payments.map((x) => [v(x.name), `${v(x.ratio)}%`, `<span class="rp-num">${fmtWon(x.amount)}</span>`, v(x.cond), d(x.due), d(x.paidDate), v(x.status)])) : ""}
+    ${sec("프로젝트 개요")}
+    ${kv([["Project", v(o.project)], ["Part No", v(o.partNo), "담당자", v(o.manager)],
+      ["입고일자 (납품)", d(kd.receiveDate.value), "입고 장소", v(o.receivePlace)],
+      ["Setup 완료일", d(kd.setupDate.value), "Warranty", kd.warranty.end ? `${d(kd.warranty.start)} ~ ${d(kd.warranty.end)}` : v(kd.warranty.text)],
+      ["사업 범위", o.scope ? nl2br(o.scope) : v("")],
+      ...o.extra.filter((x) => x.label).map((x) => [esc(x.label), v(x.value)])])}
 
-    ${h2("일정 실적")}
-    <table class="rp-kv"><tr><th>계획 기간</th><td>${sm.start ? `${d(sm.start)} ~ ${d(sm.end)} (${planDays}일)` : "-"}</td><th>완료일</th><td>${d(r.completedDate)}</td></tr>
-      <tr><th>계획 대비</th><td>${diff === null ? "-" : diff === 0 ? "계획대로 완료" : diff < 0 ? `<b>${-diff}일 단축</b>` : `<b class="rp-bad">${diff}일 지연</b>`}</td>
-      <th>완료 일정</th><td>${doneCount} / ${p.schedule.length}건</td></tr></table>
-    ${table(["단계", "계획 시작", "계획 종료", "실제 완료", "완료/전체", "상태"], phaseRows)}
+    ${sec("계약 및 정산")}
+    ${kv([["발주일", d(o.orderDate), "부가세", v(o.vat)],
+      ["발주금액", c.amount ? `<b>${fmtWon(c.amount)}</b> <span class="rp-sub">금 ${koreanAmount(c.amount)}원정</span>` : v("")],
+      ["실행목표가", c.targetCost ? fmtWon(c.targetCost) : v(""), "목표 이익률", c.targetRate != null ? pct(c.targetRate) : v("")],
+      ["실행가", c.actualCost ? `${fmtWon(c.actualCost)}${c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">${c.overBudget > 0 ? "목표 초과" : "목표 대비 절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v(""),
+        "이익 · 이익률", c.profit != null ? `<b>${fmtWon(c.profit)}</b> · ${pct(c.profitRate)}` : v("")],
+      ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
+    ${payBar}
+    ${c.payments.length ? table([14, 9, 19, 22, 13, 13, 10], ["구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, "지급 조건", { t: "예정일", c: "c" }, { t: "정산일", c: "c" }, { t: "상태", c: "c" }],
+      c.payments.map((x) => [esc(x.name), `${esc(x.ratio)}%`, fmtWon(x.amount), v(x.cond), d(x.due), d(x.paidDate),
+        `<span class="rp-pill ${x.status === "수금완료" ? "ok" : x.status === "청구" ? "info" : ""}">${esc(x.status)}</span>`])) : ""}
 
-    ${inc.meetings ? `${h2("회의 및 의사결정")}${table(["일자", "회의", "실천 의제"], [...p.meetings].sort((a, b) => (a.date || "").localeCompare(b.date || ""))
-      .map((m) => [d(m.date), esc(m.title), m.actions.filter((a) => a.text).map((a) => `${a.done ? "☑" : "☐"} ${esc(a.text)}${a.owner ? ` (${esc(a.owner)})` : ""}`).join("<br>") || "-"]))}` : ""}
-    ${inc.changes ? `${h2("변경 사항")}${table(["일자", "요청자", "변경 내용", "비고"], p.lists.changes.map((x) => [d(x.date), v(x.requester), nl2br(x.content), v(x.note)]))}` : ""}
-    ${inc.records ? `${h2("자료 이력")}${table(["일자", "구분", "제목", "첨부"], [...p.records].sort((a, b) => a.date.localeCompare(b.date))
-      .map((x) => [d(x.date), esc(x.kind), esc(x.title), `${x.images.length + x.files.length}건`]))}` : ""}
+    ${sec("일정 실적", `${sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)} · ${planDays}일 · ` : ""}완료 ${doneCount}/${p.schedule.length}건 · ${diffText}`)}
+    ${table([16, 14, 14, 14, 28, 14], ["단계", { t: "계획 시작", c: "c" }, { t: "계획 종료", c: "c" }, { t: "실제 완료", c: "c" }, "진행", { t: "상태", c: "c" }], phaseRows)}
 
-    ${h2("자재")}
-    <table class="rp-kv"><tr><th>BOM</th><td>${p.lists.bom.filter((x) => !/^■/.test(x.item || "")).length}개 품목</td><th>소모품</th><td>${p.lists.consumables.filter((x) => !/^■/.test(x.item || "")).length}개 품목</td></tr>
-      <tr><th>지정품/지급품</th><td>${p.lists.supplied.filter((x) => !/^■/.test(x.item || "")).length}개 품목</td><th>제출 자료</th><td>${p.lists.submissions.length}건 (미제출 ${sm.pendingSubmissions.length})</td></tr></table>
-    ${inc.bom ? table(["구분", "품목", "모델명", "업체명", "개수", "비고"], p.lists.bom.map((x) => /^■/.test(x.item || "")
-      ? [`<b>${esc(x.item)}</b>`, "", "", "", "", ""] : [v(x.kind), v(x.item), v(x.model), v(x.maker), v(x.qty), v(x.note)])) : ""}
+    ${inc.meetings ? `${sec("회의 및 의사결정", `${p.meetings.length}건`)}${table([14, 30, 56], [{ t: "일자", c: "c" }, "회의", "실천 의제"],
+      [...p.meetings].sort((a, b) => (a.date || "").localeCompare(b.date || "")).map((m) => [d(m.date), `<b>${esc(m.title)}</b>`,
+        m.actions.filter((a) => a.text).map((a) => `<span class="rp-check ${a.done ? "on" : ""}"></span>${esc(a.text)}${a.owner ? ` <span class="rp-sub">${esc(a.owner)}</span>` : ""}`).join("<br>") || v("")]))}` : ""}
+    ${inc.changes ? `${sec("변경 사항", `${p.lists.changes.length}건`)}${table([14, 14, 52, 20], [{ t: "일자", c: "c" }, "요청자", "변경 내용", "비고"],
+      p.lists.changes.map((x) => [d(x.date), v(x.requester), nl2br(x.content), v(x.note)]))}` : ""}
+    ${inc.records ? `${sec("자료 이력", `${p.records.length}건`)}${table([14, 12, 62, 12], [{ t: "일자", c: "c" }, { t: "구분", c: "c" }, "제목", { t: "첨부", c: "c" }],
+      [...p.records].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [d(x.date), `<span class="rp-pill">${esc(x.kind)}</span>`, esc(x.title), `${x.images.length + x.files.length}건`]))}` : ""}
 
-    ${h2("미결 사항")}
-    ${pending.length ? `<ul class="rp-list">${pending.map((x) => `<li>${x}</li>`).join("")}</ul>` : `<p class="rp-ok">✔ 남은 일정·의제·미제출 자료·미수금이 없습니다.</p>`}
+    <div class="rp-keep">${sec("자재")}
+    <div class="rp-mini">${[["BOM", p.lists.bom], ["소모품", p.lists.consumables], ["지정품/지급품", p.lists.supplied]].map(([l, arr]) =>
+      `<div><span>${l}</span><b>${arr.filter((x) => !/^■/.test(x.item || "")).length}<small>품목</small></b></div>`).join("")}
+      <div><span>제출 자료</span><b>${p.lists.submissions.length}<small>건</small></b>${sm.pendingSubmissions.length ? `<small class="bad">미제출 ${sm.pendingSubmissions.length}</small>` : ""}</div></div></div>
+    ${inc.bom ? table([12, 19, 21, 15, 7, 26], ["구분", "품목", "모델명", "업체명", { t: "개수", c: "r" }, "비고"], p.lists.bom.map((x) => /^■/.test(x.item || "")
+      ? Object.assign([`<b>${esc(x.item.replace(/^■\s*/, ""))}</b>`, "", "", "", "", ""], { cls: "rp-secrow" })
+      : [v(x.kind), v(x.item), v(x.model), v(x.maker), v(x.qty), v(x.note)])) : ""}
 
-    ${h2("종합 의견")}
-    <h3>성과 요약</h3>${para(r.summary)}
-    <h3>문제점 및 개선사항</h3>${para(r.issues)}
+    ${sec("미결 사항")}
+    ${pending.length ? `<div class="rp-callout warn"><b>남은 항목 ${pending.length}건</b><ul>${pending.map((x) => `<li>${x}</li>`).join("")}</ul></div>`
+      : `<div class="rp-callout ok"><b>✔ 미결 사항 없음</b> 남은 일정·의제·미제출 자료·미수금이 없습니다.</div>`}
+
+    ${sec("종합 의견")}
+    <div class="rp-opinion"><div><h3>성과 요약</h3>${para(r.summary)}</div><div><h3>문제점 및 개선사항</h3>${para(r.issues)}</div></div>
     <h3>하자보증 · 후속 조치</h3>${para(r.warrantyNote)}
-    <p class="rp-foot">${esc(o.name)} · 프로젝트 완료 보고서 · ${d(today())}</p>
+    <footer class="rp-foot"><span>${esc(o.name)} · 프로젝트 완료 보고서</span><span>${d(today())}</span></footer>
   </div>`;
 }
 
