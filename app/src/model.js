@@ -466,7 +466,8 @@ async function buildWorkbook(p) {
   const ci = contractInfo(p);
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
-  ovRows.push([{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+  ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+    [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
     [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
     { v: [x.status, x.paidDate].filter(Boolean).join(" "), s: "cell" }]);
@@ -738,15 +739,18 @@ function contractInfo(p) {
   const payments = (o.payments || []).map((x) => ({ ...x, amount: Math.round((amount * (Number(x.ratio) || 0)) / 100) }));
   const ratioSum = payments.reduce((a, x) => a + (Number(x.ratio) || 0), 0);
   const paid = payments.filter((x) => x.status === "수금완료");
-  const targetCost = toAmount(o.targetCost), actualCost = toAmount(o.actualCost);
+  // 실행 예가(예상) · 실행목표가 · 실행가(실제)
+  const estimateCost = toAmount(o.estimateCost), targetCost = toAmount(o.targetCost), actualCost = toAmount(o.actualCost);
   const rate = (cost) => (amount && cost ? (amount - cost) / amount : null);
   return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
     paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0),
-    // 실행가·실행목표가와 이익
-    targetCost, actualCost,
+    estimateCost, targetCost, actualCost,
+    estProfit: amount && estimateCost ? amount - estimateCost : null, estRate: rate(estimateCost),
     targetProfit: amount && targetCost ? amount - targetCost : null, targetRate: rate(targetCost),
     profit: amount && actualCost ? amount - actualCost : null, profitRate: rate(actualCost),
-    overBudget: targetCost && actualCost ? actualCost - targetCost : null };
+    // 목표 대비: 실행가가 있으면 실행가, 없으면 실행 예가 기준
+    overBasis: actualCost ? "실행가" : estimateCost ? "실행 예가" : "",
+    overBudget: targetCost && (actualCost || estimateCost) ? (actualCost || estimateCost) - targetCost : null };
 }
 
 // ------------------------------------------------- 완료 프로젝트 마감 보고서 (엑셀 양식)
@@ -795,7 +799,7 @@ function closingInfo(p) {
   const auto = { kickoffDate: kd.kickoffDate.autoValue, deliveryDate: kd.deliveryDate.autoValue, warrantyYears: kd.warranty.years ? String(kd.warranty.years) : "" };
   const setupDate = kd.setupDate.value, warrantyStart = kd.warranty.start, warrantyText = kd.warranty.text;
   const orderAmount = c.amount;
-  const actualCost = c.actualCost, targetCost = c.targetCost, salesActual = toAmount(r.salesActual);
+  const actualCost = c.actualCost, targetCost = c.targetCost, estimateCost = c.estimateCost, salesActual = toAmount(r.salesActual);
   // 미완료 내용: 직접 적은 내용 > 남은 일정·의제·미수금 요약 > "납품완료"
   const openTasks = p.schedule.filter((t) => !t.done).length, unpaid = c.payments.filter((x) => x.status !== "수금완료").length;
   const autoUnfinished = [openTasks && `일정 ${openTasks}건`, sm.openActions.length && `실천 의제 ${sm.openActions.length}건`,
@@ -808,7 +812,7 @@ function closingInfo(p) {
     kickoffDate: kd.kickoffDate.value, deliveryDate: kd.deliveryDate.value, setupDate, warrantyStart, warrantyYears: auto.warrantyYears, warrantyText,
     payTerms: c.payments.map((x) => `${x.name} ${x.ratio}%`).join(" / "),
     paidDate: kd.paidDate.value,
-    orderAmount, targetCost, actualCost, salesActual,
+    orderAmount, estimateCost, targetCost, actualCost, salesActual,
     profit: orderAmount && actualCost ? orderAmount - actualCost : null,
     profitRate: orderAmount && actualCost ? (orderAmount - actualCost) / orderAmount : null,
     auto,
@@ -840,10 +844,11 @@ async function buildClosingWorkbook(projects) {
     row("정산관련", "지급조건", (x) => txt(x.payTerms)),
     row("", "입금완료일", (x) => date(x.paidDate)),
     row("", "발주가", (x) => money(x.orderAmount)),
-    row("", "실행가", (x) => money(x.actualCost)),
+    row("", "실행 예가", (x) => money(x.estimateCost)),
     row("", "실행목표가", (x) => money(x.targetCost)),
-    row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}15`, v: x.profit, s: "moneyb" } : txt(""))),
-    row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}17/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
+    row("", "실행가", (x) => money(x.actualCost)),
+    row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}17`, v: x.profit, s: "moneyb" } : txt(""))),
+    row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}18/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
     [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
@@ -855,7 +860,7 @@ async function buildClosingWorkbook(projects) {
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B18", `B20:${last}20`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B19", `B21:${last}21`] }];
 
   // 종합: 프로젝트별 금액
   const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],

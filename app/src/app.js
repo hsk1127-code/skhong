@@ -412,6 +412,10 @@ function renderProject(p) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
     delete p.report[k];
   }
+  if (!p.overview.costV2) {
+    if (p.overview.actualCost && !p.overview.estimateCost) { p.overview.estimateCost = p.overview.actualCost; p.overview.actualCost = ""; }
+    p.overview.costV2 = true;
+  }
   // 납품일자 = 입고일자
   if (isDate(p.overview.deliveryDate) && !isDate(p.overview.receiveDate)) p.overview.receiveDate = p.overview.deliveryDate;
   delete p.overview.deliveryDate;
@@ -523,8 +527,9 @@ function contractEditHtml(p) {
       <label>부가세<select data-ck="vat">${opts(["별도", "포함"], o.vat || "별도")}</select></label>
       <label class="full">발주금액 (원)<input data-ck="orderAmount" data-money inputmode="numeric" value="${c.amount ? c.amount.toLocaleString("ko-KR") : ""}" placeholder="예: 120,000,000">
         <span class="muted small" id="amountWords">${c.amount ? `금 ${koreanAmount(c.amount)}원정` : ""}</span></label>
-      <label>실행가 (원)<input data-ck="actualCost" data-money inputmode="numeric" value="${c.actualCost ? c.actualCost.toLocaleString("ko-KR") : ""}" placeholder="실제 투입 금액"></label>
+      <label>실행 예가 (원)<input data-ck="estimateCost" data-money inputmode="numeric" value="${c.estimateCost ? c.estimateCost.toLocaleString("ko-KR") : ""}" placeholder="예상 실행 금액"></label>
       <label>실행목표가 (원)<input data-ck="targetCost" data-money inputmode="numeric" value="${c.targetCost ? c.targetCost.toLocaleString("ko-KR") : ""}" placeholder="예: 140,000,000"></label>
+      <label>실행가 (원)<input data-ck="actualCost" data-money inputmode="numeric" value="${c.actualCost ? c.actualCost.toLocaleString("ko-KR") : ""}" placeholder="실제 투입 금액"></label>
     </div>
     <div class="cost-view" id="costView">${costViewHtml(c)}</div>
     <h4 style="margin:18px 0 8px">정산 비율</h4>
@@ -551,15 +556,16 @@ function contractEditHtml(p) {
     <div class="row2" style="margin-top:8px"><button type="button" class="btn sm" data-padd>＋ 단계 추가</button>
       <button type="button" class="btn sm" data-presetsave ${c.payments.length && c.ratioSum === 100 ? "" : "disabled"} title="지금 비율을 '자주 쓰는 비율'에 추가합니다 (모든 프로젝트에서 사용)">★ 자주 쓰는 비율로 저장</button></div>`;
 }
-// 발주금액 대비 실행목표가·실행가 → 이익
+// 발주금액 대비 실행 예가·실행목표가·실행가 → 이익
 const pctText = (r) => (r == null ? "" : `${(r * 100).toFixed(1)}%`);
 function costViewHtml(c) {
   if (!c.amount) return `<span class="muted small">발주금액을 넣으면 이익이 계산됩니다.</span>`;
   const cell = (label, v, sub, cls = "") => `<div class="cv ${cls}"><span>${label}</span><b>${v}</b><small>${sub || ""}</small></div>`;
-  return cell("실제 이익", c.profit != null ? fmtWon(c.profit) : "-", c.profitRate != null ? `이익률 ${pctText(c.profitRate)}` : "실행가 미입력", c.profit != null && c.profit < 0 ? "bad" : "")
+  return cell("예상 이익", c.estProfit != null ? fmtWon(c.estProfit) : "-", c.estRate != null ? `이익률 ${pctText(c.estRate)}` : "실행 예가 미입력", c.estProfit != null && c.estProfit < 0 ? "bad" : "")
     + cell("목표 이익", c.targetProfit != null ? fmtWon(c.targetProfit) : "-", c.targetRate != null ? `이익률 ${pctText(c.targetRate)}` : "실행목표가 미입력")
+    + cell("실제 이익", c.profit != null ? fmtWon(c.profit) : "-", c.profitRate != null ? `이익률 ${pctText(c.profitRate)}` : "실행가 미입력", c.profit != null && c.profit < 0 ? "bad" : "")
     + cell("목표 대비", c.overBudget != null ? (c.overBudget > 0 ? `+${fmtWon(c.overBudget)}` : c.overBudget < 0 ? `-${fmtWon(-c.overBudget)}` : "목표와 같음") : "-",
-      c.overBudget != null ? (c.overBudget > 0 ? "목표 초과" : c.overBudget < 0 ? "목표보다 절감" : "") : "", c.overBudget > 0 ? "bad" : c.overBudget < 0 ? "good" : "");
+      c.overBudget != null ? `${c.overBasis} 기준 ${c.overBudget > 0 ? "목표 초과" : c.overBudget < 0 ? "절감" : ""}` : "", c.overBudget > 0 ? "bad" : c.overBudget < 0 ? "good" : "");
 }
 function bindContractEdit(p, card) {
   const o = p.overview;
@@ -748,15 +754,17 @@ function tabOverviewView(p, el) {
     </div>`;
   })();
   const payColor = { 수금완료: "pay-done", 청구: "pay-billed", 미청구: "pay-todo" };
-  const contractCard = c.amount || o.orderDate || c.targetCost || c.actualCost || c.payments.length ? `<div class="card ov-contract">
+  const contractCard = c.amount || o.orderDate || c.estimateCost || c.targetCost || c.actualCost || c.payments.length ? `<div class="card ov-contract">
       <div class="contract-head">
         <div><span class="muted small">발주일</span><b>${isDate(o.orderDate) ? esc(fmtDot(o.orderDate)) : empty}</b></div>
         <div><span class="muted small">발주금액 (부가세 ${esc(o.vat || "별도")})</span><b class="amount">${c.amount ? fmtWon(c.amount) : empty}</b>
           ${c.amount ? `<span class="muted small">금 ${koreanAmount(c.amount)}원정</span>` : ""}</div>
-        <div><span class="muted small">실행가</span><b class="${c.overBudget > 0 ? "bad" : ""}">${c.actualCost ? fmtWon(c.actualCost) : empty}</b>
-          <span class="muted small">${c.profit != null ? `이익 ${fmtWon(c.profit)} (${pctText(c.profitRate)})` : ""}${c.overBudget > 0 ? ` · 목표 초과 ${fmtWon(c.overBudget)}` : ""}</span></div>
+        <div><span class="muted small">실행 예가</span><b>${c.estimateCost ? fmtWon(c.estimateCost) : empty}</b>
+          <span class="muted small">${c.estProfit != null ? `예상 이익 ${fmtWon(c.estProfit)} (${pctText(c.estRate)})` : ""}</span></div>
         <div><span class="muted small">실행목표가</span><b>${c.targetCost ? fmtWon(c.targetCost) : empty}</b>
           <span class="muted small">${c.targetRate != null ? `목표 이익률 ${pctText(c.targetRate)}` : ""}</span></div>
+        <div><span class="muted small">실행가</span><b class="${c.actualCost && c.overBudget > 0 ? "bad" : ""}">${c.actualCost ? fmtWon(c.actualCost) : empty}</b>
+          <span class="muted small">${c.profit != null ? `이익 ${fmtWon(c.profit)} (${pctText(c.profitRate)})` : ""}${c.actualCost && c.overBudget > 0 ? ` · 목표 초과 ${fmtWon(c.overBudget)}` : ""}</span></div>
         <div><span class="muted small">정산 진행</span><b>${c.paidRatio}%</b><span class="muted small">${c.paidAmount ? `${fmtWon(c.paidAmount)} 수금` : "수금 전"}</span></div>
       </div>
       ${c.payments.length ? `<div class="paybar">${c.payments.map((x) => `<span class="${payColor[x.status] || "pay-todo"}" style="flex:${Number(x.ratio) || 0}" title="${esc(x.name)} ${esc(x.ratio)}% · ${x.status}"></span>`).join("")}</div>
@@ -766,7 +774,7 @@ function tabOverviewView(p, el) {
         ${badge(x.status === "수금완료" ? "완료" : x.status === "청구" ? "진행" : "예정")}</div>`).join("")}</div>
       ${c.ratioSum !== 100 ? `<p class="bad small">⚠ 정산 비율 합계가 ${c.ratioSum}% 입니다.</p>` : ""}` : `<p class="muted small">정산 비율이 없습니다.</p>`}
       <div class="contract-foot"><button class="btn sm" data-paydlg>⚙ 정산 비율 설정</button></div>
-    </div>` : `<div class="card ov-contract between"><span class="muted small">발주일·발주금액·실행가·정산 비율이 아직 없습니다.</span>
+    </div>` : `<div class="card ov-contract between"><span class="muted small">발주일·발주금액·실행 예가·정산 비율이 아직 없습니다.</span>
       <span class="row2"><button class="btn sm" data-paydlg>⚙ 정산 비율 설정</button><button class="btn sm" data-ovedit>✏️ 정보 수정</button></span></div>`;
 
   el.innerHTML = `
@@ -1421,10 +1429,11 @@ function reportDialog(p) {
       <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2">${hint("")}</label>
       <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}">${hint(ci.paidDate && !o.paidDate ? `비우면 자동: ${fmtDot(ci.paidDate)}` : "정산이 모두 끝나면 자동")}</label>
       ${money("orderAmount", "발주가", "", "개요의 발주금액과 같은 값")}
-      ${money("actualCost", "실행가")}
+      ${money("estimateCost", "실행 예가")}
       ${money("targetCost", "실행목표가")}
+      ${money("actualCost", "실행가", "실제 투입 금액", "이익 계산 기준")}
       ${money("salesActual", "실적가", "", "종합 시트용 (선택)")}
-      <label class="span2">지급조건<span class="row2" style="flex-wrap:nowrap"><input value="${esc(ci.payTerms || "정산 비율 미입력")}" disabled style="flex:1">
+      <label>지급조건<span class="row2" style="flex-wrap:nowrap"><input value="${esc(ci.payTerms || "정산 비율 미입력")}" disabled style="flex:1">
         <button type="button" class="btn sm" data-paydlg-report>⚙ 설정</button></span>${hint("")}</label>
       <label class="full">이슈(특이)사항 · 문제점 및 개선사항<textarea name="issues" rows="2" placeholder="예: 추가 개선사항 유상건 / 없음">${esc(r.issues)}</textarea></label>
       <label class="full">미완료 내용<input name="unfinished" value="${esc(r.unfinished || "")}" placeholder="비우면 자동으로 채웁니다">${hint(`비우면 자동: ${closingInfo({ ...p, report: { ...r, unfinished: "" } }).unfinished}`)}</label>
@@ -1467,8 +1476,11 @@ function reportDialog(p) {
     $("[data-paydlg-report]", dlg).onclick = () => { dlg.close(); payDialog(p); };
     // 금액 칸: 쉼표 표시, 이익 미리 계산
     const showProfit = () => {
-      const cost = toAmount(form.actualCost.value), amt = toAmount(form.orderAmount.value);
-      $("#profitView", dlg).innerHTML = amt && cost ? `${fmtWon(amt - cost)} <span class="muted small">(이익률 ${(((amt - cost) / amt) * 100).toFixed(1)}%)</span>` : `<span class="muted small">발주가와 실행가를 넣으면 계산됩니다</span>`;
+      const amt = toAmount(form.orderAmount.value), cost = toAmount(form.actualCost.value), est = toAmount(form.estimateCost.value);
+      const line = (label, c) => `${label} ${fmtWon(amt - c)} <span class="muted small">(${(((amt - c) / amt) * 100).toFixed(1)}%)</span>`;
+      $("#profitView", dlg).innerHTML = amt && (cost || est)
+        ? [cost && line("실제", cost), est && `<span class="muted">${line("예상", est)}</span>`].filter(Boolean).join(" &nbsp;·&nbsp; ")
+        : `<span class="muted small">발주가와 실행가(또는 실행 예가)를 넣으면 계산됩니다</span>`;
     };
     $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
       const n = toAmount(inp.value);
@@ -1484,6 +1496,7 @@ function reportDialog(p) {
     Object.assign(o, { kickoffDate: f("kickoffDate"), receiveDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
       warrantyYears: f("warrantyYears"), paidDate: f("paidDate") });
     o.orderAmount = String(toAmount(f("orderAmount")) || "");
+    o.estimateCost = String(toAmount(f("estimateCost")) || "");
     o.targetCost = String(toAmount(f("targetCost")) || "");
     o.actualCost = String(toAmount(f("actualCost")) || "");
     Object.assign(r, { salesActual: String(toAmount(f("salesActual")) || ""),
@@ -1548,8 +1561,10 @@ function reportHtml(p, inc) {
   const kpi = (label, value, sub = "", cls = "") => `<div class="rp-kpi ${cls}"><span>${label}</span><b>${value}</b><small>${sub}</small></div>`;
   const kpis = [
     kpi("발주금액", won(c.amount), c.amount ? `부가세 ${esc(o.vat || "별도")}` : ""),
-    kpi("실행가", won(c.actualCost), c.targetCost ? `목표 ${fmtWon(c.targetCost)}` : "", c.overBudget > 0 ? "bad" : ""),
-    kpi("이익", c.profit != null ? won(c.profit) : "-", c.profitRate != null ? `이익률 ${pct(c.profitRate)}${c.targetRate != null ? ` (목표 ${pct(c.targetRate)})` : ""}` : "", c.profit < 0 ? "bad" : "accent"),
+    c.actualCost ? kpi("실행가", won(c.actualCost), [c.estimateCost && `예가 ${fmtWon(c.estimateCost)}`, c.targetCost && `목표 ${fmtWon(c.targetCost)}`].filter(Boolean).join(" · "), c.overBudget > 0 ? "bad" : "")
+      : kpi("실행 예가", won(c.estimateCost), c.targetCost ? `목표 ${fmtWon(c.targetCost)} · 실행가 미입력` : "실행가 미입력"),
+    kpi(c.profit != null ? "이익" : "예상 이익", c.profit != null ? won(c.profit) : c.estProfit != null ? won(c.estProfit) : "-",
+      c.profit != null ? `이익률 ${pct(c.profitRate)}${c.targetRate != null ? ` (목표 ${pct(c.targetRate)})` : ""}` : c.estRate != null ? `예상 이익률 ${pct(c.estRate)}` : "", c.profit < 0 ? "bad" : "accent"),
     kpi("정산", c.payments.length ? `${c.paidRatio}<small>%</small>` : "-", c.payments.length ? `수금 ${fmtWon(c.paidAmount)}` : "정산 비율 미입력", c.paidRatio === 100 ? "ok" : ""),
     kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)}` : ""),
     kpi("계획 대비", diffText, isDate(r.completedDate) ? `완료 ${fmtDot(r.completedDate)}` : "", diff > 0 ? "bad" : diff !== null ? "ok" : ""),
@@ -1593,9 +1608,10 @@ function reportHtml(p, inc) {
     ${sec("계약 및 정산")}
     ${kv([["발주일", d(o.orderDate), "부가세", v(o.vat)],
       ["발주금액", c.amount ? `<b>${fmtWon(c.amount)}</b> <span class="rp-sub">금 ${koreanAmount(c.amount)}원정</span>` : v("")],
-      ["실행가", c.actualCost ? `${fmtWon(c.actualCost)}${c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">${c.overBudget > 0 ? "목표 초과" : "목표 대비 절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v(""),
+      ["실행 예가", c.estimateCost ? fmtWon(c.estimateCost) : v(""), "예상 이익률", c.estRate != null ? `${fmtWon(c.estProfit)} · ${pct(c.estRate)}` : v("")],
+      ["실행목표가", c.targetCost ? fmtWon(c.targetCost) : v(""), "목표 이익률", c.targetRate != null ? `${fmtWon(c.targetProfit)} · ${pct(c.targetRate)}` : v("")],
+      ["실행가", c.actualCost ? `${fmtWon(c.actualCost)}${c.actualCost && c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">${c.overBudget > 0 ? "목표 초과" : "목표 대비 절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v(""),
         "이익 · 이익률", c.profit != null ? `<b>${fmtWon(c.profit)}</b> · ${pct(c.profitRate)}` : v("")],
-      ["실행목표가", c.targetCost ? fmtWon(c.targetCost) : v(""), "목표 이익률", c.targetRate != null ? pct(c.targetRate) : v("")],
       ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
     ${payBar}
     ${c.payments.length ? table([15, 10, 21, 26, 15, 13], ["구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, "지급 조건", { t: "정산일", c: "c" }, { t: "상태", c: "c" }],
