@@ -35,7 +35,59 @@ const OVERVIEW_FIELDS = [
   ["receiveDate", "입고일자"], ["receivePlace", "입고 장소"], ["scope", "사업 범위"], ["warranty", "하자보증기간"],
 ];
 
-const listRows = (p, key) => (key === "revisions" ? p.revisions : p.lists[key]);
+// "unit:<id>" 는 설비별 BOM, "bom" 은 (예전 코드 호환) 첫 번째 설비의 BOM
+const listRows = (p, key) => (key === "revisions" ? p.revisions
+  : key.startsWith("unit:") ? findUnit(p, key)?.bom || []
+  : key === "bom" ? ensureUnits(p)[0].bom : p.lists[key]);
+const listDef = (p, key) => {
+  if (!key.startsWith("unit:")) return LISTS[key];
+  const u = findUnit(p, key);
+  return { ...LISTS.unitbom, title: `BOM · ${u?.name || ""}`, unit: u, units: ensureUnits(p) };
+};
+
+// ------------------------------------------------------------- 설비별 BOM
+// 프로젝트의 설비(예: Conveyor AMR ×2, AUTO Charger ×1)마다 1대당 BOM 을 두고, 총 수량 = 1대당 수량 × 대수
+LISTS.unitbom = { title: "BOM", sheet: "BOM", cols: PART_COLS.map((c) => (c.key === "qty" ? { ...c, label: "1대당 수량", w: 8 } : c)),
+  computed: [{ label: "총 수량", after: "qty", fn: (r, u) => unitTotalQty(r, u) }] };
+const isItemRow = (r) => !/^■/.test(r.item || "");
+function unitTotalQty(r, u) {
+  const q = Number(String(r.qty ?? "").replace(/,/g, ""));
+  return isItemRow(r) && String(r.qty ?? "").trim() !== "" && !isNaN(q) ? q * (Number(u?.qty) || 0) : "";
+}
+// "Conveyor AMR : 2EA" → { name: "Conveyor AMR", qty: 2 }
+function parseScopeUnits(scope) {
+  return String(scope || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = /^(.*?)\s*[:：x×]\s*(\d+)\s*(?:EA|ea|대|개|set|SET|식|기)?\s*$/.exec(l);
+    return m ? { name: m[1].trim(), qty: Number(m[2]) } : { name: l, qty: 1 };
+  });
+}
+// 설비 목록이 없으면 사업 범위에서 만들고, 예전 BOM(한 장짜리)은 첫 번째 설비로 옮긴다
+function ensureUnits(p) {
+  if (Array.isArray(p.units) && p.units.length) return p.units;
+  const parsed = parseScopeUnits(p.overview.scope);
+  p.units = (parsed.length ? parsed : [{ name: p.overview.name || "설비", qty: 1 }]).map((u) => ({ id: Store.uid(), name: u.name, qty: u.qty, bom: [] }));
+  if (p.lists.bom?.length) { p.units[0].bom = p.lists.bom; p.lists.bom = []; }
+  if (p.listFiles?.bom?.length) { p.listFiles[`unit:${p.units[0].id}`] = p.listFiles.bom; delete p.listFiles.bom; }
+  return p.units;
+}
+const findUnit = (p, key) => ensureUnits(p).find((u) => `unit:${u.id}` === key || u.id === key);
+const bomItemCount = (p) => ensureUnits(p).reduce((a, u) => a + u.bom.filter(isItemRow).length, 0);
+// 전체 합계: 같은 품목·모델·업체를 모아 설비별 수량과 총 수량
+function bomSummary(p) {
+  const units = ensureUnits(p), map = new Map();
+  for (const u of units) for (const r of u.bom) {
+    if (!isItemRow(r) || !(r.item || r.model)) continue;
+    const key = [r.item, r.model, r.maker].map(norm).join("|");
+    if (!map.has(key)) map.set(key, { kind: r.kind, item: r.item, model: r.model, maker: r.maker, per: {}, total: 0, notes: [] });
+    const x = map.get(key), t = unitTotalQty(r, u);
+    x.per[u.id] = (x.per[u.id] || 0) + (t === "" ? 0 : t);
+    if (t !== "") x.total += t;
+    if (r.note && !x.notes.includes(r.note)) x.notes.push(r.note);
+    if (!x.kind && r.kind) x.kind = r.kind;
+  }
+  return { units, rows: [...map.values()] };
+}
+
 
 // ------------------------------------------------------------- 일정 계산
 // 엑셀 일정 시트와 같은 방식: 기간 = 종료-시작+1, 잔여 = 기준일 이후 남은 날, 경과 = 기간-잔여
@@ -366,6 +418,30 @@ async function imageEntries(ids, startRow) {
 }
 const fileNames = (ids) => (ids || []).map((id) => Store.fileMeta(id)?.name).filter(Boolean).join(", ");
 
+// 설비별 BOM 시트 + 전체 합계 시트
+function unitBomSheets(p) {
+  const H = (v) => ({ v, s: "head" }), T = (v) => ({ v: v ?? "", s: "cell" });
+  const sheets = ensureUnits(p).map((u) => {
+    const rows = [[{ v: `BOM · ${u.name}`, s: "title" }, null, null, null, null, { v: "대수", s: "head" }, { v: Number(u.qty) || 0, s: "cell" }], [],
+      [H("NO"), H("구분"), H("품목"), H("모델명"), H("업체명"), H("1대당 수량"), H("총 수량"), H("비고")]];
+    let n = 0;
+    u.bom.forEach((r) => {
+      if (!isItemRow(r)) { rows.push([T(""), { v: r.item.replace(/^■\s*/, ""), s: "head" }, T(""), T(""), T(""), T(""), T(""), T("")]); return; }
+      const q = Number(r.qty), rowNo = rows.length + 1;
+      rows.push([{ v: ++n, s: "cell" }, T(r.kind), T(r.item), T(r.model), T(r.maker), { v: r.qty !== "" && !isNaN(q) ? q : r.qty, s: "cell" },
+        r.qty !== "" && !isNaN(q) ? { f: `F${rowNo}*$G$1`, v: unitTotalQty(r, u), s: "cell" } : T(""), T(r.note)]);
+    });
+    return { name: `BOM_${u.name}`, cols: [6, 12, 22, 22, 16, 10, 9, 24], rows };
+  });
+  const { units, rows } = bomSummary(p);
+  const sum = [[{ v: "BOM 전체 합계 (구매 수량)", s: "title" }], [],
+    [H("NO"), H("구분"), H("품목"), H("모델명"), H("업체명"), ...units.map((u) => H(`${u.name} ×${u.qty}`)), H("총 수량"), H("비고")]];
+  rows.forEach((r, i) => sum.push([{ v: i + 1, s: "cell" }, T(r.kind), T(r.item), T(r.model), T(r.maker),
+    ...units.map((u) => ({ v: r.per[u.id] ?? "", s: "cell" })), { v: r.total, s: "cell" }, T(r.notes.join(" / "))]));
+  sheets.push({ name: "BOM 합계", cols: [6, 12, 22, 22, 16, ...units.map(() => 14), 10, 30], rows: sum });
+  return sheets;
+}
+
 async function buildWorkbook(p) {
   const sheets = [];
   const table = (key, extraTitle) => {
@@ -401,7 +477,7 @@ async function buildWorkbook(p) {
   if (p.hwNote) hw.rows.push([], [{ v: p.hwNote, s: "wrap" }]);
   hw.images = await imageEntries(p.hwImages, hw.rows.length + 1);
   sheets.push(hw);
-  sheets.push(table("supplied", "지정품/지급품"), table("consumables", "소모품"), table("bom", "BOM"), table("submissions"), table("changes"));
+  sheets.push(table("supplied", "지정품/지급품"), table("consumables", "소모품"), ...unitBomSheets(p), table("submissions"), table("changes"));
 
   const dated = [
     ...p.records.map((r) => ({ date: r.date, kind: "record", r })),
@@ -471,7 +547,10 @@ async function buildProjectZip(p) {
   for (const r of p.records) await add(`${fmtDot(r.date)}_${r.title}`, [...r.images, ...r.files]);
   for (const m of p.meetings) await add(`${fmtDot(m.date)}_${m.title}`, m.files);
   await add("HW 주요 Spec", p.hwImages);
-  for (const key of ["bom", "consumables", "supplied"]) await add(`${LISTS[key].title}_원본`, p.listFiles?.[key]);
+  for (const [key, ids] of Object.entries(p.listFiles || {})) {
+    const title = key.startsWith("unit:") ? `BOM_${findUnit(p, key)?.name || "설비"}` : LISTS[key]?.title || key;
+    await add(`${title}_원본`, ids);
+  }
   for (const key of ["submissions", "changes"]) for (const r of p.lists[key]) await add(`${LISTS[key].title}_${r.item || r.content || ""}`.slice(0, 60), r.files);
   return Zip.write(files);
 }

@@ -84,7 +84,10 @@ const assert = require("assert");
   assert.match(await p.locator(".sched tbody tr").nth(2).locator("[data-c=status]").textContent(), /진행/);
 
   await p.click(".tabs [data-tab=parts]");
-  const items = await p.$$eval("[data-grid=bom] [data-f=item]", (els) => els.map((e) => e.value));
+  // 설비별 BOM: 사업 범위(AMR : 2EA, Charger : 1EA)로 설비 생성, 기존 BOM 은 첫 설비로
+  assert.deepStrictEqual(await p.$$eval(".unit-chip:not(.sum) b", (b) => b.map((x) => x.textContent)), ["AMR", "Charger"]);
+  assert.deepStrictEqual(await p.$$eval("[data-grid^=unit] [data-comp]", (c) => c.map((x) => x.textContent)), ["", "2", "10"]);
+  const items = await p.$$eval("[data-grid^=unit] [data-f=item]", (els) => els.map((e) => e.value));
   assert.deepStrictEqual(items, ["■ 지정품 List", "메인제어PC", "말굽센서"]);
 
   // 업체 BOM 엑셀 가져오기: 영문 머리글 인식, 소제목→구분, 중복 합치기, 되돌리기
@@ -96,13 +99,20 @@ const assert = require("assert");
   await p.selectOption("dialog [name=mode]", "replace");
   await p.click("dialog button.primary");
   await p.waitForSelector("#partsUndo");
-  const bom = await p.$$eval("[data-grid=bom] tbody tr", (trs) => trs.map((tr) =>
+  const bom = await p.$$eval("[data-grid^=unit] tbody tr", (trs) => trs.map((tr) =>
     ["kind", "item", "model", "maker", "qty", "note"].map((k) => tr.querySelector(`[data-f=${k}]`).value).join("|")));
   assert.deepStrictEqual(bom, ["|■ 전장||||", "전장|Lidar|Nano Scan3|SICK|2|spare", "전장|Drive|Leadshine|Leadshine|2|Driving",
     "|■ 기구||||", "기구|LM Guide|SSEBL10|Misumi|4|"]);
   assert.strictEqual(await p.locator(".parts-tools .chip").count(), 1);
   await p.click("#partsUndo");
-  assert.deepStrictEqual(await p.$$eval("[data-grid=bom] [data-f=item]", (els) => els.map((e) => e.value)), items);
+  assert.deepStrictEqual(await p.$$eval("[data-grid^=unit] [data-f=item]", (els) => els.map((e) => e.value)), items);
+  // 행을 다른 설비로 옮기고 전체 합계 확인
+  await p.locator("[data-grid^=unit] tbody tr").nth(1).locator("[data-moveunit]").selectOption({ label: "→ Charger" });
+  await p.click(".unit-chip >> nth=1");
+  assert.deepStrictEqual(await p.$$eval("[data-grid^=unit] [data-f=item]", (els) => els.map((e) => e.value)), ["메인제어PC"]);
+  await p.click(".unit-chip.sum");
+  const sumRows = await p.$$eval(".sum-table tbody tr", (trs) => trs.map((t) => [...t.children].map((td) => td.textContent.trim())));
+  assert.deepStrictEqual(sumRows.map((r) => [r[2], r[r.length - 2]]), [["말굽센서", "10"], ["메인제어PC", "1"]]);
 
   await p.click(".tabs [data-tab=meetings]");
   assert.strictEqual(await p.inputValue("[data-mf=title]"), "고객사 Kick-off");

@@ -380,7 +380,10 @@ function renderSearch() {
     for (const m of p.meetings) if (hit(m.title, m.content, m.attendees, m.notes, ...m.actions.map((a) => a.text + " " + a.owner)))
       add("meetings", "회의록", m.title, fmtDot(m.date), { meeting: m.id });
     for (const t of p.schedule) if (hit(t.phase, t.name, t.owner, t.note)) add("schedule", "일정", `${t.phase} · ${t.name}`, `${fmtDot(t.start)} ~ ${fmtDot(t.end)}`);
+    for (const u of ensureUnits(p)) for (const r of u.bom) if (isItemRow(r) && hit(r.kind, r.item, r.model, r.maker, r.note))
+      add("parts", `BOM · ${u.name}`, [r.item, r.model, r.maker].filter(Boolean).join(" · "), "", { sub: "bom" });
     for (const [key, def] of Object.entries(LISTS)) {
+      if (key === "unitbom" || key === "bom") continue;
       const tab = { sw: "spec", hw: "spec", supplied: "parts", consumables: "parts", bom: "parts" }[key] || key;
       for (const r of listRows(p, key)) if (hit(...def.cols.map((c) => r[c.key])))
         add(tab, def.title, def.cols.map((c) => r[c.key]).filter(Boolean).slice(0, 3).join(" · "), "", { sub: key });
@@ -400,6 +403,7 @@ function renderProject(p) {
   Object.assign(p.overview, { orderDate: p.overview.orderDate ?? "", orderAmount: p.overview.orderAmount ?? "",
     vat: p.overview.vat || "별도", payments: p.overview.payments || [] });
   p.report ||= { summary: "", issues: "", warrantyNote: "", completedDate: "" };
+  ensureUnits(p);
   for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
     delete p.report[k];
@@ -414,7 +418,7 @@ function renderProject(p) {
   const tab = TABS.some(([k]) => k === route.tab) ? route.tab : "overview";
   const s = projectSummary(p);
   const counts = { records: p.records.length, meetings: p.meetings.length, schedule: s.delayed.length ? `⚠${s.delayed.length}` : "",
-    parts: p.lists.bom.length + p.lists.consumables.length + p.lists.supplied.length || "", submissions: s.pendingSubmissions.length || "",
+    parts: bomItemCount(p) + p.lists.consumables.length + p.lists.supplied.length || "", submissions: s.pendingSubmissions.length || "",
     changes: p.lists.changes.length || "" };
   $("#main").innerHTML = `
     <div class="page-head">
@@ -802,7 +806,7 @@ function tabOverviewView(p, el) {
       ${tile("schedule", "⚠", "지연 일정", s.delayed.length, s.delayed.length ? "bad" : "")}
       ${tile("records", "📨", "자료 이력", p.records.length)}
       ${tile("meetings", "📝", "미완료 의제", s.openActions.length, s.openActions.length ? "warn" : "")}
-      ${tile("parts", "🔩", "BOM 품목", p.lists.bom.filter((r) => !/^■/.test(r.item || "")).length)}
+      ${tile("parts", "🔩", "BOM 품목", bomItemCount(p))}
       ${tile("submissions", "📤", "미제출 자료", s.pendingSubmissions.length, s.pendingSubmissions.length ? "warn" : "")}
     </div>
 
@@ -1063,18 +1067,21 @@ function bindTablePaste(tbody, keys, arr, makeRow, convert, done) {
 
 // ------------------------------------------------------------- 공통 표(그리드)
 function gridCard(p, key, help = "") {
-  const def = LISTS[key];
+  const def = listDef(p, key);
   const rows = listRows(p, key);
+  const others = def.unit ? def.units.filter((u) => u !== def.unit) : [];
+  // 계산 열(예: 총 수량)은 after 로 지정한 입력 열 바로 뒤에
+  const comps = (c) => (def.computed || []).map((x, k) => [x, k]).filter(([x]) => x.after === c.key);
   return `<div class="card" data-grid="${key}">
     <div class="between"><h3>${def.title} <span class="muted small">${rows.length}건</span></h3>
       <button class="btn primary sm" data-addrow>＋ 행 추가</button></div>
     ${help ? `<p class="muted small">${help}</p>` : `<p class="muted small">칸을 눌러 바로 수정합니다. 엑셀에서 여러 행을 복사해 칸에 붙여넣으면 한 번에 입력됩니다.</p>`}
     <div class="table-scroll"><table class="grid-table">
-      <thead><tr><th class="num">NO</th>${def.cols.map((c) => `<th>${c.label}</th>`).join("")}${def.files ? "<th>첨부</th>" : ""}<th></th></tr></thead>
-      <tbody>${rows.map((r, i) => `<tr data-id="${r.id}" class="${/^■/.test(r.item || "") ? "sec-row" : ""}"><td class="num muted">${i + 1}</td>${def.cols.map((c) => `<td>${gridInput(c, r[c.key])}</td>`).join("")}
+      <thead><tr><th class="num">NO</th>${def.cols.map((c) => `<th>${c.label}</th>${comps(c).map(([x]) => `<th class="num">${x.label}</th>`).join("")}`).join("")}${def.files ? "<th>첨부</th>" : ""}<th></th></tr></thead>
+      <tbody>${rows.map((r, i) => `<tr data-id="${r.id}" class="${/^■/.test(r.item || "") ? "sec-row" : ""}"><td class="num muted">${i + 1}</td>${def.cols.map((c) => `<td>${gridInput(c, r[c.key])}</td>${comps(c).map(([x, k]) => `<td class="num computed" data-comp="${k}">${esc(x.fn(r, def.unit))}</td>`).join("")}`).join("")}
         ${def.files ? `<td class="files-cell">${fileChips(r.files)}<button class="icon" data-attach title="파일 첨부">📎</button></td>` : ""}
-        <td class="nowrap"><button class="icon" data-ins title="아래에 행 추가">＋</button><button class="icon" data-delrow title="삭제">✕</button></td></tr>`).join("")
-        || `<tr><td colspan="${def.cols.length + 3}" class="muted center pad">내용이 없습니다. ＋ 행 추가를 누르거나 엑셀에서 붙여넣으세요.</td></tr>`}</tbody></table></div></div>`;
+        <td class="nowrap">${others.length ? `<select class="move-unit" data-moveunit title="다른 설비로 이동"><option value="">⇄</option>${others.map((u) => `<option value="${u.id}">→ ${esc(u.name)}</option>`).join("")}</select>` : ""}<button class="icon" data-ins title="아래에 행 추가">＋</button><button class="icon" data-delrow title="삭제">✕</button></td></tr>`).join("")
+        || `<tr><td colspan="${def.cols.length + (def.computed || []).length + 3}" class="muted center pad">내용이 없습니다. ＋ 행 추가를 누르거나 엑셀에서 붙여넣으세요.</td></tr>`}</tbody></table></div></div>`;
 }
 function gridInput(c, v) {
   v = v ?? "";
@@ -1085,7 +1092,7 @@ function gridInput(c, v) {
 }
 function bindGrids(p, root) {
   for (const card of $$("[data-grid]", root)) {
-    const key = card.dataset.grid, def = LISTS[key];
+    const key = card.dataset.grid, def = listDef(p, key);
     const rows = listRows(p, key);
     const blank = () => {
       const r = { id: Store.uid() };
@@ -1099,8 +1106,20 @@ function bindGrids(p, root) {
     tbody.addEventListener("input", (e) => {
       const tr = e.target.closest("tr[data-id]");
       if (!tr || !e.target.dataset.f) return;
-      rows.find((r) => r.id === tr.dataset.id)[e.target.dataset.f] = e.target.value;
+      const row = rows.find((r) => r.id === tr.dataset.id);
+      row[e.target.dataset.f] = e.target.value;
+      (def.computed || []).forEach((c, k) => { const td = $(`[data-comp="${k}"]`, tr); if (td) td.textContent = c.fn(row, def.unit); });
       Store.touch(p);
+    });
+    tbody.addEventListener("change", (e) => {
+      if (!("moveunit" in e.target.dataset) || !e.target.value) return;
+      const tr = e.target.closest("tr[data-id]"), to = def.units.find((u) => u.id === e.target.value);
+      const i = rows.findIndex((r) => r.id === tr.dataset.id);
+      const [row] = rows.splice(i, 1);
+      to.bom.push(row);
+      Store.touch(p, `BOM 이동: ${row.item || row.model || ""} → ${to.name}`);
+      toast(`'${row.item || row.model || "행"}'을 ${to.name}(으)로 옮겼습니다.`);
+      rerender();
     });
     tbody.addEventListener("click", (e) => {
       const tr = e.target.closest("tr[data-id]");
@@ -1129,7 +1148,7 @@ function bindGrids(p, root) {
       rows.push(blank());
       Store.touch(p, key === "changes" ? "변경사항 추가" : "");
       rerender();
-      const last = $$("tbody tr", $(`[data-grid=${key}]`)).pop();
+      const last = $$("tbody tr", $(`[data-grid="${key}"]`)).pop();
       $("input, textarea", last)?.focus();
     };
     bindTablePaste(tbody, def.cols.map((c) => c.key), rows, blank,
@@ -1422,7 +1441,7 @@ function reportDialog(p) {
       <label><input type="checkbox" name="incMeetings" checked> 회의 (${p.meetings.length})</label>
       <label><input type="checkbox" name="incChanges" checked> 변경사항 (${p.lists.changes.length})</label>
       <label><input type="checkbox" name="incRecords" checked> 자료 이력 (${p.records.length})</label>
-      <label><input type="checkbox" name="incBom" ${p.lists.bom.length ? "" : "disabled"}> BOM (${p.lists.bom.length})</label>
+      <label><input type="checkbox" name="incBom" ${bomItemCount(p) ? "" : "disabled"}> BOM (${bomItemCount(p)})</label>
     </div>`,
   async (form) => {
     save(form);
@@ -1487,7 +1506,8 @@ function reportHtml(p, inc) {
   const table = (cols, heads, rows, empty = "해당 없음") => rows.length
     ? `<table class="rp-t"><colgroup>${cols.map((w) => `<col style="width:${w}%">`).join("")}</colgroup>
         <thead><tr>${heads.map((h) => `<th class="${h.c || ""}">${h.t ?? h}</th>`).join("")}</tr></thead>
-        <tbody>${rows.map((row) => `<tr class="${row.cls || ""}">${row.map((x, i) => `<td class="${heads[i].c || ""}">${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`
+        <tbody>${rows.map((row) => `<tr class="${row.cls || ""}">${row.span ? `<td colspan="${heads.length}">${row[0]}</td>`
+          : row.map((x, i) => `<td class="${heads[i].c || ""}">${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`
     : `<p class="rp-none">${empty}</p>`;
   // 개요형 표: 항목 | 값 | 항목 | 값 (18 / 32 / 18 / 32)
   const kv = (rows) => `<table class="rp-kv"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup><tbody>${rows.map((row) =>
@@ -1594,12 +1614,14 @@ function reportHtml(p, inc) {
       [...p.records].sort((a, b) => a.date.localeCompare(b.date)).map((x) => [d(x.date), `<span class="rp-pill">${esc(x.kind)}</span>`, esc(x.title), `${x.images.length + x.files.length}건`]))}` : ""}
 
     <div class="rp-keep">${sec("자재")}
-    <div class="rp-mini">${[["BOM", p.lists.bom], ["소모품", p.lists.consumables], ["지정품/지급품", p.lists.supplied]].map(([l, arr]) =>
+    <div class="rp-mini"><div><span>BOM (설비 ${ensureUnits(p).length}종)</span><b>${bomItemCount(p)}<small>품목</small></b></div>
+      ${[["소모품", p.lists.consumables], ["지정품/지급품", p.lists.supplied]].map(([l, arr]) =>
       `<div><span>${l}</span><b>${arr.filter((x) => !/^■/.test(x.item || "")).length}<small>품목</small></b></div>`).join("")}
       <div><span>제출 자료</span><b>${p.lists.submissions.length}<small>건</small></b>${sm.pendingSubmissions.length ? `<small class="bad">미제출 ${sm.pendingSubmissions.length}</small>` : ""}</div></div></div>
-    ${inc.bom ? table([12, 19, 21, 15, 7, 26], ["구분", "품목", "모델명", "업체명", { t: "개수", c: "r" }, "비고"], p.lists.bom.map((x) => /^■/.test(x.item || "")
-      ? Object.assign([`<b>${esc(x.item.replace(/^■\s*/, ""))}</b>`, "", "", "", "", ""], { cls: "rp-secrow" })
-      : [v(x.kind), v(x.item), v(x.model), v(x.maker), v(x.qty), v(x.note)])) : ""}
+    ${inc.bom ? table([12, 18, 20, 14, 8, 8, 20], ["구분", "품목", "모델명", "업체명", { t: "1대당", c: "r" }, { t: "총 수량", c: "r" }, "비고"],
+      ensureUnits(p).flatMap((u) => [Object.assign([`<b>${esc(u.name)}</b> · ${u.qty}대 · ${u.bom.filter(isItemRow).length}품목`], { cls: "rp-secrow", span: true }),
+        ...u.bom.map((x) => (/^■/.test(x.item || "") ? Object.assign([`<b>${esc(x.item.replace(/^■\s*/, ""))}</b>`], { cls: "rp-subrow", span: true })
+          : [v(x.kind), v(x.item), v(x.model), v(x.maker), v(x.qty), v(String(unitTotalQty(x, u))), v(x.note)]))])) : ""}
 
     ${sec("미결 사항")}
     ${pending.length ? `<div class="rp-callout warn"><b>남은 항목 ${pending.length}건</b><ul>${pending.map((x) => `<li>${x}</li>`).join("")}</ul></div>`
@@ -1638,39 +1660,135 @@ function tabSpec(p, el) {
 const PART_LISTS = ["bom", "consumables", "supplied"];
 let partsUndo = null; // { pid, key, rows, label } 마지막 가져오기/정리 직전 상태
 
+// 자재 목록 키: "unit:<설비id>"(설비별 BOM), "consumables", "supplied"
+const setPartRows = (p, key, rows) => { if (key.startsWith("unit:")) findUnit(p, key).bom = rows; else p.lists[key] = rows; };
+const partTitle = (p, key) => listDef(p, key).title;
+function partTargets(p) {
+  return [...ensureUnits(p).map((u) => [`unit:${u.id}`, `BOM · ${u.name} (×${u.qty})`]), ["consumables", "소모품"], ["supplied", "지정품/지급품"]];
+}
+
 function tabParts(p, el) {
   const sub = PART_LISTS.includes(route.sub) ? route.sub : "bom";
+  const units = ensureUnits(p);
   p.listFiles ||= {};
-  const files = p.listFiles[sub] || [];
-  const undo = partsUndo && partsUndo.pid === p.id && partsUndo.key === sub ? partsUndo : null;
-  el.innerHTML = `<nav class="subtabs">${PART_LISTS.map((k) =>
-    `<button data-sub="${k}" class="${k === sub ? "active" : ""}">${LISTS[k].title} <small>${p.lists[k].length}</small></button>`).join("")}</nav>
-    <div class="card parts-tools"><div class="between wrap">
-      <div class="row2"><button class="btn primary" id="partsImport">📥 엑셀에서 가져오기</button>
-        <button class="btn" id="partsOrganize" ${p.lists[sub].length ? "" : "disabled"}>🧹 자동 정리</button>
-        ${undo ? `<button class="btn" id="partsUndo">↩ 되돌리기 (${esc(undo.label)})</button>` : ""}</div>
-      <span class="muted small">업체 BOM·메이커리스트 엑셀을 넣으면 머리글을 알아보고 표에 맞춰 정리합니다.</span></div>
+  // BOM 은 설비를 골라서 본다 (route.unit: 설비 id 또는 "sum")
+  if (sub === "bom" && route.unit !== "sum" && !units.some((u) => u.id === route.unit)) route.unit = units[0].id;
+  const key = sub === "bom" ? (route.unit === "sum" ? null : `unit:${route.unit}`) : sub;
+  const counts = { bom: bomItemCount(p), consumables: p.lists.consumables.length, supplied: p.lists.supplied.length };
+  const nav = `<nav class="subtabs">${PART_LISTS.map((k) =>
+    `<button data-sub="${k}" class="${k === sub ? "active" : ""}">${LISTS[k].title} <small>${counts[k]}</small></button>`).join("")}</nav>`;
+  const unitBar = sub !== "bom" ? "" : `<div class="unit-bar">
+      ${units.map((u) => `<button class="unit-chip ${route.unit === u.id ? "active" : ""}" data-unit="${u.id}">
+        <b>${esc(u.name)}</b><span class="uqty">×${esc(u.qty)}</span><small>${u.bom.filter(isItemRow).length}품목</small></button>`).join("")}
+      <button class="unit-chip sum ${route.unit === "sum" ? "active" : ""}" data-unit="sum"><b>📊 전체 합계</b><small>구매 수량</small></button>
+      <span class="unit-actions"><button class="btn sm" id="addUnit">＋ 설비 추가</button>
+        <button class="btn sm" id="syncUnits" title="개요의 사업 범위(예: Conveyor AMR : 2EA)에서 설비와 대수를 가져옵니다">↻ 사업 범위에서 가져오기</button></span>
+    </div>`;
+  if (!key) {
+    el.innerHTML = nav + unitBar + bomSummaryCard(p);
+    bindParts();
+    return;
+  }
+  const unit = key.startsWith("unit:") ? findUnit(p, key) : null;
+  const files = p.listFiles[key] || [];
+  const undo = partsUndo && partsUndo.pid === p.id && partsUndo.key === key ? partsUndo : null;
+  el.innerHTML = nav + unitBar + `
+    <div class="card parts-tools">
+      ${unit ? `<div class="unit-edit"><label>설비명<input id="unitName" value="${esc(unit.name)}"></label>
+        <label>대수<input id="unitQty" inputmode="numeric" value="${esc(unit.qty)}"></label>
+        <span class="muted small">BOM 에는 <b>1대당 수량</b>을 적으면 총 수량(× 대수)은 자동 계산됩니다.</span>
+        <button class="btn danger sm" id="delUnit" ${units.length > 1 ? "" : "disabled"}>설비 삭제</button></div>` : ""}
+      <div class="between wrap">
+        <div class="row2"><button class="btn primary" id="partsImport">📥 엑셀에서 가져오기</button>
+          <button class="btn" id="partsOrganize" ${listRows(p, key).length ? "" : "disabled"}>🧹 자동 정리</button>
+          ${undo ? `<button class="btn" id="partsUndo">↩ 되돌리기 (${esc(undo.label)})</button>` : ""}</div>
+        <span class="muted small">업체 BOM·메이커리스트 엑셀을 넣으면 머리글을 알아보고 표에 맞춰 정리합니다.</span></div>
       ${files.length ? `<div class="chips"><span class="muted small">원본 파일:</span>${fileChips(files, { removable: true })}</div>` : ""}
-    </div>${gridCard(p, sub)}`;
-  $$("[data-sub]", el).forEach((b) => (b.onclick = () => { route.sub = b.dataset.sub; rerender(); }));
-  $("#partsImport").onclick = () => pickFiles(".xlsx", false, (f) => partsImportDialog(p, sub, f[0]));
-  $("#partsOrganize").onclick = () => partsOrganizeDialog(p, sub);
+    </div>${gridCard(p, key, unit ? `칸을 눌러 바로 수정합니다. 엑셀에서 여러 행을 붙여넣을 수 있고, 오른쪽 ⇄ 로 다른 설비로 옮길 수 있습니다.` : "")}`;
+  bindParts();
+  $("#partsImport").onclick = () => pickFiles(".xlsx", false, (f) => partsImportDialog(p, key, f[0]));
+  $("#partsOrganize").onclick = () => partsOrganizeDialog(p, key);
   if (undo) $("#partsUndo").onclick = () => {
-    p.lists[sub] = undo.rows;
+    setPartRows(p, key, undo.rows);
     partsUndo = null;
-    Store.touch(p, `${LISTS[sub].title} 되돌리기: ${undo.label}`);
+    Store.touch(p, `${partTitle(p, key)} 되돌리기: ${undo.label}`);
     rerender();
   };
+  if (unit) {
+    $("#unitName").onchange = (e) => {
+      const old = unit.name;
+      unit.name = e.target.value.trim() || old;
+      Store.touch(p, `설비 이름 변경: ${old} → ${unit.name}`);
+      rerender();
+    };
+    $("#unitQty").onchange = (e) => {
+      unit.qty = Math.max(0, Number(String(e.target.value).replace(/[^\d.]/g, "")) || 0);
+      Store.touch(p, `설비 대수 변경: ${unit.name} ×${unit.qty}`);
+      rerender();
+    };
+    $("#delUnit").onclick = () => {
+      const n = unit.bom.filter(isItemRow).length;
+      if (!confirm(`'${unit.name}' 설비를 삭제할까요?${n ? `\nBOM ${n}개 품목도 함께 삭제됩니다.` : ""}`)) return;
+      p.units = units.filter((u) => u !== unit);
+      delete p.listFiles[key];
+      route.unit = p.units[0].id;
+      Store.touch(p, `설비 삭제: ${unit.name}`);
+      Store.gc();
+      rerender();
+    };
+  }
   $(".parts-tools", el).addEventListener("click", async (e) => {
     const id = e.target.dataset.remove;
     if (!id) return;
     e.stopPropagation();
     if (!confirm("원본 파일을 목록에서 삭제할까요? (표 내용은 그대로 남습니다)")) return;
-    p.listFiles[sub] = files.filter((x) => x !== id);
+    p.listFiles[key] = files.filter((x) => x !== id);
     Store.touch(p);
     await Store.gc();
     rerender();
   });
+
+  function bindParts() {
+    $$("[data-sub]", el).forEach((b) => (b.onclick = () => { route.sub = b.dataset.sub; rerender(); }));
+    $$("[data-unit]", el).forEach((b) => (b.onclick = () => { route.unit = b.dataset.unit; rerender(); }));
+    $("#addUnit")?.addEventListener("click", () => {
+      const name = prompt("설비 이름 (예: Manual Charger)");
+      if (!name?.trim()) return;
+      const qty = Number(prompt("대수", "1")) || 1;
+      const u = { id: Store.uid(), name: name.trim(), qty, bom: [] };
+      units.push(u);
+      route.unit = u.id;
+      Store.touch(p, `설비 추가: ${u.name} ×${qty}`);
+      rerender();
+    });
+    $("#syncUnits")?.addEventListener("click", () => {
+      const parsed = parseScopeUnits(p.overview.scope);
+      if (!parsed.length) return toast("개요의 사업 범위가 비어 있습니다. 예: Conveyor AMR : 2EA");
+      let added = 0, changed = 0;
+      for (const x of parsed) {
+        const u = units.find((y) => norm(y.name) === norm(x.name));
+        if (!u) { units.push({ id: Store.uid(), name: x.name, qty: x.qty, bom: [] }); added++; }
+        else if (Number(u.qty) !== x.qty) { u.qty = x.qty; changed++; }
+      }
+      Store.touch(p, added || changed ? `사업 범위에서 설비 가져오기: 추가 ${added}, 대수 변경 ${changed}` : "");
+      toast(added || changed ? `설비 ${added}개 추가, 대수 ${changed}개 변경했습니다.` : "사업 범위와 설비 목록이 이미 같습니다.");
+      rerender();
+    });
+  }
+}
+
+// 전체 합계 (구매용): 설비별 총 수량과 합계
+function bomSummaryCard(p) {
+  const { units, rows } = bomSummary(p);
+  if (!rows.length) return `<div class="card muted center pad">설비별 BOM 에 품목을 넣으면 같은 부품을 모아 구매 수량을 계산합니다.</div>`;
+  const shared = rows.filter((r) => Object.keys(r.per).length > 1).length;
+  return `<div class="card"><div class="between wrap"><h3>📊 전체 합계 <span class="muted small">${rows.length}개 부품${shared ? ` · 여러 설비 공통 ${shared}개` : ""}</span></h3>
+      <span class="muted small">총 수량 = 설비별 (1대당 수량 × 대수)의 합 · 품목·모델명·업체명이 같으면 같은 부품으로 봅니다</span></div>
+    <div class="table-scroll"><table class="grid-table sum-table"><thead><tr><th class="num">NO</th><th>구분</th><th>품목</th><th>모델명</th><th>업체명</th>
+      ${units.map((u) => `<th class="num">${esc(u.name)}<br><small>×${esc(u.qty)}</small></th>`).join("")}<th class="num">총 수량</th><th>비고</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr class="${Object.keys(r.per).length > 1 ? "shared" : ""}"><td class="num muted">${i + 1}</td><td>${esc(r.kind)}</td><td><b>${esc(r.item)}</b></td>
+      <td>${esc(r.model)}</td><td>${esc(r.maker)}</td>${units.map((u) => `<td class="num">${r.per[u.id] != null ? esc(r.per[u.id]) : `<span class="muted">-</span>`}</td>`).join("")}
+      <td class="num"><b>${esc(r.total)}</b></td><td class="muted small">${esc(r.notes.join(" / "))}</td></tr>`).join("")}</tbody></table></div></div>`;
 }
 
 const PART_LABELS = { kind: "구분", item: "품목", model: "모델명", maker: "업체명", qty: "개수", note: "비고" };
@@ -1698,7 +1816,7 @@ async function partsImportDialog(p, key, file) {
   openDialog(`<h3>BOM 엑셀 가져오기 <span class="muted small">${esc(file.name)}</span></h3>
     <div class="form">
       <label>시트<select name="sheet">${sheets.map((x, i) => `<option value="${i}" ${x === cur ? "selected" : ""}>${esc(x.sh.name)} (${count(x)}행)</option>`).join("")}</select></label>
-      <label>넣을 목록<select name="target">${PART_LISTS.map((k) => `<option value="${k}" ${k === key ? "selected" : ""}>${LISTS[k].title}</option>`).join("")}</select></label>
+      <label>넣을 목록<select name="target">${partTargets(p).map(([k, label]) => `<option value="${k}" ${k === key ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
       <label class="full">가져오는 방법<select name="mode"><option value="append">기존 목록 뒤에 추가</option><option value="replace">기존 목록을 이 내용으로 바꾸기</option></select></label>
     </div>
     <h4>열 맞추기 <span class="muted small">자동으로 맞춘 결과입니다. 틀리면 바꿔 주세요.</span></h4>
@@ -1714,14 +1832,15 @@ async function partsImportDialog(p, key, file) {
   async (form) => {
     const { rows, stats } = build(form);
     const target = form.target.value;
-    partsUndo = { pid: p.id, key: target, rows: structuredClone(p.lists[target]), label: "가져오기" };
-    p.lists[target] = form.mode.value === "replace" ? rows : [...p.lists[target], ...rows];
+    const before = listRows(p, target);
+    partsUndo = { pid: p.id, key: target, rows: structuredClone(before), label: "가져오기" };
+    setPartRows(p, target, form.mode.value === "replace" ? rows : [...before, ...rows]);
     if (form.keep.checked) {
       p.listFiles ||= {};
       (p.listFiles[target] ||= []).push(await Store.addFile(file, file.name));
     }
-    Store.touch(p, `${LISTS[target].title} 엑셀 가져오기: ${file.name}`, `${cur.sh.name} 시트, ${stats.after}행`);
-    route.sub = target;
+    Store.touch(p, `${partTitle(p, target)} 엑셀 가져오기: ${file.name}`, `${cur.sh.name} 시트, ${stats.after}행`);
+    if (target.startsWith("unit:")) { route.sub = "bom"; route.unit = target.slice(5); } else route.sub = target;
     rerender();
     toast(`${stats.after}행을 가져왔습니다.`);
   }, { wide: true, okLabel: "가져오기", onOpen: (dlg, form) => {
@@ -1750,8 +1869,8 @@ async function partsImportDialog(p, key, file) {
 }
 
 function partsOrganizeDialog(p, key) {
-  const run = (form) => organizeParts(p.lists[key], { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
-  openDialog(`<h3>${LISTS[key].title} 자동 정리</h3>
+  const run = (form) => organizeParts(listRows(p, key), { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
+  openDialog(`<h3>${esc(partTitle(p, key))} 자동 정리</h3>
     <div class="opts">
       <label><input type="checkbox" checked disabled> 앞뒤 공백·줄바꿈 정리, 빈 행 삭제</label>
       <label><input type="checkbox" name="fill" checked> 구분이 비어 있으면 위의 소제목(■ 행)으로 채우기</label>
@@ -1761,9 +1880,9 @@ function partsOrganizeDialog(p, key) {
     <h4>정리 결과 미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
   (form) => {
     const { rows, stats } = run(form);
-    partsUndo = { pid: p.id, key, rows: structuredClone(p.lists[key]), label: "자동 정리" };
-    p.lists[key] = rows;
-    Store.touch(p, `${LISTS[key].title} 자동 정리`, organizeSummary(stats).replace(/<[^>]+>/g, ""));
+    partsUndo = { pid: p.id, key, rows: structuredClone(listRows(p, key)), label: "자동 정리" };
+    setPartRows(p, key, rows);
+    Store.touch(p, `${partTitle(p, key)} 자동 정리`, organizeSummary(stats).replace(/<[^>]+>/g, ""));
     rerender();
     toast("정리했습니다. 마음에 들지 않으면 ↩ 되돌리기를 누르세요.", 4000);
   }, { wide: true, okLabel: "정리하기", onOpen: (dlg, form) => {

@@ -425,6 +425,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .rp-t td { padding: 5px 7px; border-bottom: .5pt solid var(--line); vertical-align: top; word-break: break-word; font-variant-numeric: tabular-nums; }
   .rp-t .r { text-align: right; } .rp-t .c { text-align: center; }
   .rp-t tr.rp-secrow td { background: var(--brand-soft); color: var(--brand); }
+  .rp-t tr.rp-subrow td { color: var(--sub); font-size: 8.5pt; padding-left: 12px; background: #fafbfd; }
   .rp-kv th, .rp-kv td { padding: 5px 8px; border-bottom: .5pt solid var(--line); vertical-align: top; text-align: left; word-break: break-word; }
   .rp-kv tr:first-child th, .rp-kv tr:first-child td { border-top: 1pt solid var(--ink); }
   .rp-kv th { background: var(--soft); font-size: 8.3pt; font-weight: 700; color: #374151; }
@@ -590,3 +591,25 @@ dialog[open] { animation: pop .16s ease-out; }
 .form.aligned { align-items: start; }
 .form.aligned label > input, .form.aligned label > select, .form.aligned label > .row2 { height: 38px; }
 .fhint { display: block; min-height: 17px; font-size: 11.5px !important; color: var(--muted) !important; line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 설비별 BOM */
+.unit-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin-bottom: 14px; }
+.unit-chip { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: 8px 14px; min-width: 130px; cursor: pointer; text-align: left;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow-sm); transition: border-color .12s, background .12s; }
+.unit-chip:hover { border-color: var(--accent); }
+.unit-chip b { font-size: 14px; } .unit-chip .uqty { font-size: 13px; font-weight: 700; color: var(--accent); } .unit-chip small { color: var(--muted); font-size: 11.5px; }
+.unit-chip { display: grid; grid-template-columns: auto auto; column-gap: 8px; }
+.unit-chip small { grid-column: 1 / -1; }
+.unit-chip.active { border-color: var(--accent); background: var(--accent-soft); box-shadow: inset 0 0 0 1px var(--accent); }
+.unit-chip.sum b { color: var(--accent-ink); }
+.unit-actions { display: flex; gap: 6px; align-items: center; margin-left: auto; }
+.unit-edit { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; padding-bottom: 12px; margin-bottom: 12px; border-bottom: 1px solid var(--line); }
+.unit-edit label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+.unit-edit #unitName { width: 220px; color: var(--text); } .unit-edit #unitQty { width: 80px; color: var(--text); }
+.unit-edit .muted { flex: 1; min-width: 200px; padding-bottom: 8px; } .unit-edit .danger { margin-bottom: 4px; }
+.grid-table td.computed { font-weight: 700; color: var(--accent-ink); padding: 7px 10px; }
+.move-unit { padding: 2px 4px; font-size: 12px; border-color: transparent; background: transparent; color: var(--muted); width: 44px; }
+.move-unit:hover { border-color: var(--line); }
+.sum-table td, .sum-table th { padding: 7px 8px; white-space: nowrap; } .sum-table tr.shared td { background: var(--accent-soft); }
+.sum-table th.num { white-space: normal; min-width: 76px; max-width: 130px; line-height: 1.3; }
+.sum-table td:last-child { white-space: normal; min-width: 160px; max-width: 280px; }
