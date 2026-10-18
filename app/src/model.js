@@ -385,7 +385,7 @@ async function buildWorkbook(p) {
   ovRows.push([{ v: "상태", s: "head" }, { v: ov.status, s: "cell" }, { v: "", s: "cell" }],
     [{ v: "담당자", s: "head" }, { v: ov.manager, s: "cell" }, { v: "", s: "cell" }]);
   const kdx = keyDates(p);
-  for (const [k, label] of KEY_DATES) ovRows.push([{ v: label, s: "head" }, { v: kdx[k].value, s: kdx[k].value ? "date" : "cell" }, { v: kdx[k].auto ? "자동" : "", s: "cell" }]);
+  for (const [k, label] of KEY_DATES.filter(([k]) => k !== "receiveDate")) ovRows.push([{ v: label, s: "head" }, { v: kdx[k].value, s: kdx[k].value ? "date" : "cell" }, { v: kdx[k].auto ? "자동" : "", s: "cell" }]);
   ovRows.push([{ v: "Warranty 기간", s: "head" }, { v: kdx.warranty.text, s: "cell" }, { v: kdx.warranty.state, s: "cell" }]);
   const ci = contractInfo(p);
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
@@ -606,12 +606,30 @@ function organizeParts(input, { fillKind = true, merge = true, group = true } = 
 
 // ------------------------------------------------------------- 계약·정산
 const PAYMENT_STATUSES = ["미청구", "청구", "수금완료"];
-const PAYMENT_PRESETS = {
-  "30 : 70": [["선급금", 30, "발주 후"], ["잔금", 70, "납품·검수 후"]],
-  "30 : 40 : 30": [["선급금", 30, "발주 후"], ["중도금", 40, "출하 전"], ["잔금", 30, "검수 후"]],
-  "10 : 80 : 10": [["선급금", 10, "발주 후"], ["중도금", 80, "납품 후"], ["잔금", 10, "하자보증 후"]],
-  "100": [["일시불", 100, "검수 후"]],
-};
+// 기본 정산 비율 (사용자가 저장한 비율은 설정의 payPresets 에 추가로 보관)
+const PAYMENT_PRESETS = [
+  ["30 : 60 : 10", [["선금", 30, "발주 후"], ["중도금", 60, "납품 후"], ["잔금", 10, "Setup·검수 후"]]],
+  ["30 : 40 : 30", [["선금", 30, "발주 후"], ["중도금", 40, "출하 전"], ["잔금", 30, "검수 후"]]],
+  ["50 : 50", [["선금", 50, "발주 후"], ["잔금", 50, "검수 후"]]],
+  ["30 : 70", [["선금", 30, "발주 후"], ["잔금", 70, "납품·검수 후"]]],
+  ["10 : 80 : 10", [["선금", 10, "발주 후"], ["중도금", 80, "납품 후"], ["잔금", 10, "하자보증 후"]]],
+  ["100", [["일시불", 100, "검수 후"]]],
+];
+const payPresets = () => [
+  ...PAYMENT_PRESETS.map(([label, stages]) => ({ label, stages, builtin: true })),
+  ...(Store.state.settings.payPresets || []).map((x) => ({ ...x, builtin: false })),
+];
+const presetLabel = (stages) => stages.map((x) => `${x[0]} ${x[1]}`).join(" : ");
+// 단계 수에 맞는 기본 이름
+const stageNames = (n) => (n === 1 ? ["일시불"] : n === 2 ? ["선금", "잔금"] : n === 3 ? ["선금", "중도금", "잔금"]
+  : ["선금", ...Array.from({ length: n - 2 }, (_, i) => `중도금${i + 1}`), "잔금"]);
+// "30/60/10", "30:60:10", "선금30 중도금60 잔금10", "선금 30%, 잔금 70%" → [[이름, 비율, 조건]]
+function parsePayText(text) {
+  const tokens = String(text || "").replace(/%/g, " ").match(/[^\d\s/:,·+]*\s*\d+(?:\.\d+)?/g) || [];
+  const parts = tokens.map((t) => { const m = /^\s*(.*?)\s*(\d+(?:\.\d+)?)$/.exec(t); return [m[1].trim(), Number(m[2])]; }).filter(([, n]) => n > 0);
+  const names = stageNames(parts.length);
+  return parts.map(([name, n], i) => [name || names[i], n, ""]);
+}
 const toAmount = (v) => Number(String(v ?? "").replace(/[^\d.-]/g, "")) || 0;
 const fmtWon = (n) => (n ? `${Math.round(n).toLocaleString("ko-KR")}원` : "-");
 // 120000000 → "일억이천만"
@@ -650,7 +668,8 @@ const addYears = (s, years) => {
 };
 // 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
 // 주요 일자: 개요에 직접 입력한 값이 있으면 그것을, 없으면 다른 자료에서 자동으로
-const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["deliveryDate", "납품일자"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
+// 납품일자는 개요의 입고일자(receiveDate)를 그대로 쓴다
+const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["receiveDate", "입고일자 (납품일자)"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
 function keyDates(p) {
   const o = p.overview, c = contractInfo(p), sm = projectSummary(p);
   const kickoffMeeting = [...p.meetings].filter((m) => /kick|킥오프/i.test(m.title) && isDate(m.date)).sort((a, b) => a.date.localeCompare(b.date))[0];
@@ -659,21 +678,26 @@ function keyDates(p) {
   const allPaid = c.payments.length && c.payments.every((x) => x.status === "수금완료");
   const auto = {
     kickoffDate: kickoffMeeting?.date || o.orderDate || sm.start || "",
-    deliveryDate: (isDate(o.receiveDate) ? o.receiveDate : "") || deliveryTask || "",
+    receiveDate: deliveryTask || "",
     setupDate: "",
     paidDate: allPaid ? paidDates[paidDates.length - 1] : "",
   };
   const out = {};
   for (const [k] of KEY_DATES) out[k] = { value: isDate(o[k]) ? o[k] : auto[k] || "", auto: !isDate(o[k]) && !!auto[k], autoValue: auto[k] || "" };
-  // Warranty: 시작일(비우면 Setup 완료일 → 납품일자) + 기간(년). 예전 '하자보증기간' 글자에서 기간을 읽어 온다
+  out.deliveryDate = out.receiveDate;
+  // Warranty: 시작일을 직접 넣었거나 Setup 완료일이 있을 때만 시작일이 정해진다 (납품일로 짐작하지 않음)
+  // 기간(년)은 예전 '하자보증기간' 글자에서도 읽어 온다
   const parsed = (/(\d+(?:\.\d+)?)\s*년/.exec(o.warranty) || [])[1] || ((/(\d+)\s*개월/.exec(o.warranty) || [])[1] ? String(+(/(\d+)\s*개월/.exec(o.warranty)[1]) / 12) : "");
   const years = Number(o.warrantyYears || parsed) || 0;
-  const start = isDate(o.warrantyStart) ? o.warrantyStart : out.setupDate.value || out.deliveryDate.value || "";
+  const start = isDate(o.warrantyStart) ? o.warrantyStart : out.setupDate.value || "";
   const end = isDate(start) && years ? addYears(start, years) : "";
-  out.warranty = { start, startAuto: !isDate(o.warrantyStart) && !!start, years, end,
-    text: end ? `${start} ~ ${end} (${years}년)` : start ? `${start} 시작${o.warranty ? ` (${o.warranty})` : ""}` : o.warranty || "",
-    state: !end ? "" : today() < start ? "시작 전" : today() > end ? "만료" : "보증 중",
-    remain: end && today() <= end ? dayNo(end) - dayNo(today()) : null };
+  const started = isDate(start) && start <= today();
+  const period = years ? `${years}년` : o.warranty || "";
+  out.warranty = { start, startAuto: !isDate(o.warrantyStart) && !!start, years, end, started,
+    // 보고서용 글자: 정해진 기간 또는 예정
+    text: end ? `${start} ~ ${end} (${years}년)` : start ? `${start} 시작${period ? ` (${period})` : ""}` : period ? `Setup 완료 후 ${period}` : "",
+    state: !isDate(start) ? (period ? "시작 전" : "") : !started ? "시작 전" : end && today() > end ? "만료" : "보증 중",
+    remain: end && started && today() <= end ? dayNo(end) - dayNo(today()) : null, period };
   return out;
 }
 

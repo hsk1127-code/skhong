@@ -74,7 +74,7 @@ const Store = (() => {
       overview: { name: name || "새 프로젝트", project: "", projectNo: "", partNo: "", customer: "",
         receiveDate: "", receivePlace: "", scope: "", warranty: "", status: "진행", manager: state.settings.user || "",
         orderDate: "", orderAmount: "", vat: "별도", payments: [], extra: [],
-        kickoffDate: "", deliveryDate: "", setupDate: "", warrantyStart: "", warrantyYears: "", paidDate: "" },
+        kickoffDate: "", setupDate: "", warrantyStart: "", warrantyYears: "", paidDate: "" },
       report: { summary: "", issues: "", warrantyNote: "", completedDate: "" },
       schedule: [],
       records: [],

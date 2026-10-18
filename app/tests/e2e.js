@@ -38,7 +38,7 @@ const assert = require("assert");
   await p.type("[data-ck=orderAmount]", "120000000");
   assert.strictEqual(await p.inputValue("[data-ck=orderAmount]"), "120,000,000");
   assert.strictEqual(await p.textContent("#amountWords"), "금 일억이천만원정");
-  await p.click('[data-preset="30 : 70"]');
+  await p.click('.preset-chip button:text-is("30 : 70")');
   assert.deepStrictEqual(await p.$$eval(".pay-table [data-amt]", (els) => els.map((e) => e.textContent)), ["36,000,000", "84,000,000"]);
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");
   await p.click("[data-ovmode=view]");
