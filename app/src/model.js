@@ -891,7 +891,7 @@ const addYears = (s, years) => {
 // 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
 // 주요 일자: 개요에 직접 입력한 값이 있으면 그것을, 없으면 다른 자료에서 자동으로
 // 납품일자는 개요의 입고일자(receiveDate)를 그대로 쓴다
-// 지급 완료일을 실제 값으로 채움: 정산 단계가 모두 수금완료면 가장 늦은 정산일 (직접 넣은 날짜는 그대로)
+// 지급 완료일을 실제 값으로 채움: 정산 단계가 모두 수금완료면 항상 가장 늦은 정산일 (정산일을 고치면 따라 바뀜)
 // 정산일이 하나도 없으면 오늘 날짜로 넣고 "today" 를 돌려줌 (화면에서 실제 입금일로 고치라고 안내)
 function syncPaidDate(p) {
   const o = p.overview, pays = o.payments || [];
@@ -900,7 +900,9 @@ function syncPaidDate(p) {
   if (allPaid) {
     if (!pays.some((x) => isDate(x.paidDate))) { pays.forEach((x) => (x.paidDate = today())); filled = "today"; }
     const latest = pays.map((x) => x.paidDate).filter(isDate).sort().pop();
-    if (!isDate(o.paidDate) || o.paidDateAuto) { if (o.paidDate !== latest) filled ||= "auto"; o.paidDate = latest; o.paidDateAuto = true; }
+    if (o.paidDate !== latest) filled ||= "auto";
+    o.paidDate = latest;
+    o.paidDateAuto = true;
   } else if (o.paidDateAuto) { o.paidDate = ""; o.paidDateAuto = false; filled = "cleared"; }
   return filled;
 }

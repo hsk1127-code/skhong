@@ -724,8 +724,8 @@ function tabOverviewEdit(p, el) {
           <span class="muted small">${kd.warranty.end ? `종료 ${esc(fmtDot(kd.warranty.end))}` : isDate(o.warrantyStart) ? "기간(년)을 넣으면 종료일 계산" : "시작일부터 설정한 기간(년)"}</span></label>
         <label>Warranty 기간 (년)<input data-k="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || "")}" placeholder="${kd.warranty.years ? `${kd.warranty.years} (하자보증기간에서)` : "예: 2"}">
           <span class="muted small" id="wtyText">${esc(kd.warranty.text.replace(/(\d{4})-(\d{2})-(\d{2})/g, "$1.$2.$3"))}</span></label>
-        <label>지급 완료일<input type="date" data-k="paidDate" value="${esc(o.paidDate || "")}">
-          <span class="muted small ${kd.paidDate.missing ? "warn" : ""}">${kd.paidDate.auto ? `자동: ${esc(fmtDot(kd.paidDate.autoValue))} (정산 완료)` : kd.paidDate.missing ? "모두 수금완료 · 정산일을 넣으면 자동" : "정산이 모두 끝나면 자동"}</span></label>`;
+        <label>지급 완료일<input type="date" data-k="paidDate" value="${esc(o.paidDate || "")}" ${o.paidDateAuto ? 'readonly class="auto-field" title="정산이 모두 수금완료라 마지막 정산일로 자동 입력됩니다. 바꾸려면 계약·정산의 정산일을 고치세요."' : ""}>
+          <span class="muted small ${kd.paidDate.missing ? "warn" : ""}">${o.paidDateAuto ? "마지막 정산일로 자동 · 정산일을 고치면 바뀜" : kd.paidDate.auto ? `자동: ${esc(fmtDot(kd.paidDate.autoValue))} (정산 완료)` : kd.paidDate.missing ? "모두 수금완료 · 정산일을 넣으면 자동" : "정산이 모두 끝나면 자동"}</span></label>`;
     })()}</div>
     <h3 style="margin-top:18px">추가 항목</h3>
     <div id="extra">${o.extra.map((x, i) => `<div class="extra-row"><input data-ex="${i}" data-f="label" value="${esc(x.label)}" placeholder="항목명">
@@ -1784,7 +1784,7 @@ function reportDialog(p) {
       <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(o.setupDate || "")}">${hint("Warranty 시작 기준")}</label>
       <label>Warranty 시작<input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}">${hint("시작일부터 아래 기간(년)")}</label>
       <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2">${hint("")}</label>
-      <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}">${hint(o.paidDateAuto && o.paidDate ? "정산 완료로 자동 입력" : "정산이 모두 끝나면 자동")}</label>
+      <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}" ${o.paidDateAuto ? "readonly class=\"auto-field\"" : ""}>${hint(o.paidDateAuto && o.paidDate ? "마지막 정산일 (정산일을 고치면 바뀜)" : "정산이 모두 끝나면 자동")}</label>
       ${money("orderAmount", "발주가", "", "개요의 발주금액과 같은 값")}
       ${money("estimateCost", "실행 예가")}
       ${money("targetCost", "실행목표가")}
