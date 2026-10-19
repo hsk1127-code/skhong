@@ -624,6 +624,10 @@ dialog[open] { animation: pop .16s ease-out; }
 .sum-table th.num { white-space: normal; min-width: 76px; max-width: 130px; line-height: 1.3; }
 .sum-table td:last-child { white-space: normal; min-width: 160px; max-width: 280px; }
 .parts-tools .unit-edit:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.grid-table .sel { width: 28px; text-align: center; }
+.grid-table tr.selected td { background: var(--accent-soft); }
+.thumb .xfer { position: absolute; top: 4px; left: 4px; background: var(--panel); border-color: var(--line); }
+.chip .xfer { width: 40px; margin-left: 2px; }
 
 </style>
 </head>
@@ -2339,12 +2343,12 @@ function openDialog(html, onSubmit, { wide = false, okLabel = "저장", onOpen }
 }
 
 // ------------------------------------------------------------- 첨부 파일 표시/선택
-function fileChips(ids, { removable = false } = {}) {
+function fileChips(ids, { removable = false, extra } = {}) {
   return (ids || []).map((id) => {
     const m = Store.fileMeta(id);
     if (!m) return "";
     return `<span class="chip" data-file="${id}" title="${esc(m.name)} (${fmtSize(m.size)})">${fileIcon(m)} ${esc(m.name)}
-      ${removable ? `<button type="button" class="x" data-remove="${id}">✕</button>` : ""}</span>`;
+      ${extra ? extra(id) : ""}${removable ? `<button type="button" class="x" data-remove="${id}">✕</button>` : ""}</span>`;
   }).join("");
 }
 const fileIcon = (m) => (m.type.startsWith("image/") ? "🖼" : /sheet|excel/.test(m.type) || /\.xlsx?$/i.test(m.name) ? "📊"
@@ -2358,10 +2362,10 @@ async function blobUrl(id) {
   }
   return urlCache.get(id);
 }
-function thumbs(ids, { removable = false } = {}) {
+function thumbs(ids, { removable = false, extra } = {}) {
   return (ids || []).filter((id) => Store.fileMeta(id)?.type.startsWith("image/")).map((id) =>
     `<span class="thumb" data-view="${id}"><img data-src="${id}" alt="${esc(Store.fileMeta(id).name)}">
-      ${removable ? `<button type="button" class="x" data-remove="${id}">✕</button>` : ""}</span>`).join("");
+      ${extra ? extra(id) : ""}${removable ? `<button type="button" class="x" data-remove="${id}">✕</button>` : ""}</span>`).join("");
 }
 async function loadImages(root = document) {
   for (const img of $$("img[data-src]", root)) {
@@ -2405,13 +2409,18 @@ function lightbox(ids, index) {
 }
 document.addEventListener("click", (e) => {
   const chip = e.target.closest("[data-file]");
-  if (chip && !e.target.matches("[data-remove]")) return openFile(chip.dataset.file);
+  const ctl = e.target.closest("[data-remove], [data-xfer]");
+  if (chip && !ctl) return openFile(chip.dataset.file);
   const th = e.target.closest("[data-view]");
-  if (th && !e.target.matches("[data-remove]")) {
+  if (th && !ctl) {
     const ids = $$("[data-view]", th.parentNode).map((x) => x.dataset.view);
     lightbox(ids, ids.indexOf(th.dataset.view));
   }
 });
+
+// 받는 곳 밖에 파일을 잘못 놓아도 브라우저가 파일을 열어 화면을 벗어나지 않도록
+window.addEventListener("dragover", (e) => e.preventDefault());
+window.addEventListener("drop", (e) => { e.preventDefault(); if (e.dataTransfer?.files?.length) toast("파일은 점선으로 표시된 첨부 영역에 놓아 주세요."); });
 
 // 파일 받기 영역: 붙여넣기(Ctrl+V), 끌어다 놓기, 선택 버튼. onFiles(파일 목록) 호출
 function attachDropzone(zone, onFiles, root = zone) {
@@ -3259,14 +3268,15 @@ function gridCard(p, key, help = "") {
   const comps = (c) => (def.computed || []).map((x, k) => [x, k]).filter(([x]) => x.after === c.key);
   return `<div class="card" data-grid="${key}">
     <div class="between"><h3>${def.title} <span class="muted small">${rows.length}건</span></h3>
-      <button class="btn primary sm" data-addrow>＋ 행 추가</button></div>
+      <span class="row2">${rows.length ? `<button class="btn danger sm" data-delsel disabled>선택 삭제</button><button class="btn sm" data-delall>전체 삭제</button>` : ""}
+      <button class="btn primary sm" data-addrow>＋ 행 추가</button></span></div>
     ${help ? `<p class="muted small">${help}</p>` : `<p class="muted small">칸을 눌러 바로 수정합니다. 엑셀에서 여러 행을 복사해 칸에 붙여넣으면 한 번에 입력됩니다.</p>`}
     <div class="table-scroll"><table class="grid-table">
-      <thead><tr><th class="num">NO</th>${def.cols.map((c) => `<th>${c.label}</th>${comps(c).map(([x]) => `<th class="num">${x.label}</th>`).join("")}`).join("")}${def.files ? "<th>첨부</th>" : ""}<th></th></tr></thead>
-      <tbody>${rows.map((r, i) => `<tr data-id="${r.id}" class="${/^■/.test(r.item || "") ? "sec-row" : ""}"><td class="num muted">${i + 1}</td>${def.cols.map((c) => `<td>${gridInput(c, r[c.key])}</td>${comps(c).map(([x, k]) => `<td class="num computed" data-comp="${k}">${esc(x.fn(r, def.unit))}</td>`).join("")}`).join("")}
-        ${def.files ? `<td class="files-cell">${fileChips(r.files)}<button class="icon" data-attach title="파일 첨부">📎</button></td>` : ""}
+      <thead><tr><th class="sel"><input type="checkbox" data-selall title="전체 선택"></th><th class="num">NO</th>${def.cols.map((c) => `<th>${c.label}</th>${comps(c).map(([x]) => `<th class="num">${x.label}</th>`).join("")}`).join("")}${def.files ? "<th>첨부</th>" : ""}<th></th></tr></thead>
+      <tbody>${rows.map((r, i) => `<tr data-id="${r.id}" class="${/^■/.test(r.item || "") ? "sec-row" : ""}"><td class="sel"><input type="checkbox" data-sel></td><td class="num muted">${i + 1}</td>${def.cols.map((c) => `<td>${gridInput(c, r[c.key])}</td>${comps(c).map(([x, k]) => `<td class="num computed" data-comp="${k}">${esc(x.fn(r, def.unit))}</td>`).join("")}`).join("")}
+        ${def.files ? `<td class="files-cell">${fileChips(r.files, { removable: true })}<button class="icon" data-attach title="파일 첨부">📎</button></td>` : ""}
         <td class="nowrap">${others.length ? `<select class="move-unit" data-moveunit title="다른 설비로 이동"><option value="">⇄</option>${others.map((u) => `<option value="${u.id}">→ ${esc(u.name)}</option>`).join("")}</select>` : ""}<button class="icon" data-ins title="아래에 행 추가">＋</button><button class="icon" data-delrow title="삭제">✕</button></td></tr>`).join("")
-        || `<tr><td colspan="${def.cols.length + (def.computed || []).length + 3}" class="muted center pad">내용이 없습니다. ＋ 행 추가를 누르거나 엑셀에서 붙여넣으세요.</td></tr>`}</tbody></table></div></div>`;
+        || `<tr><td colspan="${def.cols.length + (def.computed || []).length + 4}" class="muted center pad">내용이 없습니다. ＋ 행 추가를 누르거나 엑셀에서 붙여넣으세요.</td></tr>`}</tbody></table></div></div>`;
 }
 function gridInput(c, v) {
   v = v ?? "";
@@ -3306,11 +3316,43 @@ function bindGrids(p, root) {
       toast(`'${row.item || row.model || "행"}'을 ${to.name}(으)로 옮겼습니다.`);
       rerender();
     });
-    tbody.addEventListener("click", (e) => {
+    // 행 선택 → 선택 삭제 / 전체 삭제
+    const selBoxes = () => $$("[data-sel]", tbody);
+    const syncSel = () => {
+      const n = selBoxes().filter((c) => c.checked).length, btn = $("[data-delsel]", card), all = $("[data-selall]", card);
+      if (btn) { btn.disabled = !n; btn.textContent = n ? `선택 삭제 (${n})` : "선택 삭제"; }
+      if (all) { all.checked = n > 0 && n === selBoxes().length; all.indeterminate = n > 0 && n < selBoxes().length; }
+      selBoxes().forEach((c) => c.closest("tr").classList.toggle("selected", c.checked));
+    };
+    const removeRows = async (ids, msg) => {
+      if (!ids.length || !confirm(msg)) return;
+      for (let i = rows.length - 1; i >= 0; i--) if (ids.includes(rows[i].id)) rows.splice(i, 1);
+      Store.touch(p);
+      await Store.gc();
+      toast(`${ids.length}행을 삭제했습니다.`);
+      rerender();
+    };
+    tbody.addEventListener("change", (e) => { if ("sel" in e.target.dataset) syncSel(); });
+    const selAll = $("[data-selall]", card);
+    if (selAll) selAll.onchange = () => { selBoxes().forEach((c) => (c.checked = selAll.checked)); syncSel(); };
+    const delSel = $("[data-delsel]", card);
+    if (delSel) delSel.onclick = () => {
+      const ids = selBoxes().filter((c) => c.checked).map((c) => c.closest("tr").dataset.id);
+      removeRows(ids, `선택한 ${ids.length}행을 삭제할까요?`);
+    };
+    const delAll = $("[data-delall]", card);
+    if (delAll) delAll.onclick = () => removeRows(rows.map((r) => r.id), `${def.title}의 ${rows.length}행을 모두 삭제할까요?`);
+    tbody.addEventListener("click", async (e) => {
       const tr = e.target.closest("tr[data-id]");
       if (!tr) return;
       const i = rows.findIndex((r) => r.id === tr.dataset.id);
-      if ("delrow" in e.target.dataset) {
+      if (e.target.dataset.remove) {
+        if (!confirm("이 첨부 파일을 삭제할까요?")) return;
+        rows[i].files = rows[i].files.filter((x) => x !== e.target.dataset.remove);
+        Store.touch(p);
+        await Store.gc();
+        rerender();
+      } else if ("delrow" in e.target.dataset) {
         if (!confirm(`${i + 1}번 행을 삭제할까요?`)) return;
         rows.splice(i, 1);
         Store.touch(p);
@@ -3834,6 +3876,11 @@ function tabSpec(p, el) {
   const specs = ensureSpecs(p);
   if (!specs.some((x) => x.id === route.spec)) route.spec = specs[0].id;
   const sp = specs.find((x) => x.id === route.spec), key = `spec:${sp.id}`;
+  // 첨부를 잘못 넣었을 때 다른 사양으로 옮기거나 복사
+  const others = specs.filter((x) => x !== sp);
+  const xfer = (id) => others.length ? `<select class="move-unit xfer" data-xfer="${id}" title="다른 사양으로 이동 / 복사"><option value="">⇄</option>
+    <optgroup label="이동">${others.map((x) => `<option value="move:${x.id}">→ ${esc(x.name)}</option>`).join("")}</optgroup>
+    <optgroup label="복사">${others.map((x) => `<option value="copy:${x.id}">⧉ ${esc(x.name)}</option>`).join("")}</optgroup></select>` : "";
   el.innerHTML = `<div class="unit-bar">
       ${specs.map((x) => `<button class="unit-chip ${x === sp ? "active" : ""}" data-spec="${x.id}"><b>${esc(x.name)}</b><small>${x.rows.length}항목${x.files.length ? ` · 첨부 ${x.files.length}` : ""}</small></button>`).join("")}
       <span class="unit-actions"><button class="btn primary sm" id="addSpec">＋ 사양 추가</button></span>
@@ -3845,8 +3892,8 @@ function tabSpec(p, el) {
       <button class="btn danger sm" id="delSpec" ${specs.length > 1 ? "" : "disabled"}>사양 삭제</button></div></div>
     ${gridCard(p, key, " ")}
     <div class="card spec-files"><h3>${esc(sp.name)} 자료 <span class="muted small">도면·캡처·사양서</span></h3>
-      ${DROPZONE()}<div class="thumbs">${thumbs(sp.files, { removable: true })}</div>
-      <div class="chips">${fileChips(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")), { removable: true })}</div>
+      ${DROPZONE()}<div class="thumbs">${thumbs(sp.files, { removable: true, extra: xfer })}</div>
+      <div class="chips">${fileChips(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")), { removable: true, extra: xfer })}</div>
       <label class="form-1">메모<textarea id="specNote" rows="3">${esc(sp.note)}</textarea></label></div>`;
   $$("[data-spec]", el).forEach((b) => (b.onclick = () => { route.spec = b.dataset.spec; rerender(); }));
   $("#addSpec").onclick = () => addSpecDialog(p);
@@ -3866,6 +3913,16 @@ function tabSpec(p, el) {
     Store.touch(p);
     rerender();
   }, card);
+  card.addEventListener("change", (e) => {
+    const id = e.target.dataset.xfer;
+    if (!id || !e.target.value) return;
+    const [mode, to] = e.target.value.split(":"), target = specs.find((x) => x.id === to);
+    if (!target.files.includes(id)) target.files.push(id);
+    if (mode === "move") sp.files = sp.files.filter((x) => x !== id);
+    Store.touch(p);
+    toast(`'${Store.fileMeta(id)?.name}'을 ${target.name}(으)로 ${mode === "move" ? "옮겼" : "복사했"}습니다.`);
+    rerender();
+  });
   card.addEventListener("click", async (e) => {
     if (!e.target.dataset.remove) return;
     e.stopPropagation();

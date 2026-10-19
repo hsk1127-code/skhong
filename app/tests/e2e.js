@@ -123,6 +123,12 @@ const assert = require("assert");
   await p.click("dialog button.primary");
   assert.match(await p.textContent(".unit-chip.active"), /안전 사양.*5항목/);
   assert.strictEqual(await p.inputValue("[data-grid^=spec] tbody tr:first-child [data-f=item]"), "비상 정지 (EMO)");
+  // 행 선택 삭제 → 전체 삭제
+  await p.locator("[data-grid^=spec] [data-sel]").nth(1).check();
+  await p.click("[data-grid^=spec] [data-delsel]");
+  assert.strictEqual(await p.locator("[data-grid^=spec] [data-sel]").count(), 4);
+  await p.click("[data-grid^=spec] [data-delall]");
+  assert.strictEqual(await p.locator("[data-grid^=spec] [data-sel]").count(), 0);
 
   await p.click(".tabs [data-tab=meetings]");
   assert.strictEqual(await p.inputValue("[data-mf=title]"), "고객사 Kick-off");

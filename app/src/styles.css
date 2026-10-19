@@ -614,3 +614,7 @@ dialog[open] { animation: pop .16s ease-out; }
 .sum-table th.num { white-space: normal; min-width: 76px; max-width: 130px; line-height: 1.3; }
 .sum-table td:last-child { white-space: normal; min-width: 160px; max-width: 280px; }
 .parts-tools .unit-edit:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }
+.grid-table .sel { width: 28px; text-align: center; }
+.grid-table tr.selected td { background: var(--accent-soft); }
+.thumb .xfer { position: absolute; top: 4px; left: 4px; background: var(--panel); border-color: var(--line); }
+.chip .xfer { width: 40px; margin-left: 2px; }
