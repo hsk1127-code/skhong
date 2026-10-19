@@ -45,13 +45,14 @@ const assert = require("assert");
   await p.type("[data-ck=estimateCost]", "85000000");
   await p.type("[data-ck=targetCost]", "80000000");
   await p.type("[data-ck=actualCost]", "90000000");
-  assert.match(await p.textContent("#costView"), /예상 이익35,000,000원[\s\S]*목표 이익40,000,000원[\s\S]*실제 이익30,000,000원[\s\S]*25\.0%[\s\S]*\+10,000,000원/);
+  // 예상·목표·실제 이익 칸은 없음, 목표 대비만
+  assert.doesNotMatch(await p.textContent("#costView"), /예상 이익|목표 이익|실제 이익/);
+  assert.match(await p.textContent("#costView"), /목표 대비\+10,000,000원/);
   // 인건비: M/D × 단가 자동 계산, 칸에 숫자로 보임 (실행가·이익은 그대로)
   await p.fill("[data-md=setup]", "2");
   await p.type("[data-ck=mdRate]", "500000");
   assert.strictEqual(await p.inputValue("[data-ck=laborCost]"), "1,000,000");
   assert.match(await p.textContent("#laborView"), /총 2 M\/D[\s\S]*인건비 1,000,000원/);
-  assert.match(await p.textContent("#costView"), /실제 이익30,000,000원/);
   // 재경비·워런티비 = 실행가 × 비율, 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
   await p.fill("[data-rate=overheadRate]", "5");
   await p.fill("[data-rate=warrantyRate]", "2");
