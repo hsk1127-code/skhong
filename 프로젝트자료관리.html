@@ -688,6 +688,10 @@ dialog[open] { animation: pop .16s ease-out; }
 .ov-contract .tc-parts, .wide .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .tc-parts span { font-size: 12px; color: var(--muted); } .tc-parts b { font-size: 14px; text-align: right; } .tc-parts small { grid-column: 1 / -1; text-align: right; } .tc-parts small { font-size: 11px; color: var(--muted); }
 .tc-parts i { font-style: normal; color: var(--muted); }
+.rd-sub { margin: 6px 0 4px; } .rd-sub h4 { margin: 4px 0 8px; }
+dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form.md-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .form.md-grid input { width: 100%; min-width: 0; }
+@media (max-width: 800px) { .form.md-grid { grid-template-columns: 1fr 1fr; } }
 
 </style>
 </head>
@@ -2161,6 +2165,9 @@ function closingInfo(p) {
     payTerms: c.payments.map((x) => `${x.name} ${x.ratio}%`).join(" / "),
     paidDate: kd.paidDate.value,
     orderAmount, estimateCost, targetCost, actualCost, salesActual,
+    mdTotal: c.mdTotal, mdText: c.mdText, labor: c.labor, overheadRate: c.overheadRate, warrantyRate: c.warrantyRate,
+    overhead: c.overhead, warrantyCost: c.warrantyCost, totalCost: actualCost ? c.totalCost : 0,
+    totalProfit: orderAmount && actualCost ? orderAmount - c.totalCost : null, totalRate: orderAmount && actualCost ? (orderAmount - c.totalCost) / orderAmount : null,
     profit: orderAmount && actualCost ? orderAmount - actualCost : null,
     profitRate: orderAmount && actualCost ? (orderAmount - actualCost) / orderAmount : null,
     auto,
@@ -2197,7 +2204,15 @@ async function buildClosingWorkbook(projects) {
     row("", "실행가", (x) => money(x.actualCost)),
     row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}17`, v: x.profit, s: "moneyb" } : txt(""))),
     row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}18/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
-    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 출력일 ${today()}`, s: "wrap" }],
+    // 실행가 구성: 인건비(M/D) · 재경비 · 워런티비 → 실행가 합계 (20~26행)
+    row("", "투입 M/D", (x) => txt(x.mdTotal ? `${x.mdTotal} M/D (${x.mdText})` : "")),
+    row("", "인건비", (x) => money(x.labor)),
+    row("", "재경비", (x, i) => (x.actualCost && x.overheadRate ? { f: `${col(i)}17*${x.overheadRate}/100`, v: x.overhead, s: "money" } : money(""))),
+    row("", "워런티비", (x, i) => (x.actualCost && x.warrantyRate ? { f: `${col(i)}17*${x.warrantyRate}/100`, v: x.warrantyCost, s: "money" } : money(""))),
+    row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}21)+N(${col(i)}22)+N(${col(i)}23)`, v: x.totalCost, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}24`, v: x.totalProfit, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}25/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
+    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);
@@ -2208,7 +2223,7 @@ async function buildClosingWorkbook(projects) {
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B19", `B21:${last}21`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B26", `B28:${last}28`] }];
 
   // 종합: 프로젝트별 금액
   const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],
@@ -4152,6 +4167,15 @@ function reportDialog(p) {
       ${money("salesActual", "실적가", "", "종합 시트용 (선택)")}
       <label>지급조건<span class="row2" style="flex-wrap:nowrap"><input value="${esc(ci.payTerms || "정산 비율 미입력")}" disabled style="flex:1">
         <button type="button" class="btn sm" data-paydlg-report>⚙ 설정</button></span>${hint("")}</label>
+      <div class="full rd-sub"><h4>실행가 구성 <span class="muted small">인건비(M/D × 단가) · 재경비 · 워런티비 → 실행가 합계</span></h4>
+        <div class="form md-grid aligned">
+          ${MD_FIELDS.map(([k, l]) => `<label>${l} (M/D)<input name="md_${k}" data-rcalc inputmode="decimal" value="${esc((o.md || {})[k] ?? "")}" placeholder="0">${hint("")}</label>`).join("")}
+          <label>M/D 단가 (원)<input name="mdRate" data-money data-rcalc inputmode="numeric" value="${contractInfo(p).mdRate ? contractInfo(p).mdRate.toLocaleString("ko-KR") : ""}" placeholder="예: 500,000">${hint("")}</label>
+          <label>인건비 (원)<input name="laborCost" data-money data-rcalc data-manual="${contractInfo(p).laborManual ? 1 : ""}" inputmode="numeric" class="labor-input" value="${contractInfo(p).labor ? contractInfo(p).labor.toLocaleString("ko-KR") : ""}" placeholder="M/D × 단가"><span class="fhint" id="rLaborHint"></span></label>
+          <label>재경비 비율 (%)<input name="overheadRate" data-rcalc inputmode="decimal" value="${esc(o.overheadRate || "")}" placeholder="예: 5"><span class="fhint" id="rOverheadHint"></span></label>
+          <label>워런티비 비율 (%)<input name="warrantyRate" data-rcalc inputmode="decimal" value="${esc(o.warrantyRate || "")}" placeholder="예: 2"><span class="fhint" id="rWarrantyHint"></span></label>
+        </div>
+        <div class="total-cost wide" id="rTotal"></div></div>
       <label class="full">이슈(특이)사항 · 문제점 및 개선사항<textarea name="issues" rows="2" placeholder="예: 추가 개선사항 유상건 / 없음">${esc(r.issues)}</textarea></label>
       <label class="full">미완료 내용<input name="unfinished" value="${esc(r.unfinished || "")}" placeholder="비우면 자동으로 채웁니다">${hint(`비우면 자동: ${closingInfo({ ...p, report: { ...r, unfinished: "" } }).unfinished}`)}</label>
     </div>
@@ -4191,24 +4215,46 @@ function reportDialog(p) {
       setTimeout(() => window.print(), 50);
     };
     $("[data-paydlg-report]", dlg).onclick = () => { dlg.close(); payDialog(p); };
-    // 금액 칸: 쉼표 표시, 이익 미리 계산
+    // 금액 칸: 쉼표 표시, 실행가 구성·이익 미리 계산
     const showProfit = () => {
-      const amt = toAmount(form.orderAmount.value), cost = toAmount(form.actualCost.value), est = toAmount(form.estimateCost.value);
-      const line = (label, c) => `${label} ${fmtWon(amt - c)} <span class="muted small">(${(((amt - c) / amt) * 100).toFixed(1)}%)</span>`;
+      const c = contractInfo({ ...p, overview: draftOverview(form) });
+      const lab = form.laborCost;
+      if (!lab.dataset.manual && document.activeElement !== lab) lab.value = c.laborAuto ? c.laborAuto.toLocaleString("ko-KR") : "";
+      $("#rLaborHint", dlg).textContent = lab.dataset.manual ? "직접 입력 · 지우면 자동" : c.mdTotal ? `자동: ${c.mdTotal} M/D × 단가` : "M/D × 단가 자동";
+      $("#rOverheadHint", dlg).textContent = c.overhead ? `= ${fmtWon(c.overhead)}` : "실행가 × 비율";
+      $("#rWarrantyHint", dlg).textContent = c.warrantyCost ? `= ${fmtWon(c.warrantyCost)}` : "실행가 × 비율";
+      $("#rTotal", dlg).innerHTML = totalViewHtml(c);
+      const amt = c.amount, cost = c.actualCost, est = c.estimateCost;
+      const line = (label, x) => `${label} ${fmtWon(amt - x)} <span class="muted small">(${(((amt - x) / amt) * 100).toFixed(1)}%)</span>`;
       $("#profitView", dlg).innerHTML = amt && (cost || est)
-        ? [cost && line("실제", cost), est && `<span class="muted">${line("예상", est)}</span>`].filter(Boolean).join(" &nbsp;·&nbsp; ")
+        ? [cost && line("실제", cost), cost && c.totalCost !== cost && line("합계 기준", c.totalCost), est && `<span class="muted">${line("예상", est)}</span>`].filter(Boolean).join(" &nbsp;·&nbsp; ")
         : `<span class="muted small">발주가와 실행가(또는 실행 예가)를 넣으면 계산됩니다</span>`;
     };
     $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
       const n = toAmount(inp.value);
       inp.value = n ? n.toLocaleString("ko-KR") : "";
+      // 인건비 칸: 자동 값과 다르게 고치면 직접 입력, 지우면 다시 자동
+      if (inp === form.laborCost) inp.dataset.manual = n && n !== contractInfo({ ...p, overview: { ...draftOverview(form), laborCost: "" } }).laborAuto ? "1" : "";
       showProfit();
     }));
+    $$("[data-rcalc]:not([data-money])", dlg).forEach((inp) => inp.addEventListener("input", showProfit));
+    form.laborCost.addEventListener("change", showProfit);
     showProfit();
   } });
 
+  // 보고서 창에 입력 중인 값으로 만든 개요 (미리 계산용)
+  function draftOverview(form) {
+    const f = (k) => form.elements[k].value.trim();
+    return { ...o, orderAmount: String(toAmount(f("orderAmount")) || ""), estimateCost: String(toAmount(f("estimateCost")) || ""),
+      targetCost: String(toAmount(f("targetCost")) || ""), actualCost: String(toAmount(f("actualCost")) || ""),
+      md: Object.fromEntries(MD_FIELDS.map(([k]) => [k, f(`md_${k}`).replace(/[^\d.]/g, "")])),
+      mdRate: String(toAmount(f("mdRate")) || ""), laborCost: form.laborCost.dataset.manual ? String(toAmount(f("laborCost")) || "") : "",
+      overheadRate: f("overheadRate").replace(/[^\d.]/g, ""), warrantyRate: f("warrantyRate").replace(/[^\d.]/g, "") };
+  }
   function save(form) {
     const f = (k) => form.elements[k].value.trim();
+    const d = draftOverview(form);
+    Object.assign(o, { md: d.md, mdRate: d.mdRate, laborCost: d.laborCost, overheadRate: d.overheadRate, warrantyRate: d.warrantyRate });
     // 주요 일자는 개요에 저장 (개요와 보고서가 같은 값을 씀)
     Object.assign(o, { kickoffDate: f("kickoffDate"), receiveDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
       warrantyYears: f("warrantyYears"), paidDate: f("paidDate") });

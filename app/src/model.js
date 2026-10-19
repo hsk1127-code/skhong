@@ -908,6 +908,9 @@ function closingInfo(p) {
     payTerms: c.payments.map((x) => `${x.name} ${x.ratio}%`).join(" / "),
     paidDate: kd.paidDate.value,
     orderAmount, estimateCost, targetCost, actualCost, salesActual,
+    mdTotal: c.mdTotal, mdText: c.mdText, labor: c.labor, overheadRate: c.overheadRate, warrantyRate: c.warrantyRate,
+    overhead: c.overhead, warrantyCost: c.warrantyCost, totalCost: actualCost ? c.totalCost : 0,
+    totalProfit: orderAmount && actualCost ? orderAmount - c.totalCost : null, totalRate: orderAmount && actualCost ? (orderAmount - c.totalCost) / orderAmount : null,
     profit: orderAmount && actualCost ? orderAmount - actualCost : null,
     profitRate: orderAmount && actualCost ? (orderAmount - actualCost) / orderAmount : null,
     auto,
@@ -944,7 +947,15 @@ async function buildClosingWorkbook(projects) {
     row("", "실행가", (x) => money(x.actualCost)),
     row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}17`, v: x.profit, s: "moneyb" } : txt(""))),
     row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}18/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
-    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 출력일 ${today()}`, s: "wrap" }],
+    // 실행가 구성: 인건비(M/D) · 재경비 · 워런티비 → 실행가 합계 (20~26행)
+    row("", "투입 M/D", (x) => txt(x.mdTotal ? `${x.mdTotal} M/D (${x.mdText})` : "")),
+    row("", "인건비", (x) => money(x.labor)),
+    row("", "재경비", (x, i) => (x.actualCost && x.overheadRate ? { f: `${col(i)}17*${x.overheadRate}/100`, v: x.overhead, s: "money" } : money(""))),
+    row("", "워런티비", (x, i) => (x.actualCost && x.warrantyRate ? { f: `${col(i)}17*${x.warrantyRate}/100`, v: x.warrantyCost, s: "money" } : money(""))),
+    row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}21)+N(${col(i)}22)+N(${col(i)}23)`, v: x.totalCost, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}24`, v: x.totalProfit, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}25/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
+    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);
@@ -955,7 +966,7 @@ async function buildClosingWorkbook(projects) {
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B19", `B21:${last}21`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B26", `B28:${last}28`] }];
 
   // 종합: 프로젝트별 금액
   const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],
