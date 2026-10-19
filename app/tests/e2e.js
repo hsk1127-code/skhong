@@ -70,7 +70,8 @@ const assert = require("assert");
   await p.click("#reportBtn");
   await p.fill("dialog [name=setupDate]", "2026-12-20");
   assert.strictEqual(await p.inputValue("dialog [name=actualCost]"), "90,000,000");
-  assert.match(await p.textContent("#profitView"), /30,000,000원.*25\.0%/);
+  // 이익은 실행가 합계(실행가 90,000,000 + 인건비 1,000,000) 기준만
+  assert.match(await p.textContent("#profitView"), /실행가 합계 기준 29,000,000원.*24\.2%/);
   assert.strictEqual(await p.isChecked("dialog [name=markDone]"), false); // 실수로 완료 처리되지 않도록 기본은 해제
   await p.check("dialog [name=markDone]");
   const [cx] = await Promise.all([p.waitForEvent("download"), p.click("dialog button.primary")]);
@@ -86,7 +87,8 @@ const assert = require("assert");
   assert.match(rp, /프로젝트 완료 보고서/);
   assert.match(rp, /금 일억이천만원정/);
   assert.match(rp, /미수금 잔금 70% · 84,000,000원/);
-  assert.match(rp, /이익률 25\.0%/);
+  assert.match(rp, /원가 구성[\s\S]*실행가 합계[\s\S]*91,000,000원/);
+  assert.doesNotMatch(rp, /예상 이익|목표 이익률|이익 · 이익률/);
   assert.match(rp, /납품 완료/);
   assert.match(await p.textContent(".page-head h1 .badge"), /완료/);
   await p.click("[data-ovmode=edit]");
