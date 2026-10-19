@@ -63,6 +63,17 @@ def main(out):
     ws["B32"], ws["F32"], ws["H32"] = "견적 제출", "영업팀", "미정"
     ws["B34"] = "특이사항"
 
+    # 프로젝트마다 추가되는 문서형 사양서: 번호 제목, 문단, 작은 표
+    ws = wb.create_sheet("설계 및 제작 조건")
+    ws["B2"] = "1. 설계 및 제작 조건"
+    ws["B4"] = "1.1. 환경 조건"
+    ws["B6"] = "1) 온도: 22.5 ~ 23.5 °C"
+    ws["B7"] = "2) 습도: 45 ± 20% R.H"
+    ws["B9"] = "1.2. 업무 Scope"
+    for r, row in enumerate([("항목", "내용", "담당"), ("Hardware", "로봇 설계", "외주"), (None, "3D 도면", None)], start=10):
+        for c, v in enumerate(row, start=2):
+            if v:
+                ws.cell(r, c, v)
     ws = wb.create_sheet("전장품 문의(2026.10.06)")
     ws.add_image(png("mail capture"), "A1")
 

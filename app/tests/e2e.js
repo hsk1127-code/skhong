@@ -117,7 +117,11 @@ const assert = require("assert");
 
   // 사양: 예시(안전 사양)로 구분 추가 → 기본 항목 채움
   await p.click(".tabs [data-tab=spec]");
-  assert.deepStrictEqual(await p.$$eval(".unit-chip b", (b) => b.map((x) => x.textContent)), ["SW 사양", "HW 주요 Spec"]);
+  // 날짜 없는 추가 시트(설계 및 제작 조건)는 자료 이력이 아니라 사양으로: 제목 → 구분, 문단·작은 표 → 항목
+  assert.deepStrictEqual(await p.$$eval(".unit-chip b", (b) => b.map((x) => x.textContent)), ["설계 및 제작 조건"]);
+  const doc = await p.$$eval("[data-grid^=spec] tbody tr", (trs) => trs.map((tr) =>
+    ["kind", "item", "content", "review"].map((k) => tr.querySelector(`[data-f=${k}]`).value).join("|")));
+  assert.deepStrictEqual(doc, ["환경 조건||1) 온도: 22.5 ~ 23.5 °C\n2) 습도: 45 ± 20% R.H|", "업무 Scope|Hardware|로봇 설계\n3D 도면|담당: 외주"]);
   await p.click("#addSpec");
   await p.click('dialog [data-tpl]:text-is("안전 사양")');
   await p.click("dialog button.primary");

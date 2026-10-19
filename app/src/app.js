@@ -144,7 +144,7 @@ async function importXlsx(file) {
     Store.changed();
     await Store.flush();
     go({ view: "project", id: p.id, tab: "overview" });
-    toast(`가져오기 완료: 자료 ${p.records.length}건, 회의록 ${p.meetings.length}건, 일정 ${p.schedule.length}건`, 5000);
+    toast(`가져오기 완료: 자료 ${p.records.length}건, 사양 ${p.specs.length}개, 회의록 ${p.meetings.length}건, 일정 ${p.schedule.length}건`, 5000);
   });
 }
 

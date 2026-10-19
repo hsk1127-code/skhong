@@ -1198,8 +1198,8 @@ const PART_COLS = [
 ];
 // 사양 항목은 문장이 길어서 항목·내용·검토 모두 줄바꿈되는 칸으로
 const SPEC_COLS = [
-  { key: "kind", label: "구분", w: 12 }, { key: "item", label: "항목", w: 30, type: "textarea" },
-  { key: "content", label: "내용", w: 40, type: "textarea" }, { key: "review", label: "검토", w: 22, type: "textarea" },
+  { key: "kind", label: "구분", w: 16, type: "textarea" }, { key: "item", label: "항목", w: 24, type: "textarea" },
+  { key: "content", label: "내용", w: 44, type: "textarea" }, { key: "review", label: "검토", w: 22, type: "textarea" },
 ];
 const LISTS = {
   sw: { title: "SW 사양", sheet: "SW 사양", cols: SPEC_COLS },
@@ -1531,18 +1531,19 @@ async function importWorkbook(file, onProgress = () => {}) {
   p.revisions = [];
   const addBytes = (data, type, name) => Store.addFile(new Blob([data], { type }), name);
   let i = 0;
+  const specSheets = [], hasSheet = { sw: false, hw: false };
   for (const sheet of wb.sheets) {
     onProgress(`시트 가져오는 중 (${++i}/${wb.sheets.length}): ${sheet.name}`);
     const key = norm(sheet.name);
     const title = titleFromSheet(sheet.name);
     const date = dateFromText(sheet.name);
-    const images = [];
+    const images = [], files = [];
     for (let k = 0; k < sheet.images.length; k++) {
       const img = sheet.images[k];
+      if (/emf|wmf/.test(img.ext) && !sheet.embeds.length) { files.push(await addBytes(img.data, "application/x-msmetafile", `${title}_그림${k + 1}.${img.ext}`)); continue; }
       if (!img.type.startsWith("image/") || /emf|wmf/.test(img.ext)) continue;
       images.push(await addBytes(img.data, img.type, `${title}${sheet.images.length > 1 ? "_" + (k + 1) : ""}.${img.ext}`));
     }
-    const files = [];
     for (let k = 0; k < sheet.embeds.length; k++) {
       const e = sheet.embeds[k];
       files.push(await addBytes(e.data, e.type, `${title}${sheet.embeds.length > 1 ? "_" + (k + 1) : ""}.${e.ext}`));
@@ -1557,8 +1558,13 @@ async function importWorkbook(file, onProgress = () => {}) {
       p.schedule = parseSchedule(sheet);
     } else if (key === "sw사양") {
       p.lists.sw = readTable(sheet, SPEC_COLS, { carry: ["kind"] });
+      if (!p.lists.sw.length) p.lists.sw = parseSpecDoc(sheet); // 문서형 SW 사양서
+      p.swFiles = [...images, ...files];
+      hasSheet.sw = true;
     } else if (key === "hw주요spec") {
       p.lists.hw = readTable(sheet, SPEC_COLS, { carry: ["kind"] });
+      if (!p.lists.hw.length) p.lists.hw = parseSpecDoc(sheet);
+      hasSheet.hw = true;
       p.hwImages.push(...images, ...files);
     } else if (["지정품지급품", "소모품", "bom"].includes(key)) {
       const k = { 지정품지급품: "supplied", 소모품: "consumables", bom: "bom" }[key];
@@ -1573,6 +1579,12 @@ async function importWorkbook(file, onProgress = () => {}) {
       p.lists.changes = readTable(sheet, LISTS.changes.cols).map((r) => ({ ...r, files: [] }));
     } else if (firstText.includes("회의록")) {
       p.meetings.push(parseMeeting(sheet, [...images, ...files]));
+    } else if (isSpecSheet(sheet, date)) {
+      // 날짜 시트(메일로 받은 사양서)는 캡처·원본을 첨부하고, 넣어 둔 엑셀 사양서에서 항목을 읽음
+      const memo = sheetLines(sheet).map((v) => v.join("  ")).join("\n");
+      const rows = date ? await embeddedSpecRows(sheet.embeds) : specRowsOf(sheet);
+      const note = date ? [`${fmtDot(date)} 받은 자료`, memo].filter(Boolean).join("\n") : "";
+      specSheets.push({ name: title || sheet.name, rows, files: [...images, ...files], note });
     } else {
       const memo = sheetLines(sheet).map((v) => v.join("  ")).join("\n");
       if (!images.length && !files.length && !memo) continue;
@@ -1581,6 +1593,16 @@ async function importWorkbook(file, onProgress = () => {}) {
     }
   }
   fillSubmitTo(p);
+  // SW·HW 외 사양 시트는 사양 구분으로 (같은 이름이면 합침)
+  const specs = ensureSpecs(p);
+  if (p.swFiles) { specs[0].files.push(...p.swFiles); delete p.swFiles; }
+  for (const x of specSheets) {
+    const same = specs.find((sp) => norm(sp.name) === norm(x.name));
+    if (same) { same.rows.push(...x.rows); same.files.push(...x.files); same.note = [same.note, x.note].filter(Boolean).join("\n"); }
+    else specs.push({ id: Store.uid(), name: x.name, rows: x.rows, files: x.files, note: x.note });
+  }
+  // 엑셀에 없던 빈 기본 사양(SW 사양 / HW 주요 Spec)은 만들지 않음
+  p.specs = specs.filter((sp, k) => k > 1 || hasSheet[k ? "hw" : "sw"] || sp.rows.length || sp.files.length || sp.note || specs.length <= 2);
   if (!p.revisions.length) p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: "신규 작성", note: "" });
   p.records.sort((a, b) => a.date.localeCompare(b.date));
   p.meetings.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -2155,6 +2177,106 @@ function analyzeSpecSheet(sheet) {
   (rows[best.row] || []).forEach((v, c) => { const label = cellText(v); if (label && !columns.some((x) => x.c === c)) columns.push({ c, label }); });
   return { headerRow: best.row, mapping: best.mapping, columns, rows };
 }
+// 이름이 사양·사양서·Spec·Technical Sheet 인 시트(문의·답변 메일 제외), 또는 머리글이 사양 표(항목·내용)인 시트
+function isSpecSheet(sheet, date) {
+  if (/사양|spec|technical|기술\s*요구/i.test(sheet.name) && !/문의|질의|답변|회신|회의/.test(sheet.name)) return true;
+  // 날짜가 없는 그 밖의 시트(업무 Scope 정의, 설계 및 제작 조건 …)는 프로젝트마다 추가되는 사양 문서
+  return !date && (sheetLines(sheet).length > 0 || sheet.images.length > 0 || sheet.embeds.length > 0);
+}
+// 시트에 넣어 둔 엑셀 원본 중 사양 표가 있는 시트(항목이 가장 많은 것)를 읽음
+async function embeddedSpecRows(embeds) {
+  let best = [];
+  for (const e of embeds) {
+    if (!/^xlsx$/i.test(e.ext)) continue;
+    try {
+      const wb = await Xlsx.read(new Blob([e.data]));
+      for (const sh of wb.sheets) {
+        const info = analyzeSpecSheet(sh);
+        const rows = info ? readSpecRows(info, info.mapping) : [];
+        if (rows.length > best.length) best = rows;
+      }
+    } catch { /* 읽을 수 없는 원본은 첨부로만 보관 */ }
+  }
+  return best;
+}
+function specRowsOf(sheet) {
+  // 시트 전체가 사양 표(맨 위에 머리글)이면 표로, 아니면 문서형 사양서로 읽음
+  const info = analyzeSpecSheet(sheet);
+  if (info && info.rows.slice(0, info.headerRow).filter((r) => (r || []).some((v) => cellText(v))).length <= 1)
+    return readSpecRows(info, info.mapping);
+  return parseSpecDoc(sheet);
+}
+
+// 문서형 사양서(번호 제목 · 문단 · 중간중간 작은 표)를 사양 항목으로
+//   1.1. 환경 조건 / ■ 설계          → 제목 (구분)
+//   제목 아래 문단                    → 한 항목 (항목 = 제목, 내용 = 문단)
+//   항목|내용|담당|비고 같은 작은 표   → 표의 행마다 한 항목 (첫 열 = 항목, 셋째 열부터는 검토에 '머리글: 값')
+//   A. Robot / ii. Robot PC 같은 짧은 소제목 → 새 항목
+const SPEC_HEAD = /^\s*(?:\d+\.\d+(?:\.\d+)*\.?|■)\s*/;
+const SPEC_TOP = /^\s*\d+\.(?!\d)\s*/;
+const SPEC_MINOR = /^\s*(?:[A-Z]|[ivx]+)\.\s*/;
+const SPEC_HEADER_WORD = /항목|내용|기능|구분|구성|설명|비고|담당|특이|사항|명칭|사양|item|spec|remark/i;
+const clean = (t) => t.replace(/\u00a0/g, " ").replace(/\s+/g, " ").trim();
+function parseSpecDoc(sheet) {
+  const out = [];
+  let section = "", sub = "", para = null, table = null, topSeen = false;
+  const flush = () => { para = null; };
+  const addPara = (text) => {
+    if (!para) { para = { id: Store.uid(), kind: section, item: sub === section ? "" : sub, content: "", review: "" }; out.push(para); }
+    para.content += (para.content ? "\n" : "") + text;
+  };
+  for (const row of sheet.rows) {
+    const cells = [];
+    (row || []).forEach((v, c) => { const t = clean(cellText(v)); if (t) cells.push({ c, t }); });
+    if (!cells.length) continue;
+    const first = cells[0].t, joined = cells.map((x) => x.t).join(" ");
+    const title = (re) => clean(first.replace(re, "")) || clean(cells.slice(1).map((x) => x.t).join(" "));
+    const short = (t) => t.length <= 25 && !/[다함것]\.?$/.test(t);
+    // 제목
+    if (SPEC_HEAD.test(first) || (!topSeen && SPEC_TOP.test(first) && short(title(SPEC_TOP)))) {
+      const t = title(SPEC_HEAD.test(first) ? SPEC_HEAD : SPEC_TOP);
+      if (!SPEC_HEAD.test(first) || /^\s*\d+\.\d+\.?\s/.test(first)) topSeen = true;
+      if (/^\s*\d+\.\d+\.?\s|^\s*\d+\.(?!\d)/.test(first) && !/^\s*\d+\.\d+\.\d+/.test(first)) { section = t; sub = t; }
+      else sub = t;
+      table = null; flush();
+      continue;
+    }
+    // 작은 표 머리글
+    if (cells.length >= 2 && cells.every((x) => x.t.length <= 12 && !/^[-•※·\d(]/.test(x.t))
+      && cells.filter((x) => SPEC_HEADER_WORD.test(x.t)).length * 2 >= cells.length) {
+      table = { item: cells[0].c, content: cells[1].c, extras: cells.slice(2), last: null };
+      flush();
+      continue;
+    }
+    if (table && cells[cells.length - 1].c > table.item) {
+      const itemCell = cells.find((x) => x.c === table.item);
+      const extras = [], content = [];
+      for (const x of cells) {
+        if (x === itemCell) continue;
+        const ex = table.extras.find((e) => e.c === x.c);
+        if (ex) extras.push(itemCell || !table.last ? `${ex.t}: ${x.t}` : x.t); else content.push(x.t);
+      }
+      if (itemCell || !table.last) {
+        table.last = { id: Store.uid(), kind: sub || section, item: itemCell ? itemCell.t : "", content: content.join(" : "), review: extras.join(" · ") };
+        out.push(table.last);
+      } else {
+        const r = table.last;
+        if (content.length) r.content += (r.content ? "\n" : "") + content.join(" : ");
+        if (extras.length) r.review += (r.review ? " " : "") + extras.join(" ");
+      }
+      continue;
+    }
+    table = null;
+    // 짧은 소제목 (A. Robot, ii. Robot PC)
+    if (cells.length === 1 && SPEC_MINOR.test(first) && short(title(SPEC_MINOR))) {
+      flush();
+      sub = title(SPEC_MINOR);
+      continue;
+    }
+    addPara(joined);
+  }
+  return out;
+}
 function readSpecRows(info, mapping) {
   const out = [];
   let lastKind = "";
@@ -2318,7 +2440,7 @@ async function importXlsx(file) {
     Store.changed();
     await Store.flush();
     go({ view: "project", id: p.id, tab: "overview" });
-    toast(`가져오기 완료: 자료 ${p.records.length}건, 회의록 ${p.meetings.length}건, 일정 ${p.schedule.length}건`, 5000);
+    toast(`가져오기 완료: 자료 ${p.records.length}건, 사양 ${p.specs.length}개, 회의록 ${p.meetings.length}건, 일정 ${p.schedule.length}건`, 5000);
   });
 }
 
