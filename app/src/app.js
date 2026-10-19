@@ -724,7 +724,7 @@ function tabOverviewEdit(p, el) {
         <label>Warranty 기간 (년)<input data-k="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || "")}" placeholder="${kd.warranty.years ? `${kd.warranty.years} (하자보증기간에서)` : "예: 2"}">
           <span class="muted small" id="wtyText">${esc(kd.warranty.text.replace(/(\d{4})-(\d{2})-(\d{2})/g, "$1.$2.$3"))}</span></label>
         <label>지급 완료일<input type="date" data-k="paidDate" value="${esc(o.paidDate || "")}">
-          <span class="muted small">${kd.paidDate.auto ? `자동: ${esc(fmtDot(kd.paidDate.autoValue))} (정산 완료)` : "정산이 모두 끝나면 자동"}</span></label>`;
+          <span class="muted small ${kd.paidDate.missing ? "warn" : ""}">${kd.paidDate.auto ? `자동: ${esc(fmtDot(kd.paidDate.autoValue))} (정산 완료)` : kd.paidDate.missing ? "모두 수금완료 · 정산일을 넣으면 자동" : "정산이 모두 끝나면 자동"}</span></label>`;
     })()}</div>
     <h3 style="margin-top:18px">추가 항목</h3>
     <div id="extra">${o.extra.map((x, i) => `<div class="extra-row"><input data-ex="${i}" data-f="label" value="${esc(x.label)}" placeholder="항목명">
@@ -883,10 +883,13 @@ function bindContractEdit(p, card) {
       const x = o.payments.find((y) => y.id === t.closest("tr").dataset.id);
       x[t.dataset.pf] = t.value;
       if (t.dataset.pf === "paidDate" && t.value && x.status !== "수금완료") x.status = "수금완료";
+      // 수금완료로 바꾸면 정산일이 비어 있을 때 오늘 날짜를 넣음 → 모두 수금완료면 지급 완료일 자동
+      if (t.dataset.pf === "status" && t.value === "수금완료" && !isDate(x.paidDate)) x.paidDate = today();
     } else return;
     Store.touch(p);
   });
-  card.addEventListener("change", (e) => { if (["ratio", "status", "paidDate"].includes(e.target.dataset.pf)) redraw(); });
+  // 상태·정산일이 바뀌면 지급 완료일(주요 일자)도 다시 계산되므로 화면 전체를 다시 그림
+  card.addEventListener("change", (e) => { const f = e.target.dataset.pf; if (f === "ratio") redraw(); else if (f === "status" || f === "paidDate") rerender(); });
   card.addEventListener("change", (e) => { if ("labor" in e.target.dataset) refreshLabor(false); });
   card.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && "paytext" in e.target.dataset) { e.preventDefault(); $("[data-payapply]", card).click(); }
@@ -1044,8 +1047,8 @@ function tabOverviewView(p, el) {
           <b>시작 전</b><span class="kd-sub">${isDate(x.value) ? `${esc(fmtDot(x.value))}부터 ` : ""}${esc(kd.warranty.period || "")}</span></div>`;
         return `<div class="kd-step ${isDate(x.value) ? (x.value <= base ? "done" : "next") : "empty"}">
         <span class="kd-ico">${ico}</span><span class="kd-label">${label}</span>
-        <b>${isDate(x.value) ? esc(fmtDot(x.value)) : "미정"}</b>
-        <span class="kd-sub">${x.end ? `~ ${esc(fmtDot(x.end))} (${kd.warranty.years}년)` : isDate(x.value) && x.value > base ? dday(x.value) : x.auto ? "자동" : ""}</span></div>`;
+        <b>${isDate(x.value) ? esc(fmtDot(x.value)) : x.missing ? "수금완료" : "미정"}</b>
+        <span class="kd-sub ${x.missing ? "warn" : ""}">${x.missing ? "정산일 미입력" : x.end ? `~ ${esc(fmtDot(x.end))} (${kd.warranty.years}년)` : isDate(x.value) && x.value > base ? dday(x.value) : x.auto ? "자동" : ""}</span></div>`;
       }).join("")}</div>
     </div>`;
   })();

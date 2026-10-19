@@ -907,6 +907,8 @@ function keyDates(p) {
   const out = {};
   for (const [k] of KEY_DATES) out[k] = { value: isDate(o[k]) ? o[k] : auto[k] || "", auto: !isDate(o[k]) && !!auto[k], autoValue: auto[k] || "" };
   out.deliveryDate = out.receiveDate;
+  // 모두 수금완료인데 정산일이 하나도 없으면 지급 완료일을 정할 수 없음 → 화면에 안내
+  out.paidDate.missing = !!allPaid && !paidDates.length && !isDate(o.paidDate);
   // Warranty: 입력한 Warranty 시작일부터 설정한 기간(년) (다른 날짜로 짐작하지 않음)
   // 기간(년)은 예전 '하자보증기간' 글자에서도 읽어 온다
   const parsed = (/(\d+(?:\.\d+)?)\s*년/.exec(o.warranty) || [])[1] || ((/(\d+)\s*개월/.exec(o.warranty) || [])[1] ? String(+(/(\d+)\s*개월/.exec(o.warranty)[1]) / 12) : "");
