@@ -575,7 +575,7 @@ function renderHome() {
     const done = Store.projects.filter((p) => p.overview.status === "완료");
     openDialog(`<h3>완료 프로젝트 마감 보고서</h3><p class="muted small">고른 프로젝트가 한 시트에 열로 나란히 들어갑니다. (종합 시트 포함)</p>
       <div class="opts">${done.map((p) => `<label><input type="checkbox" name="pick" value="${p.id}" checked> ${esc(p.overview.customer || "")} · ${esc(p.overview.project || p.overview.name)}
-        <span class="muted small">${esc(p.report?.completedDate ? fmtDot(p.report.completedDate) + " 완료" : "")}</span></label>`).join("")}</div>`,
+        <span class="muted small">${esc(completionDate(p) ? fmtDot(completionDate(p)) + " 완료" : "")}</span></label>`).join("")}</div>`,
     async (form) => {
       const ids = $$("[name=pick]:checked", form).map((x) => x.value);
       if (!ids.length) { toast("프로젝트를 하나 이상 고르세요."); return false; }
@@ -1098,7 +1098,7 @@ function tabOverviewView(p, el) {
         <div class="ov-pills"><span class="pill status-pill" title="일정표 기준 상태 · 완료·보류는 ✏️ 정보 수정에서 지정">상태 ${stBadge(p)}</span>
           ${o.manager ? `<span class="pill">👤 ${esc(o.manager)}</span>` : ""}
           ${o.status === "완료"
-            ? `<span class="pill">🏁 ${isDate(p.report?.completedDate) ? `${esc(fmtDot(p.report.completedDate))} 완료` : "완료"}</span>`
+            ? `<span class="pill">🏁 ${completionDate(p) ? `${esc(fmtDot(completionDate(p)))} 완료` : "완료"}</span>`
             : setupEnd(p) ? `<span class="pill">🏁 종료 ${esc(fmtDot(setupEnd(p)))}</span>`
             : s.end ? `<span class="pill">🏁 종료 예정 ${esc(fmtDot(s.end))} · <b>${dday(s.end)}</b></span>` : ""}
           ${s.delayed.length ? `<span class="pill bad">⚠ 지연 ${s.delayed.length}건</span>` : ""}</div>
@@ -1772,7 +1772,7 @@ function printMeeting(p, m) {
 function reportDialog(p) {
   const o = p.overview, r = p.report, sm = projectSummary(p);
   const lastDone = p.schedule.map((t) => t.doneDate).filter(isDate).sort().pop();
-  const completed = r.completedDate || (o.status === "완료" ? lastDone || sm.end : "") || today();
+  const completed = (isDate(o.setupDate) ? o.setupDate : "") || r.completedDate || (o.status === "완료" ? lastDone || sm.end : "") || today();
   const warrantyDefault = o.warranty ? `하자보증기간: ${o.warranty}${o.receiveDate ? ` (입고일 ${fmtDot(o.receiveDate)} 기준)` : ""}` : "";
   const ci = closingInfo(p);
   // 모든 칸은 "이름 → 입력칸 → 안내 줄" 순서로 같은 높이를 쓴다 (줄 맞춤)
@@ -1949,10 +1949,10 @@ function reportHtml(p, inc) {
       `<span class="rp-bar"><span style="width:${ratio * 100}%" class="${ratio === 1 ? "ok" : ""}"></span></span><span class="rp-frac">${done}/${g.items.length}</span>`,
       ratio === 1 ? `<span class="rp-pill ok">완료</span>` : `<span class="rp-pill bad">미완료</span>`];
   });
-  const planDays = sm.start && sm.end ? dayNo(sm.end) - dayNo(sm.start) + 1 : 0;
-  const diff = sm.end && isDate(r.completedDate) ? dayNo(r.completedDate) - dayNo(sm.end) : null;
+  // 완료 일자(Setup 완료일 우선)가 있으면 그날까지를 프로젝트 기간으로
+  const doneDate = completionDate(p), endDate = doneDate || sm.end;
+  const planDays = sm.start && endDate ? dayNo(endDate) - dayNo(sm.start) + 1 : 0;
   const doneCount = p.schedule.filter(sd.isDone).length;
-  const diffText = diff === null ? "-" : diff === 0 ? "계획대로" : diff < 0 ? `${-diff}일 단축` : `${diff}일 지연`;
 
   // 미결 사항
   const unpaid = c.payments.filter((x) => x.status !== "수금완료");
@@ -1974,8 +1974,8 @@ function reportHtml(p, inc) {
       c.profit != null ? `이익률 ${pct(c.profitRate)}${c.totalProfit != null && c.totalCost !== c.actualCost ? ` · 합계 기준 ${pct(c.totalRate)}` : ""}` : c.estRate != null ? `예상 이익률 ${pct(c.estRate)}` : "",
       c.profit < 0 ? "bad" : "ok"),
     kpi("정산", c.payments.length ? `${c.paidRatio}<small>%</small>` : "-", c.payments.length ? `수금 ${fmtWon(c.paidAmount)}` : "정산 비율 미입력", c.paidRatio === 100 ? "ok" : ""),
-    kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)}` : ""),
-    kpi("계획 대비", diffText, isDate(r.completedDate) ? `완료 ${fmtDot(r.completedDate)}` : "", diff > 0 ? "bad" : diff !== null ? "ok" : ""),
+    kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(endDate)}` : ""),
+    kpi("완료 일자", doneDate ? esc(fmtDot(doneDate)) : "-", doneDate ? (doneDate === o.setupDate ? "Setup 완료일" : "보고서 완료일") : "Setup 완료일 미입력", doneDate ? "ok" : ""),
     kpi("일정 완료", p.schedule.length ? `${Math.round((doneCount / p.schedule.length) * 100)}<small>%</small>` : "-", `${doneCount} / ${p.schedule.length}건`, doneCount === p.schedule.length && doneCount ? "ok" : ""),
     kpi("Warranty", kd.warranty.years ? `${kd.warranty.years}<small>년</small>` : "-", kd.warranty.end ? `~ ${fmtDot(kd.warranty.end)}` : kd.warranty.started ? "" : isDate(kd.warranty.start) ? `${fmtDot(kd.warranty.start)} 시작` : "시작일 미입력"),
   ].join("");
@@ -2050,7 +2050,7 @@ function reportHtml(p, inc) {
       c.payments.map((x) => [esc(x.name), `${esc(x.ratio)}%`, fmtWon(x.amount), v(x.cond), d(x.paidDate),
         `<span class="rp-pill ${x.status === "수금완료" ? "ok" : x.status === "청구" ? "info" : ""}">${esc(x.status)}</span>`])) : ""}
 
-    ${sec("일정 실적", `${sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)} · ${planDays}일 · ` : ""}완료 ${doneCount}/${p.schedule.length}건 · ${diffText}`)}
+    ${sec("일정 실적", `${sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(endDate)} · ${planDays}일 · ` : ""}완료 ${doneCount}/${p.schedule.length}건${doneDate ? ` · 완료 일자 ${fmtDot(doneDate)}` : ""}`)}
     ${table([16, 14, 14, 14, 28, 14], ["단계", { t: "계획 시작", c: "c" }, { t: "계획 종료", c: "c" }, { t: "실제 완료", c: "c" }, "진행", { t: "상태", c: "c" }], phaseRows)}
 
     ${inc.meetings ? `${sec("회의 및 의사결정", `${p.meetings.length}건`)}${table([14, 30, 56], [{ t: "일자", c: "c" }, "회의", "실천 의제"],

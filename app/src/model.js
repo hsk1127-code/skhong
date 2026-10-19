@@ -911,6 +911,8 @@ function syncPaidDate(p, migrate = false) {
   } else if (o.paidDateAuto) { o.paidDate = ""; o.paidDateAuto = false; filled = "cleared"; }
   return filled;
 }
+// 프로젝트 완료 일자: Setup 완료일, 없으면 완료 보고서에 적은 완료일
+const completionDate = (p) => (isDate(p.overview.setupDate) ? p.overview.setupDate : isDate(p.report?.completedDate) ? p.report.completedDate : "");
 const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["receiveDate", "입고일자 (납품일자)"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
 function keyDates(p) {
   const o = p.overview, c = contractInfo(p), sm = projectSummary(p);
