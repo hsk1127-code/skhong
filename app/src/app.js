@@ -20,6 +20,9 @@ function avatar(p, cls = "", withDot = false) {
 }
 // 일정표에 맞춘 프로젝트 상태 배지
 const stBadge = (p) => { const x = scheduleStatus(p); return `<span class="badge s-${esc(x.st)}" title="${esc(x.tip)}">${esc(x.text)}</span>`; };
+// Setup 완료일이 있으면 그날이 실제 종료일 (D-day 대신 '종료 날짜'), 없으면 일정 끝 날짜까지 D-day
+const setupEnd = (p) => (isDate(p.overview.setupDate) ? p.overview.setupDate : "");
+const endTag = (p, s) => (setupEnd(p) ? `종료 ${esc(fmtDot(setupEnd(p)))}` : s.end ? dday(s.end) : "");
 const badge = (s, cls = "") => `<span class="badge s-${esc(s)} ${cls}">${esc(s)}</span>`;
 const opts = (list, sel) => list.map((v) => `<option ${v === sel ? "selected" : ""}>${esc(v)}</option>`).join("");
 
@@ -529,7 +532,7 @@ function renderHome() {
         <div class="pc-head">${avatar(p)}<div><b class="ellipsis" style="display:block">${esc(p.overview.name)}</b>
           <div class="muted small ellipsis">${esc(p.overview.customer || "-")}${p.overview.project ? " · " + esc(p.overview.project) : ""}</div></div>${stBadge(p)}</div>
         ${s.progress !== null ? `<div class="progress"><span style="width:${s.progress}%"></span></div>
-        <div class="between small"><span>${esc(fmtDot(s.start))} ~ ${esc(fmtDot(s.end))}</span><b>${dday(s.end)}</b></div>` : `<div class="muted small pad">일정 미등록</div>`}
+        <div class="between small"><span>${esc(fmtDot(s.start))} ~ ${esc(fmtDot(setupEnd(p) || s.end))}</span><b>${endTag(p, s)}</b></div>` : `<div class="muted small pad">일정 미등록</div>`}
         <div class="small chips-line">
           ${s.delayed.length ? `<span class="tag bad">지연 ${s.delayed.length}</span>` : ""}
           ${s.active.length ? `<span class="tag">진행 ${s.active.length}</span>` : ""}
@@ -1024,7 +1027,7 @@ function tabOverviewView(p, el) {
       const status = list.some((y) => y.i.status === "지연") ? "지연" : list.every((y) => y.i.status === "완료") ? "완료" : x.i.status;
       return { x, list, pos, name, lane, status };
     });
-    strip = `<div class="card ov-strip"><div class="between"><h3>주요 일정</h3><span class="muted small">${esc(fmtDot(s.start))} ~ ${esc(fmtDot(s.end))} · ${dday(s.end)}</span></div>
+    strip = `<div class="card ov-strip"><div class="between"><h3>주요 일정</h3><span class="muted small">${esc(fmtDot(s.start))} ~ ${esc(fmtDot(setupEnd(p) || s.end))} · ${endTag(p, s)}</span></div>
       <div class="strip"><div class="strip-line"><span style="width:${at(base)}%"></span></div>
         <span class="strip-now" style="left:${at(base)}%"><em>오늘</em></span>
         ${ms.map((m) => `<span class="strip-dot st-${m.status} ${m.lane} ${m.pos > 96 ? "edge-r" : m.pos < 4 ? "edge-l" : ""}" style="left:${m.pos}%" title="${esc(m.list.map((y) => y.t.name).join(", "))} · ${esc(m.x.t.start)}">
@@ -1096,6 +1099,7 @@ function tabOverviewView(p, el) {
           ${o.manager ? `<span class="pill">👤 ${esc(o.manager)}</span>` : ""}
           ${o.status === "완료"
             ? `<span class="pill">🏁 ${isDate(p.report?.completedDate) ? `${esc(fmtDot(p.report.completedDate))} 완료` : "완료"}</span>`
+            : setupEnd(p) ? `<span class="pill">🏁 종료 ${esc(fmtDot(setupEnd(p)))}</span>`
             : s.end ? `<span class="pill">🏁 종료 예정 ${esc(fmtDot(s.end))} · <b>${dday(s.end)}</b></span>` : ""}
           ${s.delayed.length ? `<span class="pill bad">⚠ 지연 ${s.delayed.length}건</span>` : ""}</div>
       </div>
@@ -1342,7 +1346,7 @@ function tabScheduleView(p, el) {
 
   el.insertAdjacentHTML("beforeend", `
     <div class="sched-summary">
-      <div class="card"><div class="between"><h3>전체 진행</h3><b>${s.end ? dday(s.end) : ""}</b></div>
+      <div class="card"><div class="between"><h3>전체 진행</h3><b>${endTag(p, s)}</b></div>
         ${s.progress !== null ? `<div class="progress big"><span style="width:${s.progress}%"></span></div>
         <div class="between small muted"><span>${esc(fmtDot(s.start))}</span><span>${s.progress}% 경과</span><span>${esc(fmtDot(s.end))}</span></div>` : ""}
         <div class="small" style="margin-top:6px">완료 <b>${tasks.filter((x) => x.i.status === "완료").length}</b> / 전체 ${tasks.length}</div></div>
