@@ -619,3 +619,35 @@ dialog[open] { animation: pop .16s ease-out; }
 .thumb .xfer { position: absolute; top: 4px; left: 4px; background: var(--panel); border-color: var(--line); }
 .chip .xfer { width: 40px; margin-left: 2px; }
 .ov-note { white-space: normal; line-height: 1.7; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }
+
+/* 대시보드 아래: 두 열이 따로 쌓여 빈칸이 생기지 않게 */
+.dash { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, 1fr); gap: 16px; align-items: start; }
+.dash-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.dash-col > .card { margin: 0; }
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.dash-head h3 { margin: 0; }
+.agenda { display: flex; flex-direction: column; }
+.ag-day { display: flex; align-items: baseline; gap: 8px; padding: 10px 4px 4px; border-top: 1px solid var(--line-2); }
+.ag-day:first-child { border-top: 0; padding-top: 0; }
+.ag-date { font-size: 13px; } .ag-date b { font-size: 14px; margin-right: 2px; }
+.ag-dday { font-size: 12px; color: var(--accent-ink); font-weight: 600; }
+.ag-row { display: grid; grid-template-columns: 22px minmax(90px, 160px) minmax(0, 1fr) auto 64px; align-items: center; gap: 10px;
+  padding: 7px 8px; border-radius: var(--r-sm); cursor: pointer; }
+.ag-row:hover { background: var(--panel-2); }
+.ag-proj { color: var(--muted); font-size: 13px; }
+.ag-task { font-size: 14px; }
+.ag-when { font-size: 13px; white-space: nowrap; color: var(--muted); }
+.ag-right { text-align: right; white-space: nowrap; }
+.side-list { display: flex; flex-direction: column; }
+.side-row { display: flex; align-items: center; gap: 10px; padding: 8px 6px; border-bottom: 1px solid var(--line-2); border-radius: var(--r-sm); cursor: pointer; }
+.side-row:last-child { border-bottom: 0; }
+.side-row:hover { background: var(--panel-2); }
+.side-main { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.side-main .ellipsis { display: block; }
+.side-date { font-size: 12px; color: var(--muted); white-space: nowrap; width: 58px; flex: none; }
+.avatar.xs { width: 22px; height: 22px; font-size: 11px; border-radius: 6px; flex: none; }
+.btn.more { margin-top: 8px; width: 100%; }
+@media (max-width: 1000px) { .dash { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .ag-row { grid-template-columns: 22px minmax(0, 1fr) auto; } .ag-proj, .ag-right { display: none; } }
+.side-row.extra { display: none; } .card.open .side-row.extra { display: flex; }
+.side-row.extra + .side-row:not(.extra) { border-top: 0; }

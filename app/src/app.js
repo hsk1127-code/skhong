@@ -273,6 +273,24 @@ const DROPZONE = (label = "캡처 이미지를 <b>Ctrl+V</b>로 붙여넣거나,
   `<div class="dropzone" tabindex="0" title="이곳을 클릭한 뒤 Ctrl+V 로 붙여넣을 수 있습니다">${label} <button type="button" class="btn sm" data-pick>파일 선택</button></div>`;
 
 // ------------------------------------------------------------- 대시보드
+// 대시보드 일정 목록: 날짜별로 묶은 한 줄 목록
+const SOON_MAX = 12, SIDE_MAX = 5;
+const moreBtn = (n) => (n > SIDE_MAX ? `<button class="btn sm more" data-more>＋ ${n - SIDE_MAX}건 더 보기</button>` : "");
+const WEEKDAY = ["일", "월", "화", "수", "목", "금", "토"];
+const weekday = (d) => WEEKDAY[new Date(d + "T00:00:00").getDay()];
+function agendaRow(p, t, when, right) {
+  return `<div class="ag-row" data-goto="${p.id}" data-tab="schedule">${avatar(p, "xs")}
+    <span class="ag-proj ellipsis" title="${esc(p.overview.name)}">${esc(p.overview.name)}</span>
+    <span class="ag-task ellipsis" title="${esc(t.phase)} · ${esc(t.name)}">${t.phase && t.phase !== t.name ? `<span class="muted">${esc(t.phase)} ·</span> ` : ""}<b>${esc(t.name)}</b></span>
+    <span class="ag-when">${when}</span><span class="ag-right">${right}</span></div>`;
+}
+function soonGroups(soon, all = false) {
+  const list = all ? soon : soon.slice(0, SOON_MAX);
+  const days = [];
+  for (const x of list) { const d = days.find((y) => y.date === x.when); if (d) d.items.push(x); else days.push({ date: x.when, items: [x] }); }
+  return days.map((d) => `<div class="ag-day"><span class="ag-date"><b>${esc(fmtDot(d.date).slice(5))}</b> ${weekday(d.date)}</span><span class="ag-dday">${dday(d.date)}</span></div>
+    ${d.items.map(({ p, t, what }) => agendaRow(p, t, `<span class="tag ${what === "시작" ? "" : "warn"}">${what}</span>`, t.owner ? `<span class="muted small">${esc(t.owner)}</span>` : "")).join("")}`).join("");
+}
 function renderHome() {
   const base = today();
   const all = Store.projects.map((p) => ({ p, s: projectSummary(p, base) }));
@@ -323,24 +341,31 @@ function renderHome() {
         </div>
         ${s.next ? `<div class="small">다음: <b>${esc(s.next.name)}</b> <span class="muted">${esc(fmtDot(s.next.start))} (${dday(s.next.start)})</span></div>` : ""}
       </div>`).join("")}</div>
-    <div class="grid2">
-      <div class="card"><h3>⚠ 지연된 일정</h3>${delayed.length ? `<table class="list"><tbody>${delayed.map(({ p, t }) => `
-        <tr ${goto(p, "schedule")}><td class="muted pcol">${esc(p.overview.name)}</td><td>${esc(t.phase)} · <b>${esc(t.name)}</b></td>
-        <td>${esc(t.owner)}</td><td class="nowrap">${esc(fmtDot(t.end))} 종료</td><td class="bad nowrap">${dday(t.end)}</td></tr>`).join("")}</tbody></table>`
-        : `<p class="muted">지연된 일정이 없습니다.</p>`}</div>
-      <div class="card"><h3>📅 다가오는 일정 (2주 내 시작·종료)</h3>${soon.length ? `<table class="list"><tbody>${soon.map(({ p, t, when, what }) => `
-        <tr ${goto(p, "schedule")}><td class="muted pcol">${esc(p.overview.name)}</td><td>${esc(t.phase)} · <b>${esc(t.name)}</b></td>
-        <td>${esc(t.owner)}</td><td class="nowrap">${esc(fmtDot(when))} ${what}</td><td class="nowrap">${dday(when)}</td></tr>`).join("")}</tbody></table>`
-        : `<p class="muted">2주 안에 시작하거나 끝나는 일정이 없습니다.</p>`}</div>
-      <div class="card"><h3>✅ 미완료 실천 의제</h3>${actions.length ? `<table class="list"><tbody>${actions.map(({ p, a }) => `
-        <tr><td><input type="checkbox" data-action="${p.id}|${a.meeting.id}|${a.id}" title="완료 처리"></td>
-        <td ${goto(p, "meetings")} data-meeting="${a.meeting.id}"><b>${esc(a.text)}</b><div class="muted small">${esc(p.overview.name)} · ${esc(a.meeting.title)}</div></td>
-        <td>${esc(a.owner)}</td><td class="nowrap">${esc(isDate(a.due) ? fmtDot(a.due) : a.due)}</td></tr>`).join("")}</tbody></table>`
-        : `<p class="muted">남은 실천 의제가 없습니다.</p>`}</div>
-      <div class="card"><h3>📨 최근 자료</h3>${recent.length ? `<table class="list"><tbody>${recent.map(({ p, r }) => `
-        <tr ${goto(p, "records")} data-record="${r.id}"><td class="nowrap muted">${esc(fmtDot(r.date))}</td><td>${badge(r.kind)}</td>
-        <td><b>${esc(r.title)}</b><div class="muted small">${esc(p.overview.name)}</div></td></tr>`).join("")}</tbody></table>`
-        : `<p class="muted">등록된 자료가 없습니다.</p>`}</div>
+    <div class="dash">
+      <div class="dash-col">
+        ${delayed.length ? `<div class="card dash-card card-bad"><div class="dash-head"><h3>⚠ 지연된 일정</h3><span class="tag bad">${delayed.length}건</span></div>
+          <div class="agenda">${delayed.map(({ p, t }) => agendaRow(p, t, `${esc(fmtDot(t.end))} 종료`, `<b class="bad">${dday(t.end)}</b>`)).join("")}</div></div>` : ""}
+        <div class="card dash-card"><div class="dash-head"><h3>📅 다가오는 일정</h3><span class="muted small">2주 안에 시작·종료 · ${soon.length}건</span></div>
+          ${soon.length ? `<div class="agenda">${soonGroups(soon)}</div>${soon.length > SOON_MAX ? `<button class="btn sm more" id="soonMore">＋ ${soon.length - SOON_MAX}건 더 보기</button>` : ""}`
+            : `<p class="muted">2주 안에 시작하거나 끝나는 일정이 없습니다.</p>`}</div>
+      </div>
+      <div class="dash-col">
+        <div class="card dash-card"><div class="dash-head"><h3>✅ 미완료 실천 의제</h3>${actions.length ? `<span class="tag warn">${actions.length}건</span>` : ""}</div>
+          ${actions.length ? `<div class="side-list">${actions.map(({ p, a }, k) => `<div class="side-row ${k >= SIDE_MAX ? "extra" : ""}">
+            <input type="checkbox" data-action="${p.id}|${a.meeting.id}|${a.id}" title="완료 처리">
+            <div class="side-main" ${goto(p, "meetings")} data-meeting="${a.meeting.id}"><b class="ellipsis">${esc(a.text)}</b>
+              <span class="muted small ellipsis">${esc(p.overview.name)} · ${esc(a.meeting.title)}${a.owner ? ` · ${esc(a.owner)}` : ""}</span></div>
+            <span class="small nowrap muted">${esc(isDate(a.due) ? fmtDot(a.due).slice(5) : a.due)}</span></div>`).join("")}</div>${moreBtn(actions.length)}`
+            : `<p class="muted">남은 실천 의제가 없습니다.</p>`}</div>
+        ${subs.length ? `<div class="card dash-card"><div class="dash-head"><h3>📤 미제출 자료</h3><span class="tag warn">${subs.length}건</span></div>
+          <div class="side-list">${subs.map(({ p, r }, k) => `<div class="side-row ${k >= SIDE_MAX ? "extra" : ""}" ${goto(p, "submissions")}>${avatar(p, "xs")}
+            <div class="side-main"><b class="ellipsis">${esc(r.item)}</b><span class="muted small ellipsis">${esc(p.overview.name)}${r.to ? ` → ${esc(r.to)}` : ""}</span></div></div>`).join("")}</div>${moreBtn(subs.length)}</div>` : ""}
+        <div class="card dash-card"><div class="dash-head"><h3>📨 최근 자료</h3></div>
+          ${recent.length ? `<div class="side-list">${recent.map(({ p, r }, k) => `<div class="side-row ${k >= SIDE_MAX ? "extra" : ""}" ${goto(p, "records")} data-record="${r.id}">
+            <span class="side-date">${esc(fmtDot(r.date).slice(2))}</span>
+            <div class="side-main"><b class="ellipsis">${esc(r.title)}</b><span class="muted small ellipsis">${esc(p.overview.name)}</span></div>${badge(r.kind)}</div>`).join("")}</div>${moreBtn(recent.length)}`
+            : `<p class="muted">등록된 자료가 없습니다.</p>`}</div>
+      </div>
     </div>`}`;
   $("#homeImport")?.addEventListener("click", () => pickFiles(".xlsx", false, (f) => importXlsx(f[0])));
   $("#homeNew")?.addEventListener("click", newProjectDialog);
@@ -354,6 +379,12 @@ function renderHome() {
       if (!ids.length) { toast("프로젝트를 하나 이상 고르세요."); return false; }
       download(await buildClosingWorkbook(done.filter((p) => ids.includes(p.id))), `완료프로젝트_마감보고서_${today()}.xlsx`);
     }, { okLabel: "📊 엑셀 다운로드" });
+  });
+  $$("[data-more]").forEach((b) => (b.onclick = () => { b.closest(".card").classList.add("open"); b.remove(); }));
+  $("#soonMore")?.addEventListener("click", (e) => {
+    $(".agenda", e.target.parentNode).innerHTML = soonGroups(soon, true);
+    e.target.remove();
+    bindGoto($("#main"));
   });
   bindGoto($("#main"));
   $$("[data-action]").forEach((cb) => (cb.onchange = () => {
