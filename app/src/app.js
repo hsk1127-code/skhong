@@ -816,6 +816,7 @@ function contractEditHtml(p) {
 }
 // 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
 function totalViewHtml(c) {
+  if (!c.actualCost && !c.labor) return `<div class="tc-head"><span>실행가 합계</span><b>-</b><small>실행가를 입력하면 실행가 + 인건비 + 재경비 + 워런티비로 계산됩니다</small></div>`;
   const part = (l, v, sub = "") => `<div><span>${l}</span><b>${fmtWon(v)}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
   return `<div class="tc-head"><span>실행가 합계</span><b>${fmtWon(c.totalCost)}</b>
       <small>${c.totalProfit != null ? `합계 기준 이익 ${fmtWon(c.totalProfit)} (${pctText(c.totalRate)})` : "실행가 + 인건비 + 재경비 + 워런티비"}</small></div>
@@ -835,7 +836,8 @@ function costViewHtml(c) {
   const cell = (label, v, sub, cls = "") => `<div class="cv ${cls}"><span>${label}</span><b>${v}</b><small>${sub || ""}</small></div>`;
   return (c.totalCost && c.totalCost !== c.actualCost ? cell("합계 기준 이익", c.totalProfit != null ? fmtWon(c.totalProfit) : "-", c.totalRate != null ? `이익률 ${pctText(c.totalRate)}` : "", c.totalProfit != null && c.totalProfit < 0 ? "bad" : "") : "")
     + cell("목표 대비", c.overBudget != null ? (c.overBudget > 0 ? `+${fmtWon(c.overBudget)}` : c.overBudget < 0 ? `-${fmtWon(-c.overBudget)}` : "목표와 같음") : "-",
-      c.overBudget != null ? `${c.overBasis} 기준 ${c.overBudget > 0 ? "목표 초과" : c.overBudget < 0 ? "절감" : ""}` : "", c.overBudget > 0 ? "bad" : c.overBudget < 0 ? "good" : "");
+      c.overBudget != null ? `${c.overBasis} ${fmtWon(c.actualCost || c.estimateCost)} − 실행목표가 ${fmtWon(c.targetCost)} · ${c.overBudget > 0 ? "목표 초과" : c.overBudget < 0 ? "목표보다 절감" : "목표와 같음"}`
+        : "실행목표가와 실행가(없으면 실행 예가)를 비교", c.overBudget > 0 ? "bad" : c.overBudget < 0 ? "good" : "");
 }
 function bindContractEdit(p, card) {
   const o = p.overview;
