@@ -726,15 +726,15 @@ function contractEditHtml(p) {
         <span class="muted small" id="amountWords">${c.amount ? `금 ${koreanAmount(c.amount)}원정` : ""}</span></label>
       <label>실행 예가 (원)<input data-ck="estimateCost" data-money inputmode="numeric" value="${c.estimateCost ? c.estimateCost.toLocaleString("ko-KR") : ""}" placeholder="예상 실행 금액"></label>
       <label>실행목표가 (원)<input data-ck="targetCost" data-money inputmode="numeric" value="${c.targetCost ? c.targetCost.toLocaleString("ko-KR") : ""}" placeholder="예: 140,000,000"></label>
-      <label>실행가 (원)<input data-ck="actualCost" data-money inputmode="numeric" value="${c.costBase ? c.costBase.toLocaleString("ko-KR") : ""}" placeholder="실제 투입 금액">
-        <span class="muted small">＋ 인건비 = 실행가 합계</span></label>
+      <label>실행가 (원)<input data-ck="actualCost" data-money inputmode="numeric" value="${c.actualCost ? c.actualCost.toLocaleString("ko-KR") : ""}" placeholder="실제 투입 금액"></label>
     </div>
     <h4 style="margin:16px 0 8px">인건비 <span class="muted small" style="font-weight:400">분야별 M/D × M/D 단가</span></h4>
     <div class="form md-grid">${MD_FIELDS.map(([k, l]) => `<label>${l} (M/D)<input data-md="${k}" inputmode="decimal" value="${esc((o.md || {})[k] ?? "")}" placeholder="0"></label>`).join("")}</div>
     <div class="form" style="margin-top:10px">
       <label>M/D 단가 (원)<input data-ck="mdRate" data-money inputmode="numeric" value="${c.mdRate ? c.mdRate.toLocaleString("ko-KR") : ""}" placeholder="예: 500,000"></label>
-      <label>인건비 (원)<input data-ck="laborCost" data-money inputmode="numeric" value="${c.laborManual ? c.labor.toLocaleString("ko-KR") : ""}" placeholder="${c.laborAuto ? `자동 ${c.laborAuto.toLocaleString("ko-KR")}` : "M/D × 단가 자동 계산"}">
-        <span class="muted small">비우면 M/D × 단가</span></label>
+      <label><span>인건비 (원) <span class="tag" id="laborMode">${c.laborManual ? "직접 입력" : "자동 계산"}</span></span>
+        <input data-ck="laborCost" data-labor data-money inputmode="numeric" class="labor-input" value="${c.labor ? c.labor.toLocaleString("ko-KR") : ""}" placeholder="M/D × 단가">
+        <span class="muted small">고쳐 쓰면 직접 입력 · 지우면 자동</span></label>
     </div>
     <div class="labor-view" id="laborView">${laborViewHtml(c)}</div>
     <div class="cost-view" id="costView">${costViewHtml(c)}</div>
@@ -765,8 +765,7 @@ function contractEditHtml(p) {
 function laborViewHtml(c) {
   const parts = [];
   parts.push(c.mdTotal ? `총 <b>${c.mdTotal} M/D</b>${c.mdText ? ` <span class="muted">(${esc(c.mdText)})</span>` : ""}` : `<span class="muted">M/D 미입력</span>`);
-  parts.push(c.labor ? `인건비 <b>${fmtWon(c.labor)}</b>${c.laborManual ? ` <span class="muted">(직접 입력)</span>` : c.mdRate ? ` <span class="muted">(${c.mdTotal} × ${fmtWon(c.mdRate)})</span>` : ""}` : `<span class="muted">인건비 0원</span>`);
-  parts.push(c.costBase ? `실행가 합계 <b>${fmtWon(c.actualCost)}</b> <span class="muted">= ${fmtWon(c.costBase)} + 인건비 ${fmtWon(c.labor)}</span>` : `<span class="muted">실행가를 넣으면 인건비가 더해집니다</span>`);
+  parts.push(`인건비 <b class="labor-amt">${fmtWon(c.labor)}</b>${c.laborManual ? ` <span class="muted">(직접 입력)</span>` : c.mdRate && c.mdTotal ? ` <span class="muted">= ${c.mdTotal} M/D × ${fmtWon(c.mdRate)}</span>` : ""}`);
   return parts.map((x) => `<div>${x}</div>`).join("");
 }
 // 발주금액 대비 실행 예가·실행목표가·실행가 → 이익
@@ -783,10 +782,12 @@ function costViewHtml(c) {
 function bindContractEdit(p, card) {
   const o = p.overview;
   const redraw = () => { card.innerHTML = contractEditHtml(p); };
-  const refreshLabor = () => {
-    const c = contractInfo(p);
+  // 인건비 칸에는 자동 계산 값도 숫자로 그대로 보여 줌 (직접 고치는 중이면 건드리지 않음)
+  const refreshLabor = (typing) => {
+    const c = contractInfo(p), inp = $("[data-ck=laborCost]", card);
     $("#laborView", card).innerHTML = laborViewHtml(c);
-    $("[data-ck=laborCost]", card).placeholder = c.laborAuto ? `자동 ${c.laborAuto.toLocaleString("ko-KR")}` : "M/D × 단가 자동 계산";
+    $("#laborMode", card).textContent = c.laborManual ? "직접 입력" : "자동 계산";
+    if (!typing && !c.laborManual) inp.value = c.labor ? c.labor.toLocaleString("ko-KR") : "";
   };
   card.addEventListener("input", (e) => {
     const t = e.target;
@@ -801,8 +802,10 @@ function bindContractEdit(p, card) {
         $("#amountWords", card).textContent = n ? `금 ${koreanAmount(n)}원정` : "";
         contractInfo(p).payments.forEach((x) => { const td = $(`tr[data-id="${x.id}"] [data-amt]`, card); if (td) td.textContent = x.amount ? x.amount.toLocaleString("ko-KR") : "-"; });
       }
+      // 인건비 칸: 자동 값과 같으면 자동으로, 다르면 직접 입력으로
+      if ("labor" in t.dataset && toAmount(o.laborCost) === contractInfo({ ...p, overview: { ...o, laborCost: "" } }).laborAuto) o.laborCost = "";
       $("#costView", card).innerHTML = costViewHtml(contractInfo(p));
-      refreshLabor();
+      refreshLabor("labor" in t.dataset);
     } else if (t.dataset.md) {
       o.md = { ...(o.md || {}), [t.dataset.md]: t.value.replace(/[^\d.]/g, "") };
       $("#costView", card).innerHTML = costViewHtml(contractInfo(p));
@@ -816,6 +819,7 @@ function bindContractEdit(p, card) {
     Store.touch(p);
   });
   card.addEventListener("change", (e) => { if (["ratio", "status", "paidDate"].includes(e.target.dataset.pf)) redraw(); });
+  card.addEventListener("change", (e) => { if ("labor" in e.target.dataset) refreshLabor(false); });
   card.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && "paytext" in e.target.dataset) { e.preventDefault(); $("[data-payapply]", card).click(); }
   });
@@ -988,7 +992,7 @@ function tabOverviewView(p, el) {
         <div><span class="muted small">실행목표가</span><b>${c.targetCost ? fmtWon(c.targetCost) : empty}</b>
           <span class="muted small">${c.targetRate != null ? `목표 이익률 ${pctText(c.targetRate)}` : ""}</span></div>
         <div><span class="muted small">실행가</span><b class="${c.actualCost && c.overBudget > 0 ? "bad" : ""}">${c.actualCost ? fmtWon(c.actualCost) : empty}</b>
-          <span class="muted small">${c.profit != null ? `이익 ${fmtWon(c.profit)} (${pctText(c.profitRate)})` : ""}${c.actualCost && c.overBudget > 0 ? ` · 목표 초과 ${fmtWon(c.overBudget)}` : ""}${c.actualCost && c.labor ? ` · 인건비 포함` : ""}</span></div>
+          <span class="muted small">${c.profit != null ? `이익 ${fmtWon(c.profit)} (${pctText(c.profitRate)})` : ""}${c.actualCost && c.overBudget > 0 ? ` · 목표 초과 ${fmtWon(c.overBudget)}` : ""}</span></div>
         ${c.labor || c.mdTotal ? `<div><span class="muted small">인건비</span><b>${c.labor ? fmtWon(c.labor) : empty}</b>
           <span class="muted small">${c.mdTotal ? `${esc(c.mdText)} = ${c.mdTotal} M/D` : ""}</span></div>` : ""}
         <div><span class="muted small">정산 진행</span><b>${c.paidRatio}%</b><span class="muted small">${c.paidAmount ? `${fmtWon(c.paidAmount)} 수금` : "수금 전"}</span></div>
@@ -1700,7 +1704,7 @@ function reportDialog(p) {
       ${money("orderAmount", "발주가", "", "개요의 발주금액과 같은 값")}
       ${money("estimateCost", "실행 예가")}
       ${money("targetCost", "실행목표가")}
-      ${money("actualCost", "실행가", "실제 투입 금액", contractInfo(p).labor ? `+ 인건비 ${fmtWon(contractInfo(p).labor)} 더해서 이익 계산` : "이익 계산 기준")}
+      ${money("actualCost", "실행가", "실제 투입 금액", "이익 계산 기준")}
       ${money("salesActual", "실적가", "", "종합 시트용 (선택)")}
       <label>지급조건<span class="row2" style="flex-wrap:nowrap"><input value="${esc(ci.payTerms || "정산 비율 미입력")}" disabled style="flex:1">
         <button type="button" class="btn sm" data-paydlg-report>⚙ 설정</button></span>${hint("")}</label>
@@ -1745,8 +1749,7 @@ function reportDialog(p) {
     $("[data-paydlg-report]", dlg).onclick = () => { dlg.close(); payDialog(p); };
     // 금액 칸: 쉼표 표시, 이익 미리 계산
     const showProfit = () => {
-      const base = toAmount(form.actualCost.value), cost = base ? base + contractInfo(p).labor : 0;
-      const amt = toAmount(form.orderAmount.value), est = toAmount(form.estimateCost.value);
+      const amt = toAmount(form.orderAmount.value), cost = toAmount(form.actualCost.value), est = toAmount(form.estimateCost.value);
       const line = (label, c) => `${label} ${fmtWon(amt - c)} <span class="muted small">(${(((amt - c) / amt) * 100).toFixed(1)}%)</span>`;
       $("#profitView", dlg).innerHTML = amt && (cost || est)
         ? [cost && line("실제", cost), est && `<span class="muted">${line("예상", est)}</span>`].filter(Boolean).join(" &nbsp;·&nbsp; ")
@@ -1883,7 +1886,7 @@ function reportHtml(p, inc) {
       ["실행목표가", c.targetCost ? fmtWon(c.targetCost) : v(""), "목표 이익률", c.targetRate != null ? `${fmtWon(c.targetProfit)} · ${pct(c.targetRate)}` : v("")],
       ["실행가", c.actualCost ? `${fmtWon(c.actualCost)}${c.actualCost && c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">${c.overBudget > 0 ? "목표 초과" : "목표 대비 절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v(""),
         "이익 · 이익률", c.profit != null ? `<b>${fmtWon(c.profit)}</b> · ${pct(c.profitRate)}` : v("")],
-      ...(c.labor || c.mdTotal ? [["인건비", `${c.labor ? fmtWon(c.labor) : v("")}${c.mdTotal ? ` <span class="rp-sub">${esc(c.mdText)} = ${c.mdTotal} M/D${c.mdRate ? ` × ${fmtWon(c.mdRate)}` : ""}${c.costBase ? " · 실행가에 포함" : ""}</span>` : ""}`]] : []),
+      ...(c.labor || c.mdTotal ? [["인건비", `${c.labor ? fmtWon(c.labor) : v("")}${c.mdTotal ? ` <span class="rp-sub">${esc(c.mdText)} = ${c.mdTotal} M/D${c.mdRate ? ` × ${fmtWon(c.mdRate)}` : ""}</span>` : ""}`]] : []),
       ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
     ${payBar}
     ${c.payments.length ? table([15, 10, 21, 26, 15, 13], ["구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, "지급 조건", { t: "정산일", c: "c" }, { t: "상태", c: "c" }],

@@ -541,7 +541,7 @@ async function buildWorkbook(p) {
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
   ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
-    [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: [ci.profit != null && `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)`, ci.labor && ci.costBase && `인건비 ${fmtWon(ci.labor)} 포함`].filter(Boolean).join(" · "), s: "cell" }],
+    [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
     [{ v: "인건비", s: "head" }, { v: ci.labor || "", s: "money" }, { v: [ci.mdTotal && `${ci.mdText} = ${ci.mdTotal} M/D`, ci.mdRate && `단가 ${fmtWon(ci.mdRate)}`].filter(Boolean).join(" · "), s: "cell" }],
     [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
@@ -812,7 +812,7 @@ function koreanAmount(n) {
   }
   return out;
 }
-// 인건비: 분야별 M/D × M/D 단가 (인건비를 직접 넣으면 그 값). 실행가에 더해진다
+// 인건비: 분야별 M/D × M/D 단가 (인건비를 직접 넣으면 그 값). 실행가와는 따로 관리
 const MD_FIELDS = [["control", "제어"], ["design", "설계"], ["elec", "전장"], ["setup", "Setup"]];
 const mdNum = (v) => Number(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
 function contractInfo(p) {
@@ -824,9 +824,8 @@ function contractInfo(p) {
   // 실행 예가(예상) · 실행목표가 · 실행가(실제)
   const md = o.md || {}, mdTotal = Math.round(MD_FIELDS.reduce((a, [k]) => a + mdNum(md[k]), 0) * 100) / 100;
   const mdRate = toAmount(o.mdRate), laborAuto = Math.round(mdTotal * mdRate), labor = toAmount(o.laborCost) || laborAuto;
-  // 실행가 = 입력한 실행가 + 인건비 (실행가를 넣어야 합산)
   const costBase = toAmount(o.actualCost);
-  const estimateCost = toAmount(o.estimateCost), targetCost = toAmount(o.targetCost), actualCost = costBase ? costBase + labor : 0;
+  const estimateCost = toAmount(o.estimateCost), targetCost = toAmount(o.targetCost), actualCost = costBase;
   const rate = (cost) => (amount && cost ? (amount - cost) / amount : null);
   return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
     paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0),

@@ -664,3 +664,6 @@ dialog[open] { animation: pop .16s ease-out; }
 @media (max-width: 800px) { .form.md-grid { grid-template-columns: 1fr 1fr; } }
 .labor-view { margin-top: 10px; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); font-size: 13px; line-height: 1.8; }
 .labor-view .sep { color: var(--line); margin: 0 10px; }
+.labor-input { font-weight: 700; font-size: 15px; color: var(--text); }
+.labor-amt { font-size: 16px; color: var(--accent-ink); }
+#laborMode { font-weight: 500; margin-left: 4px; }
