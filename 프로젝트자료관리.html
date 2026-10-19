@@ -399,9 +399,6 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   #print .rp-head h1 { font-size: 21pt; margin: 2px 0 2px; letter-spacing: -.01em; text-align: left; font-weight: 800; white-space: nowrap; } /* 회의록 제목 스타일 덮어쓰기 */
   .rp-pname { font-size: 11pt; font-weight: 600; color: var(--sub); }
   .rp-title { flex: 1; }
-  .rp .rp-sign { border-collapse: collapse; align-self: flex-end; width: 200px; flex: none; table-layout: fixed; }
-  .rp-sign th, .rp-sign td { border: .7pt solid #9aa3b3; text-align: center; font-size: 8pt; font-weight: 500; padding: 2px 4px; }
-  .rp-sign th { background: var(--soft); width: 54px; } .rp-sign th:first-child { width: 20px; line-height: 1.3; } .rp-sign td { height: 46px; }
   .rp-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border-bottom: .7pt solid var(--line); }
   .rp-meta > div { padding: 7px 10px; border-right: .7pt solid var(--line); } .rp-meta > div:last-child { border-right: 0; }
   .rp-meta span { display: block; font-size: 7.5pt; color: var(--sub); } .rp-meta b { font-size: 9.6pt; }
@@ -2639,7 +2636,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.19 21:58</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.19 22:00</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -4561,7 +4558,6 @@ function reportHtml(p, inc) {
         <h1>프로젝트 완료 보고서</h1>
         <div class="rp-pname">${v(o.project || o.name)}</div>
       </div>
-      <table class="rp-sign"><tr><th rowspan="2">결<br>재</th><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table>
     </header>
     <div class="rp-meta">
       <div><span>고객사</span><b>${v(o.customer)}</b></div><div><span>설비/품목명</span><b>${v(o.name)}</b></div>

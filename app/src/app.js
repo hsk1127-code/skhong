@@ -2020,7 +2020,6 @@ function reportHtml(p, inc) {
         <h1>프로젝트 완료 보고서</h1>
         <div class="rp-pname">${v(o.project || o.name)}</div>
       </div>
-      <table class="rp-sign"><tr><th rowspan="2">결<br>재</th><th>작성</th><th>검토</th><th>승인</th></tr><tr><td></td><td></td><td></td></tr></table>
     </header>
     <div class="rp-meta">
       <div><span>고객사</span><b>${v(o.customer)}</b></div><div><span>설비/품목명</span><b>${v(o.name)}</b></div>

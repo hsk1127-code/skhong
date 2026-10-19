@@ -389,9 +389,6 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   #print .rp-head h1 { font-size: 21pt; margin: 2px 0 2px; letter-spacing: -.01em; text-align: left; font-weight: 800; white-space: nowrap; } /* 회의록 제목 스타일 덮어쓰기 */
   .rp-pname { font-size: 11pt; font-weight: 600; color: var(--sub); }
   .rp-title { flex: 1; }
-  .rp .rp-sign { border-collapse: collapse; align-self: flex-end; width: 200px; flex: none; table-layout: fixed; }
-  .rp-sign th, .rp-sign td { border: .7pt solid #9aa3b3; text-align: center; font-size: 8pt; font-weight: 500; padding: 2px 4px; }
-  .rp-sign th { background: var(--soft); width: 54px; } .rp-sign th:first-child { width: 20px; line-height: 1.3; } .rp-sign td { height: 46px; }
   .rp-meta { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; border-bottom: .7pt solid var(--line); }
   .rp-meta > div { padding: 7px 10px; border-right: .7pt solid var(--line); } .rp-meta > div:last-child { border-right: 0; }
   .rp-meta span { display: block; font-size: 7.5pt; color: var(--sub); } .rp-meta b { font-size: 9.6pt; }
