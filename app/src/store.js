@@ -96,6 +96,10 @@ const Store = (() => {
     touch(p);
   }
 
+  // 데이터와 별도로 보관하는 값 (백업 폴더 핸들 등, 백업 파일에는 넣지 않음)
+  const getKV = (key) => req(store("state").get(key));
+  const putKV = (key, v) => req(store("state", "readwrite").put(v, key));
+
   // ------------------------------------------------------------ backup
   async function exportBackup() {
     await flush();
@@ -129,7 +133,7 @@ const Store = (() => {
   }
 
   return {
-    open, flush, changed, touch, addRevision, uid, addFile, fileMeta, getBlob, gc, newProject, exportBackup, importBackup,
+    open, flush, changed, touch, getKV, putKV, addRevision, uid, addFile, fileMeta, getBlob, gc, newProject, exportBackup, importBackup,
     get state() { return state; },
     get projects() { return state.projects; },
     project: (id) => state.projects.find((p) => p.id === id),

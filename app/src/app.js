@@ -90,6 +90,7 @@ function renderSidebar() {
       <label class="small muted">작성자 이름 <input id="userName" value="${esc(s.user)}" placeholder="예: 홍길동"></label>
       <div class="row2"><button class="btn sm" id="backupBtn">💾 백업</button><button class="btn sm" id="restoreBtn">📂 복원</button></div>
       <div class="small backup-note ${warn ? "warn" : "muted"}">${warn ? "⚠" : "✓"} ${s.lastBackup ? `마지막 백업 ${esc(s.lastBackup)} (${days}일 전)` : "아직 백업하지 않았습니다"}</div>
+      ${window.showDirectoryPicker ? `<div class="small muted backup-dir">📁 ${s.backupDirName ? `<b>${esc(s.backupDirName)}</b>\\백업` : "백업 폴더 미지정"} <a href="#" id="backupDirBtn">${s.backupDirName ? "변경" : "지정"}</a></div>` : ""}
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
   $$("[data-project]").forEach((b) => (b.onclick = () => go({ view: "project", id: b.dataset.project, tab: route.id === b.dataset.project ? route.tab : "overview" })));
@@ -104,14 +105,67 @@ function renderSidebar() {
       if (q) { route = { view: "search", q }; renderSearch(); } else go({ view: "home" });
     }, 250);
   };
-  $("#backupBtn").onclick = () => busy("백업 파일을 만드는 중…", async () => {
-    download(await Store.exportBackup(), `프로젝트자료_백업_${today()}.zip`);
-    toast("백업 파일을 저장했습니다. 안전한 곳(공유 폴더 등)에 보관하세요.", 4000);
+  $("#backupBtn").onclick = backupNow;
+  $("#backupDirBtn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (await backupDir(true)) { renderSidebar(); toast("백업 폴더를 지정했습니다. 이제 💾 백업을 누르면 이 폴더의 '백업' 폴더에 저장됩니다.", 5000); }
   });
-  $("#restoreBtn").onclick = () => pickFiles(".zip", false, (f) => {
+  $("#restoreBtn").onclick = restoreNow;
+}
+
+// ------------------------------------------------------------- 백업: 실행 폴더(프로그램 파일이 있는 폴더)에 저장
+// 브라우저는 HTML 파일이 있는 폴더를 직접 알 수 없으므로, 처음 한 번 그 폴더를 골라 두면 기억해서 계속 씀 (크롬·엣지)
+async function backupDir(change = false) {
+  if (!window.showDirectoryPicker) return null;
+  let dir = change ? null : await Store.getKV("backupDir").catch(() => null);
+  if (dir) {
+    const opt = { mode: "readwrite" };
+    let perm = (await dir.queryPermission?.(opt)) ?? "granted";
+    if (perm !== "granted") perm = await dir.requestPermission(opt);
+    if (perm !== "granted") dir = null;
+  }
+  if (!dir) {
+    toast("프로그램 파일(프로젝트자료관리.html)이 있는 폴더를 골라 주세요. 그 안의 '백업' 폴더에 저장합니다.", 6000);
+    try { dir = await window.showDirectoryPicker({ id: "pd-backup", mode: "readwrite", startIn: "documents" }); }
+    catch (e) { if (e.name === "AbortError") return null; throw e; }
+    await Store.putKV("backupDir", dir);
+    Store.state.settings.backupDirName = dir.name;
+    Store.changed();
+  }
+  return dir;
+}
+async function backupNow() {
+  let dir;
+  try { dir = await backupDir(); } catch (e) { console.error(e); }
+  if (window.showDirectoryPicker && !dir) return toast("백업 폴더를 고르지 않아 취소했습니다.");
+  await busy("백업 파일을 만드는 중…", async () => {
+    const d = new Date(), hm = `${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}`;
+    const name = `프로젝트자료_백업_${today()}_${hm}.zip`;
+    const blob = await Store.exportBackup();
+    if (!dir) { download(blob, name); return toast("백업 파일을 내려받았습니다. 안전한 곳(공유 폴더 등)에 보관하세요.", 4000); }
+    const sub = await dir.getDirectoryHandle("백업", { create: true });
+    const w = await (await sub.getFileHandle(name, { create: true })).createWritable();
+    await w.write(blob);
+    await w.close();
+    toast(`${dir.name}\\백업\\${name} 에 저장했습니다.`, 5000);
+  });
+  renderSidebar();
+}
+async function restoreNow() {
+  const run = (file) => {
     if (!confirm("현재 저장된 모든 데이터를 지우고 백업 파일 내용으로 바꿀까요?")) return;
-    busy("복원하는 중…", async () => { await Store.importBackup(f[0]); go({ view: "home" }); toast("복원했습니다."); });
-  });
+    busy("복원하는 중…", async () => { await Store.importBackup(file); go({ view: "home" }); toast("복원했습니다."); });
+  };
+  // 백업 폴더를 지정해 두었으면 그 폴더에서 바로 고르기
+  const dir = window.showOpenFilePicker && Store.state.settings.backupDirName ? await Store.getKV("backupDir").catch(() => null) : null;
+  if (dir) {
+    try {
+      const start = await dir.getDirectoryHandle("백업").catch(() => dir);
+      const [h] = await window.showOpenFilePicker({ startIn: start, types: [{ description: "백업 파일", accept: { "application/zip": [".zip"] } }] });
+      return run(await h.getFile());
+    } catch (e) { if (e.name === "AbortError") return; console.error(e); }
+  }
+  pickFiles(".zip", false, (f) => run(f[0]));
 }
 
 function pickFiles(accept, multiple, cb) {
