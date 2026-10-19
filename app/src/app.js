@@ -1835,7 +1835,8 @@ function reportDialog(p) {
       const amt = c.amount, cost = c.actualCost;
       const line = (label, x) => `${label} ${fmtWon(amt - x)} <span class="muted small">(${(((amt - x) / amt) * 100).toFixed(1)}%)</span>`;
       $("#profitView", dlg).innerHTML = amt && cost
-        ? line("실행가 합계 기준", c.totalCost)
+        ? [line("실제", cost), c.totalCost !== cost && line("합계 기준", c.totalCost), c.estimateCost && `<span class="muted">${line("예상", c.estimateCost)}</span>`,
+            c.targetCost && `<span class="muted">${line("목표", c.targetCost)}</span>`].filter(Boolean).join(" &nbsp;·&nbsp; ")
         : `<span class="muted small">발주가와 실행가를 넣으면 계산됩니다</span>`;
     };
     $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
@@ -1934,7 +1935,9 @@ function reportHtml(p, inc) {
   const kpis = [
     kpi("발주금액", won(c.amount), c.amount ? `부가세 ${esc(o.vat || "별도")}` : ""),
     kpi("실행가 합계", won(c.totalCost), c.totalCost ? "실행가+인건비+재경비+워런티비" : "실행가 미입력", "accent"),
-    kpi("투입 M/D", c.mdTotal ? `${c.mdTotal}<small>M/D</small>` : "-", c.labor ? `인건비 ${fmtWon(c.labor)}` : ""),
+    kpi("이익", c.profit != null ? won(c.profit) : c.estProfit != null ? won(c.estProfit) : "-",
+      c.profit != null ? `이익률 ${pct(c.profitRate)}${c.totalProfit != null && c.totalCost !== c.actualCost ? ` · 합계 기준 ${pct(c.totalRate)}` : ""}` : c.estRate != null ? `예상 이익률 ${pct(c.estRate)}` : "",
+      c.profit < 0 ? "bad" : "ok"),
     kpi("정산", c.payments.length ? `${c.paidRatio}<small>%</small>` : "-", c.payments.length ? `수금 ${fmtWon(c.paidAmount)}` : "정산 비율 미입력", c.paidRatio === 100 ? "ok" : ""),
     kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)}` : ""),
     kpi("계획 대비", diffText, isDate(r.completedDate) ? `완료 ${fmtDot(r.completedDate)}` : "", diff > 0 ? "bad" : diff !== null ? "ok" : ""),
@@ -1954,6 +1957,14 @@ function reportHtml(p, inc) {
     ["재경비", c.overhead, c.overheadRate ? `실행가 × ${c.overheadRate}%` : "", "c3"],
     ["워런티비", c.warrantyCost, c.warrantyRate ? `실행가 × ${c.warrantyRate}%` : "", "c4"]];
   const share = (x) => (c.totalCost ? (x / c.totalCost) * 100 : 0);
+  // 이익 분석: 실행 예가(예상) · 실행목표가(목표) · 실행가(실제) · 실행가 합계 기준
+  const profitRows = [["예상", "실행 예가", c.estimateCost, c.estProfit, c.estRate], ["목표", "실행목표가", c.targetCost, c.targetProfit, c.targetRate],
+    ["실제", "실행가", c.actualCost, c.profit, c.profitRate], ["합계 기준", "실행가 합계", c.totalCost !== c.actualCost ? c.totalCost : 0, c.totalProfit, c.totalRate]]
+    .filter(([, , cost]) => cost);
+  const profitTable = c.amount && profitRows.length ? `<h3 class="rp-h3">이익 분석 <small>발주금액 ${fmtWon(c.amount)} 기준</small></h3>
+    ${table([16, 22, 22, 22, 18], ["구분", "원가 기준", { t: "원가", c: "r" }, { t: "이익", c: "r" }, { t: "이익률", c: "r" }],
+      profitRows.map(([l, base, cost, prof, rate]) => Object.assign([`<b>${l}</b>`, base, fmtWon(cost), `<b class="${prof < 0 ? "bad" : ""}">${fmtWon(prof)}</b>`,
+        `<span class="rp-rate ${prof < 0 ? "bad" : ""}">${pct(rate)}</span>`], { cls: l === "실제" ? "rp-total" : "" })))}` : "";
   const costBlock = c.totalCost ? `<div class="rp-costblock"><h3 class="rp-h3">원가 구성</h3>
     ${table([18, 40, 20, 22], ["항목", "산출 근거", { t: "금액", c: "r" }, "비중"],
       [...costRows.map(([l, x, why, cls]) => [`<span class="rp-dot ${cls}"></span>${l}`, why ? `<span class="rp-sub">${why}</span>` : v(""), x ? fmtWon(x) : v(""),
@@ -1998,6 +2009,7 @@ function reportHtml(p, inc) {
       ["실행 예가", c.estimateCost ? fmtWon(c.estimateCost) : v(""), "실행목표가", c.targetCost ? `${fmtWon(c.targetCost)}${c.actualCost && c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">실행가 ${c.overBudget > 0 ? "초과" : "절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v("")],
       ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
     ${costBlock}
+    ${profitTable ? `<div class="rp-costblock">${profitTable}</div>` : ""}
     ${payBar}
     ${c.payments.length ? table([15, 10, 21, 26, 15, 13], ["구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, "지급 조건", { t: "정산일", c: "c" }, { t: "상태", c: "c" }],
       c.payments.map((x) => [esc(x.name), `${esc(x.ratio)}%`, fmtWon(x.amount), v(x.cond), d(x.paidDate),

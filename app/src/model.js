@@ -966,7 +966,12 @@ async function buildClosingWorkbook(projects) {
     row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}21)+N(${col(i)}22)+N(${col(i)}23)`, v: x.totalCost, s: "moneyb" } : txt(""))),
     row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}24`, v: x.totalProfit, s: "moneyb" } : txt(""))),
     row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}25/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
-    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 · 출력일 ${today()}`, s: "wrap" }],
+    // 예상(실행 예가) · 목표(실행목표가) 기준 이익 (27~30행)
+    row("", "예상 이익", (x, i) => (x.orderAmount && x.estimateCost ? { f: `${col(i)}14-${col(i)}15`, v: x.orderAmount - x.estimateCost, s: "money" } : txt(""))),
+    row("", "예상 이익률", (x, i) => (x.orderAmount && x.estimateCost ? { f: `IF(${col(i)}14=0,"",${col(i)}27/${col(i)}14)`, v: (x.orderAmount - x.estimateCost) / x.orderAmount, s: "pct" } : txt(""))),
+    row("", "목표 이익", (x, i) => (x.orderAmount && x.targetCost ? { f: `${col(i)}14-${col(i)}16`, v: x.orderAmount - x.targetCost, s: "money" } : txt(""))),
+    row("", "목표 이익률", (x, i) => (x.orderAmount && x.targetCost ? { f: `IF(${col(i)}14=0,"",${col(i)}29/${col(i)}14)`, v: (x.orderAmount - x.targetCost) / x.orderAmount, s: "pct" } : txt(""))),
+    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 예상 이익 = 발주가 - 실행 예가 · 목표 이익 = 발주가 - 실행목표가 · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);
@@ -977,7 +982,7 @@ async function buildClosingWorkbook(projects) {
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B26", `B28:${last}28`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B30", `B32:${last}32`] }];
 
   // 종합: 프로젝트별 금액
   const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],

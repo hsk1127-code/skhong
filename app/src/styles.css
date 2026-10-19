@@ -698,3 +698,5 @@ dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr));
 #print .rp-costcap { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 7pt; color: #6b7280; margin-bottom: 8px; }
 #print .rp-costcap i { display: inline-block; width: 7px; height: 7px; border-radius: 2px; margin: 0 3px 0 0; vertical-align: -1px; }
 #print .rp-costcap i.margin { background: #bfe8cf; } #print .rp-costcap .ok { color: #15803d; } #print .rp-costcap .bad { color: #dc2626; }
+#print .rp-h3 small { font-weight: 500; color: #9ca3af; font-size: 7.5pt; margin-left: 6px; }
+#print .rp-rate { font-weight: 700; color: #15803d; } #print .rp-rate.bad, #print b.bad { color: #dc2626; }
