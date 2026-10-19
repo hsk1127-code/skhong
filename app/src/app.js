@@ -645,7 +645,7 @@ function renderProject(p) {
   ensureUnits(p);
   ensureSpecs(p);
   fillSubmitTo(p);
-  if (syncPaidDate(p) === "today") { Store.touch(p); setTimeout(() => toast("모든 정산이 수금완료인데 정산일이 없어 오늘 날짜로 넣었습니다. 계약·정산에서 실제 입금일로 고쳐 주세요.", 8000), 300); }
+  if (syncPaidDate(p, !p.overview.paidMigrated) === "today") { Store.touch(p); setTimeout(() => toast("모든 정산이 수금완료인데 정산일이 없어 오늘 날짜로 넣었습니다. 계약·정산에서 실제 입금일로 고쳐 주세요.", 8000), 300); }
   if (linkRevisions(p)) Store.touch(p);
   for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
@@ -808,7 +808,7 @@ function contractEditHtml(p) {
       <td><input data-pf="ratio" inputmode="decimal" value="${esc(x.ratio)}" style="width:52px"></td>
       <td class="num" data-amt>${x.amount ? x.amount.toLocaleString("ko-KR") : "-"}</td>
       <td><input data-pf="cond" value="${esc(x.cond)}" style="width:96px"></td>
-      <td><input type="date" data-pf="paidDate" value="${esc(x.paidDate)}" style="width:140px"></td>
+      <td><input type="date" data-pf="paidDate" value="${esc(x.paidDate)}" style="width:140px" class="${x.status === "수금완료" && !isDate(x.paidDate) ? "need-date" : ""}" title="${x.status === "수금완료" && !isDate(x.paidDate) ? "수금완료인데 정산일이 없습니다. 정산일을 넣거나 상태를 바꾸세요." : ""}"></td>
       <td><select data-pf="status">${opts(PAYMENT_STATUSES, x.status || "미청구")}</select></td>
       <td class="nowrap"><button type="button" class="icon" data-pmove="-1" title="위로">↑</button><button type="button" class="icon" data-pmove="1" title="아래로">↓</button><button type="button" class="icon" data-pdel title="삭제">✕</button></td></tr>`).join("") || `<tr><td colspan="8" class="muted center pad">위의 비율 버튼을 누르거나 ＋ 단계 추가로 입력하세요.</td></tr>`}</tbody>
     <tfoot><tr><td><b>합계</b></td><td class="num ${c.payments.length && c.ratioSum !== 100 ? "bad" : ""}"><b>${c.ratioSum}%</b></td>
@@ -884,7 +884,10 @@ function bindContractEdit(p, card) {
     else if (t.dataset.pf) {
       const x = o.payments.find((y) => y.id === t.closest("tr").dataset.id);
       x[t.dataset.pf] = t.value;
-      if (t.dataset.pf === "paidDate" && t.value && x.status !== "수금완료") x.status = "수금완료";
+      // 정산일을 넣으면 수금완료, 다시 지우면 그 전 상태로 (정산일 없이 수금완료로 남지 않게)
+      if (t.dataset.pf === "paidDate" && t.value && x.status !== "수금완료") { x.prevStatus = x.status || "미청구"; x.status = "수금완료"; }
+      else if (t.dataset.pf === "paidDate" && !t.value && x.status === "수금완료") { x.status = x.prevStatus && x.prevStatus !== "수금완료" ? x.prevStatus : "미청구"; delete x.prevStatus; }
+      if (t.dataset.pf === "status") delete x.prevStatus;
       // 수금완료로 바꾸면 정산일이 비어 있을 때 오늘 날짜를 넣음 → 모두 수금완료면 지급 완료일 자동
       if (t.dataset.pf === "status" && t.value === "수금완료" && !isDate(x.paidDate)) x.paidDate = today();
       syncPaidDate(p);

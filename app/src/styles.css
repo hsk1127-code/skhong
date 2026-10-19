@@ -703,3 +703,4 @@ dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr));
 .today-chip { margin: -4px 6px 12px; padding: 7px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 13px; text-align: center; letter-spacing: -0.01em; }
 .today-big { font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 5px 12px; border-radius: 999px; font-size: 14px; }
 input.auto-field { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: not-allowed; }
+input.need-date { border-color: var(--bad); background: var(--bad-soft); }

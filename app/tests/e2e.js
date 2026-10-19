@@ -66,7 +66,10 @@ const assert = require("assert");
   assert.strictEqual(await p.inputValue("#kdForm [data-k=paidDate]"), "");
   await p.fill(".pay-table tbody tr:nth-child(2) [data-pf=paidDate]", "2026-12-30");
   assert.strictEqual(await p.inputValue("#kdForm [data-k=paidDate]"), "2026-12-30");
-  await p.selectOption(".pay-table tbody tr:nth-child(2) [data-pf=status]", "미청구");
+  // 정산일을 지우면 그 전 상태(미청구)로 돌아가고 지급 완료일도 비워짐
+  await p.fill(".pay-table tbody tr:nth-child(2) [data-pf=paidDate]", "");
+  await p.locator(".pay-table tbody tr:nth-child(2) [data-pf=paidDate]").dispatchEvent("change");
+  assert.strictEqual(await p.inputValue(".pay-table tbody tr:nth-child(2) [data-pf=status]"), "미청구");
   assert.strictEqual(await p.inputValue("#kdForm [data-k=paidDate]"), "");
   await p.click("[data-ovmode=view]");
   assert.match(await p.textContent(".ov-contract"), /120,000,000원[\s\S]*30%/);

@@ -893,12 +893,17 @@ const addYears = (s, years) => {
 // 납품일자는 개요의 입고일자(receiveDate)를 그대로 쓴다
 // 지급 완료일을 실제 값으로 채움: 정산 단계가 모두 수금완료면 항상 가장 늦은 정산일 (정산일을 고치면 따라 바뀜)
 // 정산일이 하나도 없으면 오늘 날짜로 넣고 "today" 를 돌려줌 (화면에서 실제 입금일로 고치라고 안내)
-function syncPaidDate(p) {
+// migrate: 예전 데이터를 처음 열 때 한 번만, 모두 수금완료인데 정산일이 하나도 없으면 오늘 날짜로 채움
+function syncPaidDate(p, migrate = false) {
   const o = p.overview, pays = o.payments || [];
   const allPaid = pays.length && pays.every((x) => x.status === "수금완료");
   let filled = "";
+  if (migrate) o.paidMigrated = true;
   if (allPaid) {
-    if (!pays.some((x) => isDate(x.paidDate))) { pays.forEach((x) => (x.paidDate = today())); filled = "today"; }
+    if (!pays.some((x) => isDate(x.paidDate))) {
+      if (!migrate) { if (o.paidDateAuto) { o.paidDate = ""; o.paidDateAuto = false; } return "cleared"; }
+      pays.forEach((x) => (x.paidDate = today())); filled = "today";
+    }
     const latest = pays.map((x) => x.paidDate).filter(isDate).sort().pop();
     if (o.paidDate !== latest) filled ||= "auto";
     o.paidDate = latest;
