@@ -116,6 +116,29 @@ function scheduleInfos(schedule, base = today()) {
     return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name, parentDone: parent.t.doneDate || "" } : i;
   });
 }
+// Revision 줄을 그 줄을 만든 자료 이력·회의록과 연결 (ref). 제목이 띄어쓰기·괄호·덧붙인 말 정도만 달라도 찾는다
+// 같은 제목이 정확히 맞는 것을 먼저, 없으면 한쪽이 다른 쪽을 포함하는 것 중 가장 비슷한 것 하나
+function linkRevisions(p) {
+  // 예전에 불러온 회의록: 제목이 있으면 이미 기록된 것으로 (제목을 고쳐도 새 줄이 생기지 않게)
+  for (const m of p.meetings) if (m.logged === undefined && m.title?.trim()) m.logged = true;
+  // 자료 이력·회의록(제목과 원래 시트 이름)·사양 구분
+  const targets = [...p.records.map((r) => ({ id: r.id, t: norm(r.title) })),
+    ...p.meetings.flatMap((m) => [{ id: m.id, t: norm(m.title) }, { id: m.id, t: norm(m.sheetTitle || "") }]),
+    ...(p.specs || []).map((s) => ({ id: s.id, t: norm(s.name) }))].filter((x) => x.t.length >= 2);
+  const used = new Set(p.revisions.map((r) => r.ref).filter(Boolean));
+  let changed = false;
+  for (const pass of ["exact", "contains"]) {
+    for (const r of p.revisions) {
+      const c = norm(r.content), core = c.replace(/(회의록|회의|자료)$/, "");
+      if (r.ref || c.length < 2 || c === norm("신규 작성")) continue;
+      const cand = targets.filter((x) => !used.has(x.id) && (pass === "exact" ? x.t === c
+        : x.t.includes(c) || c.includes(x.t) || (core.length >= 2 && x.t.includes(core))))
+        .sort((a, b) => Math.abs(a.t.length - c.length) - Math.abs(b.t.length - c.length))[0];
+      if (cand) { r.ref = cand.id; used.add(cand.id); changed = true; }
+    }
+  }
+  return changed;
+}
 // 보고서용 완료 판정: 일정 탭과 같은 기준 (날짜 없는 세부 항목은 위 일정을 따름)
 function scheduleDone(p, base = today()) {
   const infos = scheduleInfos(p.schedule, base);
@@ -442,7 +465,8 @@ async function importWorkbook(file, onProgress = () => {}) {
     } else if (key === "변경사항") {
       p.lists.changes = readTable(sheet, LISTS.changes.cols).map((r) => ({ ...r, files: [] }));
     } else if (firstText.includes("회의록")) {
-      p.meetings.push(parseMeeting(sheet, [...images, ...files]));
+      // 엑셀 Revision 시트에 이미 기록된 회의록이므로 logged, 시트 이름은 Revision 연결용으로 보관
+      p.meetings.push({ ...parseMeeting(sheet, [...images, ...files]), sheetTitle: title, logged: true });
     } else if (isSpecSheet(sheet, date)) {
       // 날짜 시트(메일로 받은 사양서)는 캡처·원본을 첨부하고, 넣어 둔 엑셀 사양서에서 항목을 읽음
       const memo = sheetLines(sheet).map((v) => v.join("  ")).join("\n");
@@ -467,6 +491,7 @@ async function importWorkbook(file, onProgress = () => {}) {
   }
   // 엑셀에 없던 빈 기본 사양(SW 사양 / HW 주요 Spec)은 만들지 않음
   p.specs = specs.filter((sp, k) => k > 1 || hasSheet[k ? "hw" : "sw"] || sp.rows.length || sp.files.length || sp.note || specs.length <= 2);
+  linkRevisions(p);
   if (!p.revisions.length) p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: "신규 작성", note: "" });
   p.records.sort((a, b) => a.date.localeCompare(b.date));
   p.meetings.sort((a, b) => (a.date || "").localeCompare(b.date || ""));

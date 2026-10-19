@@ -95,6 +95,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
+      <div class="small muted browser-note" style="opacity:.7">버전 __BUILD_STAMP__</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -644,6 +645,7 @@ function renderProject(p) {
   ensureUnits(p);
   ensureSpecs(p);
   fillSubmitTo(p);
+  if (linkRevisions(p)) Store.touch(p);
   for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
     delete p.report[k];
@@ -1568,6 +1570,7 @@ function recordDialog(p, rec) {
     <p class="muted small">이미지는 화면에 바로 보이고, 그 밖의 파일(엑셀·PPT·PDF 등)은 첨부 파일로 보관됩니다.</p>
     <div class="att"></div>`,
   (form) => {
+    if (rec) linkRevisions(p);
     const oldTitle = rec?.title;
     Object.assign(d, { date: form.date.value, kind: form.kind.value, title: form.title.value.trim(), from: form.from.value.trim(),
       to: form.to.value.trim(), memo: form.memo.value });
@@ -2092,7 +2095,13 @@ function tabSpec(p, el) {
       <label class="form-1">메모<textarea id="specNote" rows="3">${esc(sp.note)}</textarea></label></div>`;
   $$("[data-spec]", el).forEach((b) => (b.onclick = () => { route.spec = b.dataset.spec; rerender(); }));
   $("#addSpec").onclick = () => addSpecDialog(p);
-  $("#specName").onchange = (e) => { sp.name = e.target.value.trim() || sp.name; Store.touch(p); rerender(); };
+  $("#specName").onchange = (e) => {
+    const old = sp.name;
+    sp.name = e.target.value.trim() || sp.name;
+    linkRevisions(p);
+    Store.syncRevision(p, sp.id, old, sp.name);
+    rerender();
+  };
   $("#delSpec").onclick = async () => {
     if (!confirm(`'${sp.name}' 사양을 삭제할까요?${sp.rows.length || sp.files.length ? `\n항목 ${sp.rows.length}개와 첨부 ${sp.files.length}개도 함께 삭제됩니다.` : ""}`)) return;
     p.specs = specs.filter((x) => x !== sp);
