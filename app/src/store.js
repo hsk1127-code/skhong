@@ -90,9 +90,20 @@ const Store = (() => {
     p.updated = today();
     changed();
   }
-  // Revision 기록: 자료 이력·회의록이 추가될 때만 사용
-  function addRevision(p, content, note = "") {
-    p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content, note });
+  // Revision 기록: 자료 이력·회의록이 추가될 때만 사용. ref = 그 자료/회의록 id (제목을 고치면 따라 바뀜)
+  function addRevision(p, content, note = "", ref = "") {
+    p.revisions.push({ id: uid(), date: today(), author: state.settings.user || "", content, note, ref });
+    touch(p);
+  }
+  // 자료/회의록 제목·날짜를 고치면 연결된 Revision 도 고침 (예전 기록은 이전 제목으로 찾아 연결)
+  function syncRevision(p, ref, oldTitle, content, note) {
+    for (const r of p.revisions) {
+      if (r.ref === ref || (!r.ref && oldTitle && r.content === oldTitle)) {
+        r.ref = ref;
+        r.content = content;
+        if (note != null) r.note = note;
+      }
+    }
     touch(p);
   }
 
@@ -133,7 +144,7 @@ const Store = (() => {
   }
 
   return {
-    open, flush, changed, touch, getKV, putKV, addRevision, uid, addFile, fileMeta, getBlob, gc, newProject, exportBackup, importBackup,
+    open, flush, changed, touch, getKV, putKV, addRevision, syncRevision, uid, addFile, fileMeta, getBlob, gc, newProject, exportBackup, importBackup,
     get state() { return state; },
     get projects() { return state.projects; },
     project: (id) => state.projects.find((p) => p.id === id),

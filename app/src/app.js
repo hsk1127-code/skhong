@@ -1568,12 +1568,14 @@ function recordDialog(p, rec) {
     <p class="muted small">이미지는 화면에 바로 보이고, 그 밖의 파일(엑셀·PPT·PDF 등)은 첨부 파일로 보관됩니다.</p>
     <div class="att"></div>`,
   (form) => {
+    const oldTitle = rec?.title;
     Object.assign(d, { date: form.date.value, kind: form.kind.value, title: form.title.value.trim(), from: form.from.value.trim(),
       to: form.to.value.trim(), memo: form.memo.value });
     if (rec) Object.assign(rec, d);
     else p.records.push(d);
-    if (rec) Store.touch(p);
-    else Store.addRevision(p, d.title, `자료 이력 · ${d.kind} (${fmtDot(d.date)})`);
+    const note = `자료 이력 · ${d.kind} (${fmtDot(d.date)})`;
+    if (rec) Store.syncRevision(p, d.id, oldTitle, d.title, note);
+    else Store.addRevision(p, d.title, note, d.id);
     rerender();
   }, { wide: true, onOpen: (dlg) => {
     refresh(dlg);
@@ -1627,10 +1629,15 @@ function tabMeetings(p, el) {
   };
   if (!cur) return;
   const ed = $("#mEditor");
+  let revTitle = cur.title.trim();
   ed.addEventListener("change", (e) => {
-    if (e.target.dataset.mf !== "title" || !cur.title.trim() || cur.logged) return;
-    cur.logged = true;
-    Store.addRevision(p, cur.title.trim(), `회의록 · ${fmtDot(cur.date)}`);
+    const f = e.target.dataset.mf;
+    if (!["title", "date"].includes(f) || !cur.title.trim()) return;
+    const note = `회의록 · ${fmtDot(cur.date)}`;
+    // 처음 제목을 넣으면 Revision 기록, 그 뒤 제목·날짜를 고치면 그 기록도 고침
+    if (!cur.logged) { if (f === "title") { cur.logged = true; Store.addRevision(p, cur.title.trim(), note, cur.id); } }
+    else Store.syncRevision(p, cur.id, revTitle, cur.title.trim(), note);
+    revTitle = cur.title.trim();
   });
   ed.addEventListener("input", (e) => {
     const t = e.target;
@@ -1695,7 +1702,7 @@ async function importMeetings(p, files) {
         p.meetings.push(m);
         lastId = m.id;
         added++;
-        Store.addRevision(p, m.title, `회의록 · ${fmtDot(m.date)} (엑셀 가져오기)`);
+        Store.addRevision(p, m.title, `회의록 · ${fmtDot(m.date)} (엑셀 가져오기)`, m.id);
       }
     }
     await Store.gc();

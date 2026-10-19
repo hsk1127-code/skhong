@@ -180,6 +180,18 @@ const assert = require("assert");
   await p.click(".tabs [data-tab=records]");
   assert.strictEqual(await p.textContent(".rec .rec-title"), "전장품 문의");
   assert.strictEqual(await p.locator(".rec .thumb").count(), 1);
+  // 자료 등록 → Revision 기록, 제목을 고치면 Revision 도 같이 바뀜
+  await p.click("#addRecord");
+  await p.fill("dialog [name=title]", "도면 송부");
+  await p.click("dialog button.primary");
+  await p.click('.rec:has(.rec-title:text-is("도면 송부")) [data-edit]');
+  await p.fill("dialog [name=title]", "수정 도면 송부");
+  await p.click("dialog button.primary");
+  await p.click(".tabs [data-tab=revisions]");
+  const revs2 = await p.$$eval("[data-grid=revisions] [data-f=content]", (els) => els.map((e) => e.value));
+  assert.deepStrictEqual(revs2.slice(-1), ["수정 도면 송부"]);
+  assert.ok(!revs2.includes("도면 송부"));
+  await p.click(".tabs [data-tab=records]");
 
   // 내보내기
   const [x] = await Promise.all([p.waitForEvent("download"), p.click("#exportXlsx")]);
