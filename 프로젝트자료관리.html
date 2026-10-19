@@ -2179,6 +2179,19 @@ const addYears = (s, years) => {
 // 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
 // 주요 일자: 개요에 직접 입력한 값이 있으면 그것을, 없으면 다른 자료에서 자동으로
 // 납품일자는 개요의 입고일자(receiveDate)를 그대로 쓴다
+// 지급 완료일을 실제 값으로 채움: 정산 단계가 모두 수금완료면 가장 늦은 정산일 (직접 넣은 날짜는 그대로)
+// 정산일이 하나도 없으면 오늘 날짜로 넣고 "today" 를 돌려줌 (화면에서 실제 입금일로 고치라고 안내)
+function syncPaidDate(p) {
+  const o = p.overview, pays = o.payments || [];
+  const allPaid = pays.length && pays.every((x) => x.status === "수금완료");
+  let filled = "";
+  if (allPaid) {
+    if (!pays.some((x) => isDate(x.paidDate))) { pays.forEach((x) => (x.paidDate = today())); filled = "today"; }
+    const latest = pays.map((x) => x.paidDate).filter(isDate).sort().pop();
+    if (!isDate(o.paidDate) || o.paidDateAuto) { if (o.paidDate !== latest) filled ||= "auto"; o.paidDate = latest; o.paidDateAuto = true; }
+  } else if (o.paidDateAuto) { o.paidDate = ""; o.paidDateAuto = false; filled = "cleared"; }
+  return filled;
+}
 const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["receiveDate", "입고일자 (납품일자)"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
 function keyDates(p) {
   const o = p.overview, c = contractInfo(p), sm = projectSummary(p);
@@ -2194,6 +2207,7 @@ function keyDates(p) {
   };
   const out = {};
   for (const [k] of KEY_DATES) out[k] = { value: isDate(o[k]) ? o[k] : auto[k] || "", auto: !isDate(o[k]) && !!auto[k], autoValue: auto[k] || "" };
+  if (o.paidDateAuto && isDate(o.paidDate)) out.paidDate.auto = true; // 정산 완료로 자동 입력된 값
   out.deliveryDate = out.receiveDate;
   // 모두 수금완료인데 정산일이 하나도 없으면 지급 완료일을 정할 수 없음 → 화면에 안내
   out.paidDate.missing = !!allPaid && !paidDates.length && !isDate(o.paidDate);
@@ -2611,7 +2625,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.19 08:19</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.19 08:26</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -3161,6 +3175,7 @@ function renderProject(p) {
   ensureUnits(p);
   ensureSpecs(p);
   fillSubmitTo(p);
+  if (syncPaidDate(p) === "today") { Store.touch(p); setTimeout(() => toast("모든 정산이 수금완료인데 정산일이 없어 오늘 날짜로 넣었습니다. 계약·정산에서 실제 입금일로 고쳐 주세요.", 8000), 300); }
   if (linkRevisions(p)) Store.touch(p);
   for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
@@ -3264,6 +3279,7 @@ function tabOverviewEdit(p, el) {
   }));
   $$("#kdForm [data-k]", el).forEach((inp) => (inp.onchange = () => {
     o[inp.dataset.k] = inp.value.trim();
+    if (inp.dataset.k === "paidDate") { o.paidDateAuto = false; syncPaidDate(p); }
     Store.touch(p);
     rerender(); // 자동 값·Warranty 기간 다시 계산
   }));
@@ -3401,6 +3417,7 @@ function bindContractEdit(p, card) {
       if (t.dataset.pf === "paidDate" && t.value && x.status !== "수금완료") x.status = "수금완료";
       // 수금완료로 바꾸면 정산일이 비어 있을 때 오늘 날짜를 넣음 → 모두 수금완료면 지급 완료일 자동
       if (t.dataset.pf === "status" && t.value === "수금완료" && !isDate(x.paidDate)) x.paidDate = today();
+      syncPaidDate(p);
     } else return;
     Store.touch(p);
   });
@@ -4297,7 +4314,7 @@ function reportDialog(p) {
       <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(o.setupDate || "")}">${hint("Warranty 시작 기준")}</label>
       <label>Warranty 시작<input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}">${hint("시작일부터 아래 기간(년)")}</label>
       <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2">${hint("")}</label>
-      <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}">${hint(ci.paidDate && !o.paidDate ? `비우면 자동: ${fmtDot(ci.paidDate)}` : "정산이 모두 끝나면 자동")}</label>
+      <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}">${hint(o.paidDateAuto && o.paidDate ? "정산 완료로 자동 입력" : "정산이 모두 끝나면 자동")}</label>
       ${money("orderAmount", "발주가", "", "개요의 발주금액과 같은 값")}
       ${money("estimateCost", "실행 예가")}
       ${money("targetCost", "실행목표가")}
@@ -4404,7 +4421,8 @@ function reportDialog(p) {
     const f = (k) => form.elements[k].value.trim();
     const d = draftOverview(form);
     Object.assign(o, { md: d.md, mdRate: d.mdRate, laborCost: d.laborCost, overheadRate: d.overheadRate, warrantyRate: d.warrantyRate });
-    // 주요 일자는 개요에 저장 (개요와 보고서가 같은 값을 씀)
+    // 주요 일자는 개요에 저장 (개요와 보고서가 같은 값을 씀). 입금완료일을 직접 고치면 자동 값이 아님
+    if (f("paidDate") !== (o.paidDate || "")) o.paidDateAuto = false;
     Object.assign(o, { kickoffDate: f("kickoffDate"), receiveDate: f("deliveryDate"), setupDate: f("setupDate"), warrantyStart: f("warrantyStart"),
       warrantyYears: f("warrantyYears"), paidDate: f("paidDate") });
     o.orderAmount = String(toAmount(f("orderAmount")) || "");

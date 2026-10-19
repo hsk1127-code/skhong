@@ -891,6 +891,19 @@ const addYears = (s, years) => {
 // 보고서에 들어갈 값: 직접 입력한 값(p.report)이 있으면 그것을, 없으면 프로그램 데이터에서 자동으로
 // 주요 일자: 개요에 직접 입력한 값이 있으면 그것을, 없으면 다른 자료에서 자동으로
 // 납품일자는 개요의 입고일자(receiveDate)를 그대로 쓴다
+// 지급 완료일을 실제 값으로 채움: 정산 단계가 모두 수금완료면 가장 늦은 정산일 (직접 넣은 날짜는 그대로)
+// 정산일이 하나도 없으면 오늘 날짜로 넣고 "today" 를 돌려줌 (화면에서 실제 입금일로 고치라고 안내)
+function syncPaidDate(p) {
+  const o = p.overview, pays = o.payments || [];
+  const allPaid = pays.length && pays.every((x) => x.status === "수금완료");
+  let filled = "";
+  if (allPaid) {
+    if (!pays.some((x) => isDate(x.paidDate))) { pays.forEach((x) => (x.paidDate = today())); filled = "today"; }
+    const latest = pays.map((x) => x.paidDate).filter(isDate).sort().pop();
+    if (!isDate(o.paidDate) || o.paidDateAuto) { if (o.paidDate !== latest) filled ||= "auto"; o.paidDate = latest; o.paidDateAuto = true; }
+  } else if (o.paidDateAuto) { o.paidDate = ""; o.paidDateAuto = false; filled = "cleared"; }
+  return filled;
+}
 const KEY_DATES = [["kickoffDate", "Kick Off 일자"], ["receiveDate", "입고일자 (납품일자)"], ["setupDate", "Setup 완료일"], ["paidDate", "지급 완료일"]];
 function keyDates(p) {
   const o = p.overview, c = contractInfo(p), sm = projectSummary(p);
@@ -906,6 +919,7 @@ function keyDates(p) {
   };
   const out = {};
   for (const [k] of KEY_DATES) out[k] = { value: isDate(o[k]) ? o[k] : auto[k] || "", auto: !isDate(o[k]) && !!auto[k], autoValue: auto[k] || "" };
+  if (o.paidDateAuto && isDate(o.paidDate)) out.paidDate.auto = true; // 정산 완료로 자동 입력된 값
   out.deliveryDate = out.receiveDate;
   // 모두 수금완료인데 정산일이 하나도 없으면 지급 완료일을 정할 수 없음 → 화면에 안내
   out.paidDate.missing = !!allPaid && !paidDates.length && !isDate(o.paidDate);

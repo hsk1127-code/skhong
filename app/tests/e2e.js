@@ -62,6 +62,12 @@ const assert = require("assert");
   await p.click('.preset-chip button:text-is("30 : 70")');
   assert.deepStrictEqual(await p.$$eval(".pay-table [data-amt]", (els) => els.map((e) => e.textContent)), ["36,000,000", "84,000,000"]);
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");
+  // 모두 수금완료 → 지급 완료일 칸에 날짜가 실제로 들어감, 하나라도 되돌리면 비워짐
+  assert.strictEqual(await p.inputValue("#kdForm [data-k=paidDate]"), "");
+  await p.fill(".pay-table tbody tr:nth-child(2) [data-pf=paidDate]", "2026-12-30");
+  assert.strictEqual(await p.inputValue("#kdForm [data-k=paidDate]"), "2026-12-30");
+  await p.selectOption(".pay-table tbody tr:nth-child(2) [data-pf=status]", "미청구");
+  assert.strictEqual(await p.inputValue("#kdForm [data-k=paidDate]"), "");
   await p.click("[data-ovmode=view]");
   assert.match(await p.textContent(".ov-contract"), /120,000,000원[\s\S]*30%/);
   assert.strictEqual(await p.textContent(".ov-note"), "고객 요청: 도장 색상 별도 협의");
