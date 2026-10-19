@@ -207,6 +207,36 @@ async function backupNow() {
   await autoDir();
   renderSidebar();
 }
+// 다른 PC로 옮길 때: 프로그램 폴더(HTML + 백업 폴더)를 통째로 복사한 뒤, 그 폴더를 고르면
+// 백업 폴더에서 가장 최근 백업으로 복원하고 그 폴더를 계속 백업 폴더로 씀
+async function loadFromFolder() {
+  if (!window.showDirectoryPicker) return restoreNow();
+  let dir;
+  try { dir = await window.showDirectoryPicker({ id: "pd-backup", mode: "readwrite" }); }
+  catch (e) { if (e.name !== "AbortError") toast("오류: " + e.message, 5000); return; }
+  // 프로그램 폴더를 골랐으면 그 안의 '백업' 폴더, '백업' 폴더 자체를 골랐으면 그 폴더
+  const sub = await dir.getDirectoryHandle("백업").catch(() => null);
+  const from = sub || dir;
+  const zips = [];
+  for await (const [n, h] of from.entries())
+    if (h.kind === "file" && /^(프로젝트자료_백업|자동백업)_.*\.zip$/.test(n)) zips.push({ n, f: await h.getFile() });
+  if (!zips.length) return toast(`'${dir.name}'${sub ? "\\백업" : ""} 폴더에 백업 파일이 없습니다. 프로그램 폴더(백업 폴더가 들어 있는 폴더)를 골라 주세요.`, 7000);
+  zips.sort((a, b) => b.f.lastModified - a.f.lastModified);
+  const z = zips[0], when = new Date(z.f.lastModified);
+  const stamp = `${when.getFullYear()}.${String(when.getMonth() + 1).padStart(2, "0")}.${String(when.getDate()).padStart(2, "0")} ${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}`;
+  if (!confirm(`가장 최근 백업으로 불러올까요?\n\n${z.n}\n(${stamp} 저장)${Store.projects.length ? "\n\n지금 이 PC에 있는 자료는 이 백업 내용으로 바뀝니다." : ""}`)) return;
+  await busy("자료를 불러오는 중…", async () => {
+    await Store.importBackup(z.f);
+    if (sub) {
+      await Store.putKV("backupDir", dir);
+      Store.state.settings.backupDirName = dir.name;
+      Store.changed();
+    }
+    await autoDir();
+    go({ view: "home" });
+    toast(`${Store.projects.length}개 프로젝트를 불러왔습니다.${sub ? " 이 폴더에 계속 자동 백업합니다." : ""}`, 5000);
+  });
+}
 async function restoreNow() {
   const run = (file) => {
     if (!confirm("현재 저장된 모든 데이터를 지우고 백업 파일 내용으로 바꿀까요?")) return;
@@ -438,8 +468,9 @@ function renderHome() {
         <ol>
           <li><b>다른 브라우저로 열렸을 수 있습니다.</b> 윈도우 업데이트 뒤에는 기본 브라우저가 엣지로 바뀌는 일이 많습니다.
             전에 쓰던 브라우저(크롬 등)에서 열어 보세요: 파일 오른쪽 클릭 → <b>연결 프로그램</b> → Chrome</li>
-          <li><b>백업 파일로 되살리기:</b> 실행 폴더의 <b>백업</b> 폴더나 <b>다운로드</b> 폴더에서 <code>프로젝트자료_백업_….zip</code> 또는 <code>자동백업_….zip</code>을 고르세요.
-            <div style="margin-top:8px"><button class="btn primary sm" id="homeRestore">📂 백업 파일에서 복원</button></div></li>
+          <li><b>다른 PC에서 옮겨 왔다면:</b> 프로그램 폴더(이 HTML 파일과 <b>백업</b> 폴더)를 통째로 복사한 뒤, 아래 버튼으로 그 폴더를 고르세요. 가장 최근 백업으로 불러오고 그 폴더에 계속 자동 백업합니다.
+            <div style="margin-top:8px" class="row2">${window.showDirectoryPicker ? `<button class="btn primary sm" id="homeFolder">📁 실행 폴더에서 자료 불러오기</button>` : ""}
+              <button class="btn sm" id="homeRestore">📂 백업 파일 직접 고르기</button></div></li>
           <li>백업이 없으면 프로젝트 엑셀을 <b>📥 엑셀 불러오기</b>로 다시 불러오면 됩니다.</li>
         </ol></div>` : `
     <div class="kpis">
@@ -491,6 +522,7 @@ function renderHome() {
   $("#homeImport")?.addEventListener("click", () => pickFiles(".xlsx", false, (f) => importXlsx(f[0])));
   $("#homeNew")?.addEventListener("click", newProjectDialog);
   $("#homeRestore")?.addEventListener("click", restoreNow);
+  $("#homeFolder")?.addEventListener("click", loadFromFolder);
   $("#closingAll")?.addEventListener("click", () => {
     const done = Store.projects.filter((p) => p.overview.status === "완료");
     openDialog(`<h3>완료 프로젝트 마감 보고서</h3><p class="muted small">고른 프로젝트가 한 시트에 열로 나란히 들어갑니다. (종합 시트 포함)</p>
