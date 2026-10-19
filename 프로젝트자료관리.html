@@ -692,6 +692,8 @@ dialog[open] { animation: pop .16s ease-out; }
 dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .form.md-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .form.md-grid input { width: 100%; min-width: 0; }
 @media (max-width: 800px) { .form.md-grid { grid-template-columns: 1fr 1fr; } }
+.report-dir { margin: 10px 0 4px; padding: 8px 10px; background: var(--panel-2); border-radius: var(--r-sm); }
+.report-dir a { color: var(--accent); margin: 0 4px; }
 
 </style>
 </head>
@@ -1370,8 +1372,18 @@ function scheduleInfos(schedule, base = today()) {
     if (t.phase !== phase) { phase = t.phase; parent = null; }
     const i = taskInfo(t, base);
     if (isDate(t.start) && isDate(t.end)) { parent = { t, i }; return i; }
-    return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name } : i;
+    return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name, parentDone: parent.t.doneDate || "" } : i;
   });
+}
+// 보고서용 완료 판정: 일정 탭과 같은 기준 (날짜 없는 세부 항목은 위 일정을 따름)
+function scheduleDone(p, base = today()) {
+  const infos = scheduleInfos(p.schedule, base);
+  const done = new Map(), date = new Map();
+  p.schedule.forEach((t, k) => {
+    done.set(t.id, infos[k].status === "완료");
+    date.set(t.id, t.doneDate || (infos[k].inherit && infos[k].status === "완료" ? infos[k].parentDone : "") || "");
+  });
+  return { isDone: (t) => done.get(t.id), doneDate: (t) => date.get(t.id) };
 }
 // 일정표에 맞춘 프로젝트 상태 (직접 고른 완료·보류가 우선)
 //   { st: 지연|진행|예정|완료|보류|계획, text: 배지 글자, tip: 설명 }
@@ -2153,7 +2165,8 @@ function closingInfo(p) {
   const orderAmount = c.amount;
   const actualCost = c.actualCost, targetCost = c.targetCost, estimateCost = c.estimateCost, salesActual = toAmount(r.salesActual);
   // 미완료 내용: 직접 적은 내용 > 남은 일정·의제·미수금 요약 > "납품완료"
-  const openTasks = p.schedule.filter((t) => !t.done).length, unpaid = c.payments.filter((x) => x.status !== "수금완료").length;
+  const sd = scheduleDone(p);
+  const openTasks = p.schedule.filter((t) => !sd.isDone(t)).length, unpaid = c.payments.filter((x) => x.status !== "수금완료").length;
   const autoUnfinished = [openTasks && `일정 ${openTasks}건`, sm.openActions.length && `실천 의제 ${sm.openActions.length}건`,
     sm.pendingSubmissions.length && `미제출 자료 ${sm.pendingSubmissions.length}건`, unpaid && `미수금 ${unpaid}건`].filter(Boolean);
   return {
@@ -2252,10 +2265,11 @@ async function buildClosingWorkbook(projects) {
       [null, ...["구분", "비율", "금액", "지급 조건", "정산일", "상태"].map(H)],
       ...c.payments.map((x) => [null, txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" }, money(x.amount), txt(x.cond), date(x.paidDate), txt(x.status)]),
       [null, H("합계"), { v: c.ratioSum / 100, s: "pct" }, { v: c.payments.reduce((a, x) => a + x.amount, 0), s: "moneyb" }]] });
+    const sd = scheduleDone(p);
     if (p.schedule.length) sheets.push({ name: "일정 실적", cols: [3, 14, 28, 12, 12, 12, 8, 30], rows: [
       [null, { v: "일정 실적", s: "title" }], [],
       [null, ...["단계", "세부사항", "계획 시작", "계획 종료", "실제 완료", "완료", "비고"].map(H)],
-      ...p.schedule.map((t) => [null, txt(t.phase), txt(t.name), date(t.start), date(t.end), date(t.doneDate), txt(t.done ? "완료" : "미완료"), txt(t.note)])] });
+      ...p.schedule.map((t) => [null, txt(t.phase), txt(t.name), date(t.start), date(t.end), date(sd.doneDate(t)), txt(sd.isDone(t) ? "완료" : "미완료"), txt(t.note)])] });
     if (p.lists.changes.length) sheets.push({ name: "변경사항", cols: [3, 12, 10, 10, 60, 24], rows: [
       [null, { v: "변경사항", s: "title" }], [],
       [null, ...["날짜", "작성자", "요청자", "변경 내용", "비고"].map(H)],
@@ -2673,6 +2687,41 @@ async function loadFromFolder() {
     toast(`${Store.projects.length}개 프로젝트를 불러왔습니다.${sub ? " 이 폴더에 계속 자동 백업합니다." : ""}`, 5000);
   });
 }
+// 보고서: 프로젝트 이름으로 파일을 만들어, 한 번 지정한 보고서 폴더에 바로 저장 (지원 안 하면 내려받기)
+const fileSafe = (s) => String(s || "프로젝트").replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 80);
+async function reportDir(change = false) {
+  if (!window.showDirectoryPicker) return null;
+  let dir = change ? null : await Store.getKV("reportDir").catch(() => null);
+  if (dir) {
+    const opt = { mode: "readwrite" };
+    let perm = (await dir.queryPermission?.(opt)) ?? "granted";
+    if (perm !== "granted") perm = await dir.requestPermission(opt);
+    if (perm !== "granted") dir = null;
+  }
+  if (!dir) {
+    toast("보고서를 저장할 폴더를 골라 주세요. 다음부터는 이 폴더에 바로 저장합니다.", 6000);
+    try { dir = await window.showDirectoryPicker({ id: "pd-report", mode: "readwrite", startIn: "documents" }); }
+    catch (e) { if (e.name === "AbortError") return null; throw e; }
+    await Store.putKV("reportDir", dir);
+    Store.state.settings.reportDirName = dir.name;
+    Store.changed();
+  }
+  return dir;
+}
+async function saveReport(make, name) {
+  let dir = null;
+  try { dir = await reportDir(); } catch (e) { console.error(e); }
+  if (window.showDirectoryPicker && !dir) { toast("저장 폴더를 고르지 않아 취소했습니다."); return false; }
+  await busy("보고서를 만드는 중…", async () => {
+    const blob = await make();
+    if (!dir) { download(blob, name); return toast(`${name} 을(를) 내려받았습니다.`, 4000); }
+    const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+    await w.write(blob);
+    await w.close();
+    toast(`📁 ${dir.name}\\${name} 에 저장했습니다.`, 5000);
+  });
+  return true;
+}
 async function restoreNow() {
   const run = (file) => {
     if (!confirm("현재 저장된 모든 데이터를 지우고 백업 파일 내용으로 바꿀까요?")) return;
@@ -2967,7 +3016,9 @@ function renderHome() {
     async (form) => {
       const ids = $$("[name=pick]:checked", form).map((x) => x.value);
       if (!ids.length) { toast("프로젝트를 하나 이상 고르세요."); return false; }
-      download(await buildClosingWorkbook(done.filter((p) => ids.includes(p.id))), `완료프로젝트_마감보고서_${today()}.xlsx`);
+      const picked = done.filter((p) => ids.includes(p.id));
+      await saveReport(() => buildClosingWorkbook(picked),
+        picked.length === 1 ? `${fileSafe(picked[0].overview.name)}_완료보고서_${today()}.xlsx` : `완료프로젝트_마감보고서_${picked.length}건_${today()}.xlsx`);
     }, { okLabel: "📊 엑셀 다운로드" });
   });
   $$("[data-more]").forEach((b) => (b.onclick = () => { b.closest(".card").classList.add("open"); b.remove(); }));
@@ -4187,6 +4238,8 @@ function reportDialog(p) {
       <label class="full">성과 요약<textarea name="summary" rows="2" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료.">${esc(r.summary)}</textarea></label>
       <label class="full">하자보증 · 후속 조치<textarea name="warrantyNote" rows="2">${esc(r.warrantyNote || warrantyDefault)}</textarea></label>
     </div>
+    ${window.showDirectoryPicker ? `<div class="small muted report-dir">📁 엑셀 보고서 저장 폴더: <b id="rdDirName">${esc(Store.state.settings.reportDirName || "미지정 (다운로드 시 고름)")}</b>
+      <a href="#" id="rdDir">${Store.state.settings.reportDirName ? "변경" : "지정"}</a> · 파일 이름: <b>${esc(fileSafe(o.name))}_완료보고서_${today()}.xlsx</b></div>` : ""}
     <div class="opts row-opts">
       <label><input type="checkbox" name="incMeetings" checked> 회의 (${p.meetings.length})</label>
       <label><input type="checkbox" name="incChanges" checked> 변경사항 (${p.lists.changes.length})</label>
@@ -4195,10 +4248,9 @@ function reportDialog(p) {
     </div>`,
   async (form) => {
     save(form);
-    download(await buildClosingWorkbook([p]), `완료프로젝트_마감보고서_${o.name}_${today()}.xlsx`);
+    await saveReport(() => buildClosingWorkbook([p]), `${fileSafe(o.name)}_완료보고서_${today()}.xlsx`);
     Store.touch(p);
     rerender();
-    toast("마감 보고서 엑셀을 내려받았습니다.");
   }, { wide: true, okLabel: "📊 엑셀 보고서 다운로드", onOpen: (dlg, form) => {
     const pdf = document.createElement("button");
     pdf.type = "button";
@@ -4212,9 +4264,18 @@ function reportDialog(p) {
         changes: form.incChanges.checked, records: form.incRecords.checked, bom: form.incBom.checked });
       dlg.close();
       rerender();
+      // PDF 로 저장할 때 기본 파일 이름이 프로젝트 이름이 되도록
+      const title = document.title;
+      document.title = `${fileSafe(o.name)}_완료보고서_${today()}`;
+      window.addEventListener("afterprint", () => (document.title = title), { once: true });
       setTimeout(() => window.print(), 50);
     };
     $("[data-paydlg-report]", dlg).onclick = () => { dlg.close(); payDialog(p); };
+    $("#rdDir", dlg)?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const dir = await reportDir(true);
+      if (dir) { $("#rdDirName", dlg).textContent = dir.name; e.target.textContent = "변경"; }
+    });
     // 금액 칸: 쉼표 표시, 실행가 구성·이익 미리 계산
     const showProfit = () => {
       const c = contractInfo({ ...p, overview: draftOverview(form) });
@@ -4289,8 +4350,9 @@ function reportHtml(p, inc) {
   const kv = (rows) => `<table class="rp-kv"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup><tbody>${rows.map((row) =>
     row.length === 2 ? `<tr><th>${row[0]}</th><td colspan="3">${row[1]}</td></tr>` : `<tr><th>${row[0]}</th><td>${row[1]}</td><th>${row[2]}</th><td>${row[3]}</td></tr>`).join("")}</tbody></table>`;
 
-  // 일정 실적: 단계별 계획 대비 완료
+  // 일정 실적: 단계별 계획 대비 완료 (일정 탭과 같은 완료 기준)
   const suspect = suspectTasks(p.schedule);
+  const sd = scheduleDone(p);
   const groups = [];
   for (const t of p.schedule) {
     const g = groups.find((x) => x.phase === (t.phase || "기타"));
@@ -4298,21 +4360,21 @@ function reportHtml(p, inc) {
   }
   const phaseRows = groups.map((g) => {
     const dated = g.items.filter((t) => isDate(t.start) && !suspect.has(t.id));
-    const done = g.items.filter((t) => t.done).length, ratio = done / g.items.length;
-    const actual = g.items.map((t) => t.doneDate).filter(isDate).sort().pop();
+    const done = g.items.filter(sd.isDone).length, ratio = done / g.items.length;
+    const actual = g.items.map(sd.doneDate).filter(isDate).sort().pop();
     return [`<b>${esc(g.phase)}</b>`, d(dated.map((t) => t.start).sort()[0]), d(dated.map((t) => t.end).filter(isDate).sort().pop()), d(actual),
       `<span class="rp-bar"><span style="width:${ratio * 100}%" class="${ratio === 1 ? "ok" : ""}"></span></span><span class="rp-frac">${done}/${g.items.length}</span>`,
       ratio === 1 ? `<span class="rp-pill ok">완료</span>` : `<span class="rp-pill bad">미완료</span>`];
   });
   const planDays = sm.start && sm.end ? dayNo(sm.end) - dayNo(sm.start) + 1 : 0;
   const diff = sm.end && isDate(r.completedDate) ? dayNo(r.completedDate) - dayNo(sm.end) : null;
-  const doneCount = p.schedule.filter((t) => t.done).length;
+  const doneCount = p.schedule.filter(sd.isDone).length;
   const diffText = diff === null ? "-" : diff === 0 ? "계획대로" : diff < 0 ? `${-diff}일 단축` : `${diff}일 지연`;
 
   // 미결 사항
   const unpaid = c.payments.filter((x) => x.status !== "수금완료");
   const pending = [
-    ...groups.map((g) => [g.phase, g.items.filter((t) => !t.done)]).filter(([, l]) => l.length)
+    ...groups.map((g) => [g.phase, g.items.filter((t) => !sd.isDone(t))]).filter(([, l]) => l.length)
       .map(([ph, l]) => `<b>일정 · ${esc(ph)}</b> ${l.length}건 — ${l.map((t) => esc(t.name.replace(/^[-\s└┗]+/, ""))).join(", ")}`),
     ...sm.openActions.map((a) => `<b>실천 의제</b> ${esc(a.text)} (${v(a.owner)}${isDate(a.due) ? `, ${d(a.due)}` : ""})`),
     ...sm.pendingSubmissions.map((x) => `<b>미제출 자료</b> ${esc(x.item)}${x.to ? ` → ${esc(x.to)}` : ""}`),

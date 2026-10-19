@@ -113,8 +113,18 @@ function scheduleInfos(schedule, base = today()) {
     if (t.phase !== phase) { phase = t.phase; parent = null; }
     const i = taskInfo(t, base);
     if (isDate(t.start) && isDate(t.end)) { parent = { t, i }; return i; }
-    return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name } : i;
+    return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name, parentDone: parent.t.doneDate || "" } : i;
   });
+}
+// 보고서용 완료 판정: 일정 탭과 같은 기준 (날짜 없는 세부 항목은 위 일정을 따름)
+function scheduleDone(p, base = today()) {
+  const infos = scheduleInfos(p.schedule, base);
+  const done = new Map(), date = new Map();
+  p.schedule.forEach((t, k) => {
+    done.set(t.id, infos[k].status === "완료");
+    date.set(t.id, t.doneDate || (infos[k].inherit && infos[k].status === "완료" ? infos[k].parentDone : "") || "");
+  });
+  return { isDone: (t) => done.get(t.id), doneDate: (t) => date.get(t.id) };
 }
 // 일정표에 맞춘 프로젝트 상태 (직접 고른 완료·보류가 우선)
 //   { st: 지연|진행|예정|완료|보류|계획, text: 배지 글자, tip: 설명 }
@@ -896,7 +906,8 @@ function closingInfo(p) {
   const orderAmount = c.amount;
   const actualCost = c.actualCost, targetCost = c.targetCost, estimateCost = c.estimateCost, salesActual = toAmount(r.salesActual);
   // 미완료 내용: 직접 적은 내용 > 남은 일정·의제·미수금 요약 > "납품완료"
-  const openTasks = p.schedule.filter((t) => !t.done).length, unpaid = c.payments.filter((x) => x.status !== "수금완료").length;
+  const sd = scheduleDone(p);
+  const openTasks = p.schedule.filter((t) => !sd.isDone(t)).length, unpaid = c.payments.filter((x) => x.status !== "수금완료").length;
   const autoUnfinished = [openTasks && `일정 ${openTasks}건`, sm.openActions.length && `실천 의제 ${sm.openActions.length}건`,
     sm.pendingSubmissions.length && `미제출 자료 ${sm.pendingSubmissions.length}건`, unpaid && `미수금 ${unpaid}건`].filter(Boolean);
   return {
@@ -995,10 +1006,11 @@ async function buildClosingWorkbook(projects) {
       [null, ...["구분", "비율", "금액", "지급 조건", "정산일", "상태"].map(H)],
       ...c.payments.map((x) => [null, txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" }, money(x.amount), txt(x.cond), date(x.paidDate), txt(x.status)]),
       [null, H("합계"), { v: c.ratioSum / 100, s: "pct" }, { v: c.payments.reduce((a, x) => a + x.amount, 0), s: "moneyb" }]] });
+    const sd = scheduleDone(p);
     if (p.schedule.length) sheets.push({ name: "일정 실적", cols: [3, 14, 28, 12, 12, 12, 8, 30], rows: [
       [null, { v: "일정 실적", s: "title" }], [],
       [null, ...["단계", "세부사항", "계획 시작", "계획 종료", "실제 완료", "완료", "비고"].map(H)],
-      ...p.schedule.map((t) => [null, txt(t.phase), txt(t.name), date(t.start), date(t.end), date(t.doneDate), txt(t.done ? "완료" : "미완료"), txt(t.note)])] });
+      ...p.schedule.map((t) => [null, txt(t.phase), txt(t.name), date(t.start), date(t.end), date(sd.doneDate(t)), txt(sd.isDone(t) ? "완료" : "미완료"), txt(t.note)])] });
     if (p.lists.changes.length) sheets.push({ name: "변경사항", cols: [3, 12, 10, 10, 60, 24], rows: [
       [null, { v: "변경사항", s: "title" }], [],
       [null, ...["날짜", "작성자", "요청자", "변경 내용", "비고"].map(H)],

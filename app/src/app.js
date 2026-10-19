@@ -237,6 +237,41 @@ async function loadFromFolder() {
     toast(`${Store.projects.length}개 프로젝트를 불러왔습니다.${sub ? " 이 폴더에 계속 자동 백업합니다." : ""}`, 5000);
   });
 }
+// 보고서: 프로젝트 이름으로 파일을 만들어, 한 번 지정한 보고서 폴더에 바로 저장 (지원 안 하면 내려받기)
+const fileSafe = (s) => String(s || "프로젝트").replace(/[\\/:*?"<>|]+/g, "_").replace(/\s+/g, " ").trim().slice(0, 80);
+async function reportDir(change = false) {
+  if (!window.showDirectoryPicker) return null;
+  let dir = change ? null : await Store.getKV("reportDir").catch(() => null);
+  if (dir) {
+    const opt = { mode: "readwrite" };
+    let perm = (await dir.queryPermission?.(opt)) ?? "granted";
+    if (perm !== "granted") perm = await dir.requestPermission(opt);
+    if (perm !== "granted") dir = null;
+  }
+  if (!dir) {
+    toast("보고서를 저장할 폴더를 골라 주세요. 다음부터는 이 폴더에 바로 저장합니다.", 6000);
+    try { dir = await window.showDirectoryPicker({ id: "pd-report", mode: "readwrite", startIn: "documents" }); }
+    catch (e) { if (e.name === "AbortError") return null; throw e; }
+    await Store.putKV("reportDir", dir);
+    Store.state.settings.reportDirName = dir.name;
+    Store.changed();
+  }
+  return dir;
+}
+async function saveReport(make, name) {
+  let dir = null;
+  try { dir = await reportDir(); } catch (e) { console.error(e); }
+  if (window.showDirectoryPicker && !dir) { toast("저장 폴더를 고르지 않아 취소했습니다."); return false; }
+  await busy("보고서를 만드는 중…", async () => {
+    const blob = await make();
+    if (!dir) { download(blob, name); return toast(`${name} 을(를) 내려받았습니다.`, 4000); }
+    const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
+    await w.write(blob);
+    await w.close();
+    toast(`📁 ${dir.name}\\${name} 에 저장했습니다.`, 5000);
+  });
+  return true;
+}
 async function restoreNow() {
   const run = (file) => {
     if (!confirm("현재 저장된 모든 데이터를 지우고 백업 파일 내용으로 바꿀까요?")) return;
@@ -531,7 +566,9 @@ function renderHome() {
     async (form) => {
       const ids = $$("[name=pick]:checked", form).map((x) => x.value);
       if (!ids.length) { toast("프로젝트를 하나 이상 고르세요."); return false; }
-      download(await buildClosingWorkbook(done.filter((p) => ids.includes(p.id))), `완료프로젝트_마감보고서_${today()}.xlsx`);
+      const picked = done.filter((p) => ids.includes(p.id));
+      await saveReport(() => buildClosingWorkbook(picked),
+        picked.length === 1 ? `${fileSafe(picked[0].overview.name)}_완료보고서_${today()}.xlsx` : `완료프로젝트_마감보고서_${picked.length}건_${today()}.xlsx`);
     }, { okLabel: "📊 엑셀 다운로드" });
   });
   $$("[data-more]").forEach((b) => (b.onclick = () => { b.closest(".card").classList.add("open"); b.remove(); }));
@@ -1751,6 +1788,8 @@ function reportDialog(p) {
       <label class="full">성과 요약<textarea name="summary" rows="2" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료.">${esc(r.summary)}</textarea></label>
       <label class="full">하자보증 · 후속 조치<textarea name="warrantyNote" rows="2">${esc(r.warrantyNote || warrantyDefault)}</textarea></label>
     </div>
+    ${window.showDirectoryPicker ? `<div class="small muted report-dir">📁 엑셀 보고서 저장 폴더: <b id="rdDirName">${esc(Store.state.settings.reportDirName || "미지정 (다운로드 시 고름)")}</b>
+      <a href="#" id="rdDir">${Store.state.settings.reportDirName ? "변경" : "지정"}</a> · 파일 이름: <b>${esc(fileSafe(o.name))}_완료보고서_${today()}.xlsx</b></div>` : ""}
     <div class="opts row-opts">
       <label><input type="checkbox" name="incMeetings" checked> 회의 (${p.meetings.length})</label>
       <label><input type="checkbox" name="incChanges" checked> 변경사항 (${p.lists.changes.length})</label>
@@ -1759,10 +1798,9 @@ function reportDialog(p) {
     </div>`,
   async (form) => {
     save(form);
-    download(await buildClosingWorkbook([p]), `완료프로젝트_마감보고서_${o.name}_${today()}.xlsx`);
+    await saveReport(() => buildClosingWorkbook([p]), `${fileSafe(o.name)}_완료보고서_${today()}.xlsx`);
     Store.touch(p);
     rerender();
-    toast("마감 보고서 엑셀을 내려받았습니다.");
   }, { wide: true, okLabel: "📊 엑셀 보고서 다운로드", onOpen: (dlg, form) => {
     const pdf = document.createElement("button");
     pdf.type = "button";
@@ -1776,9 +1814,18 @@ function reportDialog(p) {
         changes: form.incChanges.checked, records: form.incRecords.checked, bom: form.incBom.checked });
       dlg.close();
       rerender();
+      // PDF 로 저장할 때 기본 파일 이름이 프로젝트 이름이 되도록
+      const title = document.title;
+      document.title = `${fileSafe(o.name)}_완료보고서_${today()}`;
+      window.addEventListener("afterprint", () => (document.title = title), { once: true });
       setTimeout(() => window.print(), 50);
     };
     $("[data-paydlg-report]", dlg).onclick = () => { dlg.close(); payDialog(p); };
+    $("#rdDir", dlg)?.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const dir = await reportDir(true);
+      if (dir) { $("#rdDirName", dlg).textContent = dir.name; e.target.textContent = "변경"; }
+    });
     // 금액 칸: 쉼표 표시, 실행가 구성·이익 미리 계산
     const showProfit = () => {
       const c = contractInfo({ ...p, overview: draftOverview(form) });
@@ -1853,8 +1900,9 @@ function reportHtml(p, inc) {
   const kv = (rows) => `<table class="rp-kv"><colgroup><col style="width:17%"><col style="width:33%"><col style="width:17%"><col style="width:33%"></colgroup><tbody>${rows.map((row) =>
     row.length === 2 ? `<tr><th>${row[0]}</th><td colspan="3">${row[1]}</td></tr>` : `<tr><th>${row[0]}</th><td>${row[1]}</td><th>${row[2]}</th><td>${row[3]}</td></tr>`).join("")}</tbody></table>`;
 
-  // 일정 실적: 단계별 계획 대비 완료
+  // 일정 실적: 단계별 계획 대비 완료 (일정 탭과 같은 완료 기준)
   const suspect = suspectTasks(p.schedule);
+  const sd = scheduleDone(p);
   const groups = [];
   for (const t of p.schedule) {
     const g = groups.find((x) => x.phase === (t.phase || "기타"));
@@ -1862,21 +1910,21 @@ function reportHtml(p, inc) {
   }
   const phaseRows = groups.map((g) => {
     const dated = g.items.filter((t) => isDate(t.start) && !suspect.has(t.id));
-    const done = g.items.filter((t) => t.done).length, ratio = done / g.items.length;
-    const actual = g.items.map((t) => t.doneDate).filter(isDate).sort().pop();
+    const done = g.items.filter(sd.isDone).length, ratio = done / g.items.length;
+    const actual = g.items.map(sd.doneDate).filter(isDate).sort().pop();
     return [`<b>${esc(g.phase)}</b>`, d(dated.map((t) => t.start).sort()[0]), d(dated.map((t) => t.end).filter(isDate).sort().pop()), d(actual),
       `<span class="rp-bar"><span style="width:${ratio * 100}%" class="${ratio === 1 ? "ok" : ""}"></span></span><span class="rp-frac">${done}/${g.items.length}</span>`,
       ratio === 1 ? `<span class="rp-pill ok">완료</span>` : `<span class="rp-pill bad">미완료</span>`];
   });
   const planDays = sm.start && sm.end ? dayNo(sm.end) - dayNo(sm.start) + 1 : 0;
   const diff = sm.end && isDate(r.completedDate) ? dayNo(r.completedDate) - dayNo(sm.end) : null;
-  const doneCount = p.schedule.filter((t) => t.done).length;
+  const doneCount = p.schedule.filter(sd.isDone).length;
   const diffText = diff === null ? "-" : diff === 0 ? "계획대로" : diff < 0 ? `${-diff}일 단축` : `${diff}일 지연`;
 
   // 미결 사항
   const unpaid = c.payments.filter((x) => x.status !== "수금완료");
   const pending = [
-    ...groups.map((g) => [g.phase, g.items.filter((t) => !t.done)]).filter(([, l]) => l.length)
+    ...groups.map((g) => [g.phase, g.items.filter((t) => !sd.isDone(t))]).filter(([, l]) => l.length)
       .map(([ph, l]) => `<b>일정 · ${esc(ph)}</b> ${l.length}건 — ${l.map((t) => esc(t.name.replace(/^[-\s└┗]+/, ""))).join(", ")}`),
     ...sm.openActions.map((a) => `<b>실천 의제</b> ${esc(a.text)} (${v(a.owner)}${isDate(a.due) ? `, ${d(a.due)}` : ""})`),
     ...sm.pendingSubmissions.map((x) => `<b>미제출 자료</b> ${esc(x.item)}${x.to ? ` → ${esc(x.to)}` : ""}`),

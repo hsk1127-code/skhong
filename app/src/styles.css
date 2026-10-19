@@ -682,3 +682,5 @@ dialog[open] { animation: pop .16s ease-out; }
 dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .form.md-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); } .form.md-grid input { width: 100%; min-width: 0; }
 @media (max-width: 800px) { .form.md-grid { grid-template-columns: 1fr 1fr; } }
+.report-dir { margin: 10px 0 4px; padding: 8px 10px; background: var(--panel-2); border-radius: var(--r-sm); }
+.report-dir a { color: var(--accent); margin: 0 4px; }

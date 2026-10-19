@@ -20,6 +20,8 @@ const assert = require("assert");
   const errors = [];
   p.on("pageerror", (e) => errors.push(e.message));
   p.on("dialog", (d) => d.accept());
+  // 폴더 지정(File System Access)이 없는 브라우저처럼: 백업·보고서를 내려받기로 저장
+  await p.addInitScript(() => { window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
   await p.goto("file://" + html);
 
   // 불러오기
@@ -179,8 +181,6 @@ const assert = require("assert");
   // 내보내기
   const [x] = await Promise.all([p.waitForEvent("download"), p.click("#exportXlsx")]);
   await x.saveAs(path.join(work, "out.xlsx"));
-  // 폴더 지정(File System Access)이 없는 브라우저처럼: 백업 파일을 내려받기로 저장
-  await p.evaluate(() => { delete window.showDirectoryPicker; window.showDirectoryPicker = undefined; window.showOpenFilePicker = undefined; });
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));
 
