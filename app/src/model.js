@@ -33,7 +33,7 @@ const LISTS = {
 };
 const OVERVIEW_FIELDS = [
   ["project", "Project"], ["projectNo", "Project No"], ["partNo", "Part No"], ["customer", "고객사"],
-  ["receiveDate", "입고일자"], ["receivePlace", "입고 장소"], ["scope", "사업 범위"], ["warranty", "하자보증기간"],
+  ["receiveDate", "입고일자"], ["receivePlace", "입고 장소"], ["scope", "사업 범위"], ["warranty", "하자보증기간"], ["note", "비고"],
 ];
 
 // "unit:<id>" 는 설비별 BOM, "bom" 은 (예전 코드 호환) 첫 번째 설비의 BOM
@@ -487,7 +487,7 @@ async function buildWorkbook(p) {
 
   const ov = p.overview;
   const ovRows = [[{ v: `설비/품목명: ${ov.name}`, s: "title" }], [], head(["분류", "항목", "비고"])];
-  for (const [k, label] of OVERVIEW_FIELDS) ovRows.push([{ v: label, s: "head" }, { v: ov[k] || "", s: "cell" }, { v: "", s: "cell" }]);
+  for (const [k, label] of OVERVIEW_FIELDS) ovRows.push([{ v: label, s: "head" }, { v: ov[k] || "", s: k === "scope" || k === "note" ? "wrap" : "cell" }, { v: "", s: "cell" }]);
   for (const x of ov.extra) ovRows.push([{ v: x.label, s: "head" }, { v: x.value, s: "cell" }, { v: "", s: "cell" }]);
   ovRows.push([{ v: "상태", s: "head" }, { v: ov.status, s: "cell" }, { v: "", s: "cell" }],
     [{ v: "담당자", s: "head" }, { v: ov.manager, s: "cell" }, { v: "", s: "cell" }]);

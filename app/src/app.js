@@ -473,8 +473,8 @@ function tabOverviewEdit(p, el) {
   el.innerHTML = `<div class="grid2 wide-left">
     <div class="card"><h3>프로젝트 개요</h3><div class="form ov" id="ovForm">
       <label class="full">설비/품목명<input data-k="name" value="${esc(o.name)}"></label>
-      ${OVERVIEW_FIELDS.filter(([k]) => k !== "warranty").map(([k, label]) => k === "scope"
-        ? `<label class="full">${label}<textarea data-k="${k}" rows="3">${esc(o[k])}</textarea></label>`
+      ${OVERVIEW_FIELDS.filter(([k]) => k !== "warranty").map(([k, label]) => k === "scope" || k === "note"
+        ? `<label class="full">${label}<textarea data-k="${k}" rows="3"${k === "note" ? ' placeholder="특이사항, 고객 요청, 참고 내용 등"' : ""}>${esc(o[k])}</textarea></label>`
         : k === "receiveDate" ? "" // 입고일자(납품일자)는 아래 주요 일자에서 입력
         : `<label>${label}<input data-k="${k}" value="${esc(o[k])}"></label>`).join("")}
       <label>상태<select data-k="status">${opts(PROJECT_STATUSES, o.status)}</select></label>
@@ -814,7 +814,8 @@ function tabOverviewView(p, el) {
           : kd.warranty.state === "시작 전" ? `시작 전${kd.warranty.period ? ` · ${isDate(kd.warranty.start) ? fmtDot(kd.warranty.start) + "부터 " : "Setup 완료 후 "}${kd.warranty.period}` : ""}` : "")}
         ${o.extra.filter((x) => x.label).map((x) => fact("•", esc(x.label), x.value)).join("")}
       </div></div>
-      <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
+      <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}
+        <h3 style="margin-top:18px">비고</h3>${o.note ? `<div class="ov-note">${nl2br(o.note)}</div>` : `<p class="muted">비고가 없습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
     </div>
 
     ${kdCard}
@@ -1649,6 +1650,7 @@ function reportHtml(p, inc) {
       ["입고일자 (납품)", d(kd.receiveDate.value), "입고 장소", v(o.receivePlace)],
       ["Setup 완료일", d(kd.setupDate.value), "Warranty", kd.warranty.end ? `${d(kd.warranty.start)} ~ ${d(kd.warranty.end)}` : v(kd.warranty.text)],
       ["사업 범위", o.scope ? nl2br(o.scope) : v("")],
+      ...(o.note ? [["비고", nl2br(o.note)]] : []),
       ...o.extra.filter((x) => x.label).map((x) => [esc(x.label), v(x.value)])])}
 
     ${sec("계약 및 정산")}

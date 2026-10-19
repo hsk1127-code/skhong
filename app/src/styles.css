@@ -618,3 +618,4 @@ dialog[open] { animation: pop .16s ease-out; }
 .grid-table tr.selected td { background: var(--accent-soft); }
 .thumb .xfer { position: absolute; top: 4px; left: 4px; background: var(--panel); border-color: var(--line); }
 .chip .xfer { width: 40px; margin-left: 2px; }
+.ov-note { white-space: normal; line-height: 1.7; padding: 10px 12px; background: var(--panel-2); border: 1px solid var(--line-2); border-radius: var(--r-sm); }

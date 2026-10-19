@@ -34,6 +34,7 @@ const assert = require("assert");
   await p.click("[data-ovmode=edit]");
   assert.strictEqual(await p.inputValue("[data-k=name]"), "테스트_설비");
   // 발주금액·정산 비율
+  await p.fill("[data-k=note]", "고객 요청: 도장 색상 별도 협의");
   await p.fill("[data-ck=orderDate]", "2026-09-11");
   await p.type("[data-ck=orderAmount]", "120000000");
   assert.strictEqual(await p.inputValue("[data-ck=orderAmount]"), "120,000,000");
@@ -48,6 +49,7 @@ const assert = require("assert");
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");
   await p.click("[data-ovmode=view]");
   assert.match(await p.textContent(".ov-contract"), /120,000,000원[\s\S]*30%/);
+  assert.strictEqual(await p.textContent(".ov-note"), "고객 요청: 도장 색상 별도 협의");
   // 완료 보고서: 엑셀(마감 보고서 양식) 다운로드
   await p.evaluate(() => { window.print = () => { window.__printed = true; }; });
   await p.click("#reportBtn");
