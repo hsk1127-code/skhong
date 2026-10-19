@@ -73,7 +73,7 @@ const Store = (() => {
       id: uid(), created: t, updated: t,
       overview: { name: name || "새 프로젝트", project: "", projectNo: "", partNo: "", customer: "",
         receiveDate: "", receivePlace: "", scope: "", warranty: "", note: "", status: "진행", manager: state.settings.user || "",
-        orderDate: "", orderAmount: "", estimateCost: "", targetCost: "", actualCost: "", costV2: true, vat: "별도", payments: [], extra: [],
+        orderDate: "", orderAmount: "", estimateCost: "", targetCost: "", actualCost: "", md: {}, mdRate: "", laborCost: "", costV2: true, vat: "별도", payments: [], extra: [],
         kickoffDate: "", setupDate: "", warrantyStart: "", warrantyYears: "", paidDate: "" },
       report: { summary: "", issues: "", warrantyNote: "", completedDate: "" },
       schedule: [],
