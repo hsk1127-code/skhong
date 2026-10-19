@@ -105,6 +105,17 @@ function taskInfo(t, base = today()) {
   else if (b >= s) status = "진행";
   return { dur, elapsed: dur - remain, remain, status };
 }
+// 일정 전체의 상태: 날짜 없는 세부 항목(" - AMR 주행" 등)은 같은 단계에서 바로 위에 있는
+// 날짜 있는 일정을 따른다 (직접 ✓ 한 것은 완료). inherit = 따르는 일정 이름
+function scheduleInfos(schedule, base = today()) {
+  let parent = null, phase;
+  return schedule.map((t) => {
+    if (t.phase !== phase) { phase = t.phase; parent = null; }
+    const i = taskInfo(t, base);
+    if (isDate(t.start) && isDate(t.end)) { parent = { t, i }; return i; }
+    return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name } : i;
+  });
+}
 // 다른 일정과 60일 넘게 동떨어진 시작/종료일 (입력 실수일 가능성) → 기간 계산에서 제외
 function suspectTasks(schedule) {
   const dated = schedule.filter((t) => isDate(t.start) && isDate(t.end));
@@ -121,7 +132,8 @@ function suspectTasks(schedule) {
 function projectSummary(p, base = today()) {
   const suspect = suspectTasks(p.schedule);
   const dated = p.schedule.filter((t) => isDate(t.start) && isDate(t.end) && !suspect.has(t.id));
-  const info = p.schedule.map((t) => ({ t, ...taskInfo(t, base) }));
+  const infos = scheduleInfos(p.schedule, base);
+  const info = p.schedule.map((t, k) => ({ t, ...infos[k] }));
   const start = dated.length ? dated.map((t) => t.start).sort()[0] : "";
   const end = dated.length ? dated.map((t) => t.end).sort().pop() : "";
   let progress = null;
@@ -552,8 +564,9 @@ async function buildWorkbook(p) {
   const base = today();
   const sRows = [[{ v: "일정", s: "title" }, null, null, null, null, null, null, null, { v: "기준일", s: "head" }, { v: base, s: "date" }], [],
     head(["단계", "세부사항", "비고", "담당자", "시작일", "종료일", "기간", "경과일", "잔여일", "상태"])];
-  for (const t of p.schedule) {
-    const info = taskInfo(t, base);
+  const infos = scheduleInfos(p.schedule, base);
+  for (const [k, t] of p.schedule.entries()) {
+    const info = infos[k];
     sRows.push([{ v: t.phase, s: "cell" }, { v: t.name, s: "cell" }, { v: t.note, s: "cell" }, { v: t.owner, s: "cell" },
       { v: t.start, s: "date" }, { v: t.end, s: "date" }, { v: info.dur, s: "cell" }, { v: info.elapsed, s: "cell" },
       { v: info.remain, s: "cell" }, { v: info.status, s: "cell" }]);

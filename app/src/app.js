@@ -690,7 +690,8 @@ function tabOverview(p, el) {
 function tabOverviewView(p, el) {
   const o = p.overview, base = today();
   const s = projectSummary(p, base);
-  const tasks = p.schedule.map((t) => ({ t, i: taskInfo(t, base) }));
+  const infos = scheduleInfos(p.schedule, base);
+  const tasks = p.schedule.map((t, k) => ({ t, i: infos[k] }));
   const done = tasks.filter((x) => x.i.status === "완료").length;
   const empty = `<span class="ov-empty">미입력</span>`;
 
@@ -852,8 +853,9 @@ function tabOverviewView(p, el) {
 function tabScheduleEdit(p, el) {
   const base = today();
   const s = projectSummary(p, base);
+  const infos = scheduleInfos(p.schedule, base);
   const row = (t, i) => {
-    const info = taskInfo(t, base);
+    const info = infos[i];
     return `<tr data-id="${t.id}" class="${t.phase !== p.schedule[i - 1]?.phase ? "phase-start" : ""}">
       <td><input type="checkbox" data-f="done" ${t.done ? "checked" : ""} title="완료"></td>
       <td><input data-f="phase" value="${esc(t.phase)}" class="w-phase"></td>
@@ -894,7 +896,11 @@ function tabScheduleEdit(p, el) {
     if (["done", "start", "end"].includes(f)) {
       const info = taskInfo(t, base);
       for (const k of ["dur", "elapsed", "remain"]) $(`[data-c=${k}]`, tr).textContent = info[k];
-      $("[data-c=status]", tr).innerHTML = badge(info.status);
+      // 날짜 없는 세부 항목은 위 일정을 따르므로 전체 상태를 다시 표시
+      scheduleInfos(p.schedule, base).forEach((x, k) => {
+        const cell = $(`tr[data-id="${p.schedule[k].id}"] [data-c=status]`, tbody);
+        if (cell) cell.innerHTML = badge(x.status);
+      });
     }
   });
   tbody.addEventListener("click", (e) => {
@@ -946,7 +952,8 @@ function tabSchedule(p, el) {
 function tabScheduleView(p, el) {
   const base = today(), b = dayNo(base);
   const s = projectSummary(p, base);
-  const tasks = p.schedule.map((t) => ({ t, i: taskInfo(t, base) }));
+  const infos = scheduleInfos(p.schedule, base);
+  const tasks = p.schedule.map((t, k) => ({ t, i: infos[k] }));
   if (!tasks.length) {
     el.insertAdjacentHTML("beforeend", `<div class="card muted center pad">등록된 일정이 없습니다. <b>✏️ 표로 편집</b>에서 일정을 추가하세요.</div>`);
     return;
@@ -980,7 +987,8 @@ function tabScheduleView(p, el) {
     `<span class="now-label" style="left:${pct(b)}%">오늘 ${dateStr(b)}</span>`;
 
   const barHtml = (t, i, cls = "") => {
-    if (!isDate(t.start) || !isDate(t.end)) return `<span class="gv-nodate">날짜 미정</span>`;
+    if (!isDate(t.start) || !isDate(t.end))
+      return i.inherit ? `<span class="gv-nodate">↳ ${esc(i.inherit)} 일정 · ${esc(i.status)}</span>` : `<span class="gv-nodate">날짜 미정</span>`;
     const s0 = dayNo(t.start), e0 = dayNo(t.end) + 1;
     if (e0 <= min || s0 >= max) return `<span class="gv-nodate">${s0 >= max ? "→" : "←"} ${esc(fmtDot(t.start))}</span>`;
     const left = pct(s0), right = pct(e0);
@@ -1030,8 +1038,9 @@ function tabScheduleView(p, el) {
 
   // 지금 볼 것: 지연 / 진행 중 / 다가오는 일정
   const mini = (list, empty, fmt) => list.length ? `<ul class="mini">${list.map(fmt).join("")}</ul>` : `<p class="muted small">${empty}</p>`;
-  const delayed = tasks.filter((x) => x.i.status === "지연");
-  const active = tasks.filter((x) => x.i.status === "진행").sort((a, c) => a.t.end.localeCompare(c.t.end));
+  // 세부 항목(위 일정을 따르는 것)은 목록에 겹쳐 나오지 않게 뺌
+  const delayed = tasks.filter((x) => x.i.status === "지연" && !x.i.inherit);
+  const active = tasks.filter((x) => x.i.status === "진행" && !x.i.inherit).sort((a, c) => a.t.end.localeCompare(c.t.end));
   const next = tasks.filter((x) => x.i.status === "예정" && isDate(x.t.start)).sort((a, c) => a.t.start.localeCompare(c.t.start)).slice(0, 4);
   const item = (x, right) => `<li data-task="${x.t.id}"><span>${x.t.phase && x.t.phase !== x.t.name ? `<span class="muted small">${esc(x.t.phase)}</span> ` : ""}${esc(x.t.name)}</span><b>${right}</b></li>`;
 
