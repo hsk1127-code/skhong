@@ -677,6 +677,17 @@ dialog[open] { animation: pop .16s ease-out; }
 .labor-input { font-weight: 700; font-size: 15px; color: var(--text); }
 .labor-amt { font-size: 16px; color: var(--accent-ink); }
 #laborMode { font-weight: 500; margin-left: 4px; }
+.rate-row { display: flex; align-items: center; gap: 10px; min-width: 0; } #contractCard .form .rate-row input { width: 72px; flex: none; }
+.rate-amt { font-size: 15px; color: var(--accent-ink); white-space: nowrap; }
+.total-cost { margin-top: 12px; padding: 14px 16px; border-radius: var(--r-md, 10px); background: linear-gradient(135deg, var(--accent-soft), var(--panel-2)); border: 1px solid var(--accent-soft); }
+.tc-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 10px; }
+.tc-head span { font-weight: 600; } .tc-head b { font-size: 22px; color: var(--accent-ink); } .tc-head small { color: var(--muted); }
+.tc-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tc-parts > div { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.tc-parts b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-contract .tc-parts, .wide .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tc-parts span { font-size: 12px; color: var(--muted); } .tc-parts b { font-size: 14px; text-align: right; } .tc-parts small { grid-column: 1 / -1; text-align: right; } .tc-parts small { font-size: 11px; color: var(--muted); }
+.tc-parts i { font-style: normal; color: var(--muted); }
 
 </style>
 </head>
@@ -1163,7 +1174,7 @@ const Store = (() => {
       id: uid(), created: t, updated: t,
       overview: { name: name || "새 프로젝트", project: "", projectNo: "", partNo: "", customer: "",
         receiveDate: "", receivePlace: "", scope: "", warranty: "", note: "", status: "진행", manager: state.settings.user || "",
-        orderDate: "", orderAmount: "", estimateCost: "", targetCost: "", actualCost: "", md: {}, mdRate: "", laborCost: "", costV2: true, vat: "별도", payments: [], extra: [],
+        orderDate: "", orderAmount: "", estimateCost: "", targetCost: "", actualCost: "", md: {}, mdRate: "", laborCost: "", overheadRate: "", warrantyRate: "", costV2: true, vat: "별도", payments: [], extra: [],
         kickoffDate: "", setupDate: "", warrantyStart: "", warrantyYears: "", paidDate: "" },
       report: { summary: "", issues: "", warrantyNote: "", completedDate: "" },
       schedule: [],
@@ -1784,6 +1795,9 @@ async function buildWorkbook(p) {
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
   ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
     [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+    [{ v: "재경비", s: "head" }, { v: ci.overhead || "", s: "money" }, { v: ci.overheadRate ? `실행가 × ${ci.overheadRate}%` : "", s: "cell" }],
+    [{ v: "워런티비", s: "head" }, { v: ci.warrantyCost || "", s: "money" }, { v: ci.warrantyRate ? `실행가 × ${ci.warrantyRate}%` : "", s: "cell" }],
+    [{ v: "실행가 합계", s: "head" }, { v: ci.totalCost || "", s: "money" }, { v: ci.totalProfit != null ? `실행가+인건비+재경비+워런티비 · 이익 ${fmtWon(ci.totalProfit)} (${(ci.totalRate * 100).toFixed(1)}%)` : "실행가+인건비+재경비+워런티비", s: "cell" }],
     [{ v: "인건비", s: "head" }, { v: ci.labor || "", s: "money" }, { v: [ci.mdTotal && `${ci.mdText} = ${ci.mdTotal} M/D`, ci.mdRate && `단가 ${fmtWon(ci.mdRate)}`].filter(Boolean).join(" · "), s: "cell" }],
     [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
@@ -2068,10 +2082,16 @@ function contractInfo(p) {
   const mdRate = toAmount(o.mdRate), laborAuto = Math.round(mdTotal * mdRate), labor = toAmount(o.laborCost) || laborAuto;
   const costBase = toAmount(o.actualCost);
   const estimateCost = toAmount(o.estimateCost), targetCost = toAmount(o.targetCost), actualCost = costBase;
+  // 재경비·워런티비 = 실행가 × 설정 비율(%), 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
+  const overheadRate = mdNum(o.overheadRate), warrantyRate = mdNum(o.warrantyRate);
+  const overhead = Math.round((actualCost * overheadRate) / 100), warrantyCost = Math.round((actualCost * warrantyRate) / 100);
+  const totalCost = actualCost + labor + overhead + warrantyCost;
   const rate = (cost) => (amount && cost ? (amount - cost) / amount : null);
   return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
     paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0),
     estimateCost, targetCost, actualCost, costBase, md, mdTotal, mdRate, labor, laborAuto, laborManual: !!toAmount(o.laborCost),
+    overheadRate, warrantyRate, overhead, warrantyCost, totalCost,
+    totalProfit: amount && totalCost ? amount - totalCost : null, totalRate: rate(totalCost),
     mdText: MD_FIELDS.filter(([k]) => mdNum(md[k])).map(([k, l]) => `${l} ${mdNum(md[k])}`).join(" · "),
     estProfit: amount && estimateCost ? amount - estimateCost : null, estRate: rate(estimateCost),
     targetProfit: amount && targetCost ? amount - targetCost : null, targetRate: rate(targetCost),
@@ -3129,6 +3149,11 @@ function contractEditHtml(p) {
       <label>실행목표가 (원)<input data-ck="targetCost" data-money inputmode="numeric" value="${c.targetCost ? c.targetCost.toLocaleString("ko-KR") : ""}" placeholder="예: 140,000,000"></label>
       <label>실행가 (원)<input data-ck="actualCost" data-money inputmode="numeric" value="${c.actualCost ? c.actualCost.toLocaleString("ko-KR") : ""}" placeholder="실제 투입 금액"></label>
     </div>
+    <div class="form rate-grid" style="margin-top:10px">
+      ${[["overheadRate", "재경비", "overhead"], ["warrantyRate", "워런티비", "warrantyCost"]].map(([k, l, a]) => `<label>${l} 비율 (%)
+        <span class="rate-row"><input data-rate="${k}" inputmode="decimal" value="${esc(o[k] ?? "")}" placeholder="예: ${k === "overheadRate" ? "5" : "2"}">
+        <b class="rate-amt" id="amt-${a}">${c[a] ? fmtWon(c[a]) : "0원"}</b></span><span class="muted small">실행가 × 비율</span></label>`).join("")}
+    </div>
     <h4 style="margin:16px 0 8px">인건비 <span class="muted small" style="font-weight:400">분야별 M/D × M/D 단가</span></h4>
     <div class="form md-grid">${MD_FIELDS.map(([k, l]) => `<label>${l} (M/D)<input data-md="${k}" inputmode="decimal" value="${esc((o.md || {})[k] ?? "")}" placeholder="0"></label>`).join("")}</div>
     <div class="form" style="margin-top:10px">
@@ -3138,6 +3163,7 @@ function contractEditHtml(p) {
         <span class="muted small">고쳐 쓰면 직접 입력 · 지우면 자동</span></label>
     </div>
     <div class="labor-view" id="laborView">${laborViewHtml(c)}</div>
+    <div class="total-cost" id="totalView">${totalViewHtml(c)}</div>
     <div class="cost-view" id="costView">${costViewHtml(c)}</div>
     <h4 style="margin:18px 0 8px">정산 비율</h4>
     <div class="pay-quick"><input data-paytext value="${esc(c.payments.map((x) => `${x.name} ${x.ratio}`).join(" / "))}" placeholder="예: 30/60/10 또는 선금30 중도금60 잔금10">
@@ -3163,6 +3189,14 @@ function contractEditHtml(p) {
     <div class="row2" style="margin-top:8px"><button type="button" class="btn sm" data-padd>＋ 단계 추가</button>
       <button type="button" class="btn sm" data-presetsave ${c.payments.length && c.ratioSum === 100 ? "" : "disabled"} title="지금 비율을 '자주 쓰는 비율'에 추가합니다 (모든 프로젝트에서 사용)">★ 자주 쓰는 비율로 저장</button></div>`;
 }
+// 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
+function totalViewHtml(c) {
+  const part = (l, v, sub = "") => `<div><span>${l}</span><b>${fmtWon(v)}</b>${sub ? `<small>${sub}</small>` : ""}</div>`;
+  return `<div class="tc-head"><span>실행가 합계</span><b>${fmtWon(c.totalCost)}</b>
+      <small>${c.totalProfit != null ? `합계 기준 이익 ${fmtWon(c.totalProfit)} (${pctText(c.totalRate)})` : "실행가 + 인건비 + 재경비 + 워런티비"}</small></div>
+    <div class="tc-parts">${part("실행가", c.actualCost)}${part("＋ 인건비", c.labor, c.mdTotal ? `${c.mdTotal} M/D` : "")}
+      ${part("＋ 재경비", c.overhead, c.overheadRate ? `${c.overheadRate}%` : "")}${part("＋ 워런티비", c.warrantyCost, c.warrantyRate ? `${c.warrantyRate}%` : "")}</div>`;
+}
 function laborViewHtml(c) {
   const parts = [];
   parts.push(c.mdTotal ? `총 <b>${c.mdTotal} M/D</b>${c.mdText ? ` <span class="muted">(${esc(c.mdText)})</span>` : ""}` : `<span class="muted">M/D 미입력</span>`);
@@ -3177,6 +3211,7 @@ function costViewHtml(c) {
   return cell("예상 이익", c.estProfit != null ? fmtWon(c.estProfit) : "-", c.estRate != null ? `이익률 ${pctText(c.estRate)}` : "실행 예가 미입력", c.estProfit != null && c.estProfit < 0 ? "bad" : "")
     + cell("목표 이익", c.targetProfit != null ? fmtWon(c.targetProfit) : "-", c.targetRate != null ? `이익률 ${pctText(c.targetRate)}` : "실행목표가 미입력")
     + cell("실제 이익", c.profit != null ? fmtWon(c.profit) : "-", c.profitRate != null ? `이익률 ${pctText(c.profitRate)}` : "실행가 미입력", c.profit != null && c.profit < 0 ? "bad" : "")
+    + (c.totalCost && c.totalCost !== c.actualCost ? cell("합계 기준 이익", c.totalProfit != null ? fmtWon(c.totalProfit) : "-", c.totalRate != null ? `이익률 ${pctText(c.totalRate)}` : "", c.totalProfit != null && c.totalProfit < 0 ? "bad" : "") : "")
     + cell("목표 대비", c.overBudget != null ? (c.overBudget > 0 ? `+${fmtWon(c.overBudget)}` : c.overBudget < 0 ? `-${fmtWon(-c.overBudget)}` : "목표와 같음") : "-",
       c.overBudget != null ? `${c.overBasis} 기준 ${c.overBudget > 0 ? "목표 초과" : c.overBudget < 0 ? "절감" : ""}` : "", c.overBudget > 0 ? "bad" : c.overBudget < 0 ? "good" : "");
 }
@@ -3187,6 +3222,8 @@ function bindContractEdit(p, card) {
   const refreshLabor = (typing) => {
     const c = contractInfo(p), inp = $("[data-ck=laborCost]", card);
     $("#laborView", card).innerHTML = laborViewHtml(c);
+    $("#totalView", card).innerHTML = totalViewHtml(c);
+    for (const a of ["overhead", "warrantyCost"]) $(`#amt-${a}`, card).textContent = c[a] ? fmtWon(c[a]) : "0원";
     $("#laborMode", card).textContent = c.laborManual ? "직접 입력" : "자동 계산";
     if (!typing && !c.laborManual) inp.value = c.labor ? c.labor.toLocaleString("ko-KR") : "";
   };
@@ -3207,6 +3244,10 @@ function bindContractEdit(p, card) {
       if ("labor" in t.dataset && toAmount(o.laborCost) === contractInfo({ ...p, overview: { ...o, laborCost: "" } }).laborAuto) o.laborCost = "";
       $("#costView", card).innerHTML = costViewHtml(contractInfo(p));
       refreshLabor("labor" in t.dataset);
+    } else if (t.dataset.rate) {
+      o[t.dataset.rate] = t.value.replace(/[^\d.]/g, "");
+      $("#costView", card).innerHTML = costViewHtml(contractInfo(p));
+      refreshLabor(false);
     } else if (t.dataset.md) {
       o.md = { ...(o.md || {}), [t.dataset.md]: t.value.replace(/[^\d.]/g, "") };
       $("#costView", card).innerHTML = costViewHtml(contractInfo(p));
@@ -3394,6 +3435,8 @@ function tabOverviewView(p, el) {
           <span class="muted small">${c.targetRate != null ? `목표 이익률 ${pctText(c.targetRate)}` : ""}</span></div>
         <div><span class="muted small">실행가</span><b class="${c.actualCost && c.overBudget > 0 ? "bad" : ""}">${c.actualCost ? fmtWon(c.actualCost) : empty}</b>
           <span class="muted small">${c.profit != null ? `이익 ${fmtWon(c.profit)} (${pctText(c.profitRate)})` : ""}${c.actualCost && c.overBudget > 0 ? ` · 목표 초과 ${fmtWon(c.overBudget)}` : ""}</span></div>
+        ${c.totalCost && c.totalCost !== c.actualCost ? `<div><span class="muted small">실행가 합계</span><b>${fmtWon(c.totalCost)}</b>
+          <span class="muted small">${[c.labor && `인건비 ${fmtWon(c.labor)}`, c.overhead && `재경비 ${fmtWon(c.overhead)}`, c.warrantyCost && `워런티비 ${fmtWon(c.warrantyCost)}`].filter(Boolean).join(" · ")}${c.totalProfit != null ? ` · 이익 ${fmtWon(c.totalProfit)} (${pctText(c.totalRate)})` : ""}</span></div>` : ""}
         ${c.labor || c.mdTotal ? `<div><span class="muted small">인건비</span><b>${c.labor ? fmtWon(c.labor) : empty}</b>
           <span class="muted small">${c.mdTotal ? `${esc(c.mdText)} = ${c.mdTotal} M/D` : ""}</span></div>` : ""}
         <div><span class="muted small">정산 진행</span><b>${c.paidRatio}%</b><span class="muted small">${c.paidAmount ? `${fmtWon(c.paidAmount)} 수금` : "수금 전"}</span></div>
@@ -4287,6 +4330,8 @@ function reportHtml(p, inc) {
       ["실행목표가", c.targetCost ? fmtWon(c.targetCost) : v(""), "목표 이익률", c.targetRate != null ? `${fmtWon(c.targetProfit)} · ${pct(c.targetRate)}` : v("")],
       ["실행가", c.actualCost ? `${fmtWon(c.actualCost)}${c.actualCost && c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">${c.overBudget > 0 ? "목표 초과" : "목표 대비 절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v(""),
         "이익 · 이익률", c.profit != null ? `<b>${fmtWon(c.profit)}</b> · ${pct(c.profitRate)}` : v("")],
+      ...(c.overhead || c.warrantyCost ? [["재경비", c.overhead ? `${fmtWon(c.overhead)} <span class="rp-sub">실행가 × ${c.overheadRate}%</span>` : v(""), "워런티비", c.warrantyCost ? `${fmtWon(c.warrantyCost)} <span class="rp-sub">실행가 × ${c.warrantyRate}%</span>` : v("")]] : []),
+      ...(c.totalCost && c.totalCost !== c.actualCost ? [["실행가 합계", `<b>${fmtWon(c.totalCost)}</b> <span class="rp-sub">실행가+인건비+재경비+워런티비</span>`, "합계 기준 이익", c.totalProfit != null ? `<b>${fmtWon(c.totalProfit)}</b> · ${pct(c.totalRate)}` : v("")]] : []),
       ...(c.labor || c.mdTotal ? [["인건비", `${c.labor ? fmtWon(c.labor) : v("")}${c.mdTotal ? ` <span class="rp-sub">${esc(c.mdText)} = ${c.mdTotal} M/D${c.mdRate ? ` × ${fmtWon(c.mdRate)}` : ""}</span>` : ""}`]] : []),
       ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
     ${payBar}

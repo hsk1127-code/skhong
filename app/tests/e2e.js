@@ -50,6 +50,12 @@ const assert = require("assert");
   assert.strictEqual(await p.inputValue("[data-ck=laborCost]"), "1,000,000");
   assert.match(await p.textContent("#laborView"), /총 2 M\/D[\s\S]*인건비 1,000,000원/);
   assert.match(await p.textContent("#costView"), /실제 이익30,000,000원/);
+  // 재경비·워런티비 = 실행가 × 비율, 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
+  await p.fill("[data-rate=overheadRate]", "5");
+  await p.fill("[data-rate=warrantyRate]", "2");
+  assert.strictEqual(await p.textContent("#amt-overhead"), "4,500,000원");
+  assert.match(await p.textContent("#totalView"), /실행가 합계97,300,000원/);
+  await p.fill("[data-rate=overheadRate]", ""); await p.fill("[data-rate=warrantyRate]", "");
   await p.click('.preset-chip button:text-is("30 : 70")');
   assert.deepStrictEqual(await p.$$eval(".pay-table [data-amt]", (els) => els.map((e) => e.textContent)), ["36,000,000", "84,000,000"]);
   await p.selectOption(".pay-table tbody tr:first-child [data-pf=status]", "수금완료");

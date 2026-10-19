@@ -542,6 +542,9 @@ async function buildWorkbook(p) {
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
   ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
     [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+    [{ v: "재경비", s: "head" }, { v: ci.overhead || "", s: "money" }, { v: ci.overheadRate ? `실행가 × ${ci.overheadRate}%` : "", s: "cell" }],
+    [{ v: "워런티비", s: "head" }, { v: ci.warrantyCost || "", s: "money" }, { v: ci.warrantyRate ? `실행가 × ${ci.warrantyRate}%` : "", s: "cell" }],
+    [{ v: "실행가 합계", s: "head" }, { v: ci.totalCost || "", s: "money" }, { v: ci.totalProfit != null ? `실행가+인건비+재경비+워런티비 · 이익 ${fmtWon(ci.totalProfit)} (${(ci.totalRate * 100).toFixed(1)}%)` : "실행가+인건비+재경비+워런티비", s: "cell" }],
     [{ v: "인건비", s: "head" }, { v: ci.labor || "", s: "money" }, { v: [ci.mdTotal && `${ci.mdText} = ${ci.mdTotal} M/D`, ci.mdRate && `단가 ${fmtWon(ci.mdRate)}`].filter(Boolean).join(" · "), s: "cell" }],
     [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
@@ -826,10 +829,16 @@ function contractInfo(p) {
   const mdRate = toAmount(o.mdRate), laborAuto = Math.round(mdTotal * mdRate), labor = toAmount(o.laborCost) || laborAuto;
   const costBase = toAmount(o.actualCost);
   const estimateCost = toAmount(o.estimateCost), targetCost = toAmount(o.targetCost), actualCost = costBase;
+  // 재경비·워런티비 = 실행가 × 설정 비율(%), 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
+  const overheadRate = mdNum(o.overheadRate), warrantyRate = mdNum(o.warrantyRate);
+  const overhead = Math.round((actualCost * overheadRate) / 100), warrantyCost = Math.round((actualCost * warrantyRate) / 100);
+  const totalCost = actualCost + labor + overhead + warrantyCost;
   const rate = (cost) => (amount && cost ? (amount - cost) / amount : null);
   return { amount, payments, ratioSum, paidAmount: paid.reduce((a, x) => a + x.amount, 0),
     paidRatio: paid.reduce((a, x) => a + (Number(x.ratio) || 0), 0),
     estimateCost, targetCost, actualCost, costBase, md, mdTotal, mdRate, labor, laborAuto, laborManual: !!toAmount(o.laborCost),
+    overheadRate, warrantyRate, overhead, warrantyCost, totalCost,
+    totalProfit: amount && totalCost ? amount - totalCost : null, totalRate: rate(totalCost),
     mdText: MD_FIELDS.filter(([k]) => mdNum(md[k])).map(([k, l]) => `${l} ${mdNum(md[k])}`).join(" · "),
     estProfit: amount && estimateCost ? amount - estimateCost : null, estRate: rate(estimateCost),
     targetProfit: amount && targetCost ? amount - targetCost : null, targetRate: rate(targetCost),

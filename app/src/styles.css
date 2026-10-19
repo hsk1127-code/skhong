@@ -667,3 +667,14 @@ dialog[open] { animation: pop .16s ease-out; }
 .labor-input { font-weight: 700; font-size: 15px; color: var(--text); }
 .labor-amt { font-size: 16px; color: var(--accent-ink); }
 #laborMode { font-weight: 500; margin-left: 4px; }
+.rate-row { display: flex; align-items: center; gap: 10px; min-width: 0; } #contractCard .form .rate-row input { width: 72px; flex: none; }
+.rate-amt { font-size: 15px; color: var(--accent-ink); white-space: nowrap; }
+.total-cost { margin-top: 12px; padding: 14px 16px; border-radius: var(--r-md, 10px); background: linear-gradient(135deg, var(--accent-soft), var(--panel-2)); border: 1px solid var(--accent-soft); }
+.tc-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; margin-bottom: 10px; }
+.tc-head span { font-weight: 600; } .tc-head b { font-size: 22px; color: var(--accent-ink); } .tc-head small { color: var(--muted); }
+.tc-parts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tc-parts > div { display: grid; grid-template-columns: auto 1fr; align-items: baseline; column-gap: 8px; background: var(--panel); border: 1px solid var(--line-2); border-radius: 8px; padding: 6px 8px; min-width: 0; }
+.tc-parts b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ov-contract .tc-parts, .wide .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tc-parts span { font-size: 12px; color: var(--muted); } .tc-parts b { font-size: 14px; text-align: right; } .tc-parts small { grid-column: 1 / -1; text-align: right; } .tc-parts small { font-size: 11px; color: var(--muted); }
+.tc-parts i { font-style: normal; color: var(--muted); }
