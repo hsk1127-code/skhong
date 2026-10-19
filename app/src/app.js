@@ -363,7 +363,7 @@ function renderHome() {
 }
 function bindGoto(root) {
   $$("[data-goto]", root).forEach((el) => (el.onclick = () =>
-    go({ view: "project", id: el.dataset.goto, tab: el.dataset.tab, meeting: el.dataset.meeting, record: el.dataset.record })));
+    go({ view: "project", id: el.dataset.goto, tab: el.dataset.tab, meeting: el.dataset.meeting, record: el.dataset.record, spec: el.dataset.spec })));
 }
 
 // ------------------------------------------------------------- 전체 검색
@@ -380,10 +380,12 @@ function renderSearch() {
     for (const m of p.meetings) if (hit(m.title, m.content, m.attendees, m.notes, ...m.actions.map((a) => a.text + " " + a.owner)))
       add("meetings", "회의록", m.title, fmtDot(m.date), { meeting: m.id });
     for (const t of p.schedule) if (hit(t.phase, t.name, t.owner, t.note)) add("schedule", "일정", `${t.phase} · ${t.name}`, `${fmtDot(t.start)} ~ ${fmtDot(t.end)}`);
+    for (const sp of ensureSpecs(p)) for (const r of sp.rows) if (hit(r.kind, r.item, r.content, r.review))
+      add("spec", sp.name, [r.item, r.content].filter(Boolean).join(" · "), "", { spec: sp.id });
     for (const u of ensureUnits(p)) for (const r of u.bom) if (isItemRow(r) && hit(r.kind, r.item, r.model, r.maker, r.note))
       add("parts", `BOM · ${u.name}`, [r.item, r.model, r.maker].filter(Boolean).join(" · "), "", { sub: "bom" });
     for (const [key, def] of Object.entries(LISTS)) {
-      if (key === "unitbom" || key === "bom") continue;
+      if (["unitbom", "bom", "specsec", "sw", "hw"].includes(key)) continue;
       const tab = { sw: "spec", hw: "spec", supplied: "parts", consumables: "parts", bom: "parts" }[key] || key;
       for (const r of listRows(p, key)) if (hit(...def.cols.map((c) => r[c.key])))
         add(tab, def.title, def.cols.map((c) => r[c.key]).filter(Boolean).slice(0, 3).join(" · "), "", { sub: key });
@@ -391,7 +393,7 @@ function renderSearch() {
   }
   $("#main").innerHTML = `<div class="page-head"><h1>검색: “${esc(route.q)}”</h1><span class="muted">${results.length}건</span></div>
     <div class="card">${results.length ? `<table class="list"><tbody>${results.map((r) => `
-      <tr data-goto="${r.p.id}" data-tab="${r.tab}" ${r.extra.record ? `data-record="${r.extra.record}"` : ""} ${r.extra.meeting ? `data-meeting="${r.extra.meeting}"` : ""}>
+      <tr data-goto="${r.p.id}" data-tab="${r.tab}" ${r.extra.record ? `data-record="${r.extra.record}"` : ""} ${r.extra.meeting ? `data-meeting="${r.extra.meeting}"` : ""} ${r.extra.spec ? `data-spec="${r.extra.spec}"` : ""}>
       <td><span class="tag">${esc(r.type)}</span></td><td><b>${esc(r.title)}</b> <span class="muted small">${esc(r.sub)}</span></td>
       <td class="muted pcol">${esc(r.p.overview.name)}</td></tr>`).join("")}</tbody></table>` : `<p class="muted">검색 결과가 없습니다.</p>`}</div>`;
   bindGoto($("#main"));
@@ -404,6 +406,7 @@ function renderProject(p) {
     vat: p.overview.vat || "별도", payments: p.overview.payments || [] });
   p.report ||= { summary: "", issues: "", warrantyNote: "", completedDate: "" };
   ensureUnits(p);
+  ensureSpecs(p);
   for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
     delete p.report[k];
@@ -422,6 +425,7 @@ function renderProject(p) {
   const tab = TABS.some(([k]) => k === route.tab) ? route.tab : "overview";
   const s = projectSummary(p);
   const counts = { records: p.records.length, meetings: p.meetings.length, schedule: s.delayed.length ? `⚠${s.delayed.length}` : "",
+    spec: specItemCount(p) || "",
     parts: bomItemCount(p) + p.lists.consumables.length + p.lists.supplied.length || "", submissions: s.pendingSubmissions.length || "",
     changes: p.lists.changes.length || "" };
   $("#main").innerHTML = `
@@ -1652,14 +1656,40 @@ function reportHtml(p, inc) {
 }
 
 // ------------------------------------------------------------- 사양, 자재
+// 사양: 구분(SW 사양, HW 주요 Spec, 기구 사양 …)을 자유롭게 추가하고 구분마다 표·첨부·메모
 function tabSpec(p, el) {
-  el.innerHTML = gridCard(p, "sw") + gridCard(p, "hw") + `<div class="card"><h3>HW 주요 Spec 자료 (도면·캡처·사양서)</h3>
-    ${DROPZONE()}<div class="thumbs">${thumbs(p.hwImages, { removable: true })}</div>
-    <div class="chips">${fileChips(p.hwImages.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")), { removable: true })}</div>
-    <label class="form-1">메모<textarea id="hwNote" rows="3">${esc(p.hwNote)}</textarea></label></div>`;
-  const card = el.lastElementChild;
+  const specs = ensureSpecs(p);
+  if (!specs.some((x) => x.id === route.spec)) route.spec = specs[0].id;
+  const sp = specs.find((x) => x.id === route.spec), key = `spec:${sp.id}`;
+  el.innerHTML = `<div class="unit-bar">
+      ${specs.map((x) => `<button class="unit-chip ${x === sp ? "active" : ""}" data-spec="${x.id}"><b>${esc(x.name)}</b><small>${x.rows.length}항목${x.files.length ? ` · 첨부 ${x.files.length}` : ""}</small></button>`).join("")}
+      <span class="unit-actions"><button class="btn primary sm" id="addSpec">＋ 사양 추가</button></span>
+    </div>
+    <div class="card parts-tools"><div class="unit-edit">
+      <label>사양 이름<input id="specName" value="${esc(sp.name)}"></label>
+      <span class="muted small">항목은 표에서 바로 고치고, 엑셀에서 여러 행을 복사해 붙여넣을 수 있습니다.</span>
+      <button class="btn sm" id="specImport">📥 엑셀에서 가져오기</button>
+      <button class="btn danger sm" id="delSpec" ${specs.length > 1 ? "" : "disabled"}>사양 삭제</button></div></div>
+    ${gridCard(p, key, " ")}
+    <div class="card spec-files"><h3>${esc(sp.name)} 자료 <span class="muted small">도면·캡처·사양서</span></h3>
+      ${DROPZONE()}<div class="thumbs">${thumbs(sp.files, { removable: true })}</div>
+      <div class="chips">${fileChips(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")), { removable: true })}</div>
+      <label class="form-1">메모<textarea id="specNote" rows="3">${esc(sp.note)}</textarea></label></div>`;
+  $$("[data-spec]", el).forEach((b) => (b.onclick = () => { route.spec = b.dataset.spec; rerender(); }));
+  $("#addSpec").onclick = () => addSpecDialog(p);
+  $("#specName").onchange = (e) => { sp.name = e.target.value.trim() || sp.name; Store.touch(p); rerender(); };
+  $("#delSpec").onclick = async () => {
+    if (!confirm(`'${sp.name}' 사양을 삭제할까요?${sp.rows.length || sp.files.length ? `\n항목 ${sp.rows.length}개와 첨부 ${sp.files.length}개도 함께 삭제됩니다.` : ""}`)) return;
+    p.specs = specs.filter((x) => x !== sp);
+    route.spec = p.specs[0].id;
+    Store.touch(p);
+    await Store.gc();
+    rerender();
+  };
+  $("#specImport").onclick = () => pickFiles(".xlsx", false, (f) => specImportDialog(p, sp, f[0]));
+  const card = $(".spec-files", el);
   attachDropzone($(".dropzone", card), async (files) => {
-    for (const f of files) p.hwImages.push(await Store.addFile(f, f.name));
+    for (const f of files) sp.files.push(await Store.addFile(f, f.name));
     Store.touch(p);
     rerender();
   }, card);
@@ -1667,12 +1697,87 @@ function tabSpec(p, el) {
     if (!e.target.dataset.remove) return;
     e.stopPropagation();
     if (!confirm("이 파일을 삭제할까요?")) return;
-    p.hwImages = p.hwImages.filter((x) => x !== e.target.dataset.remove);
+    sp.files = sp.files.filter((x) => x !== e.target.dataset.remove);
     Store.touch(p);
     await Store.gc();
     rerender();
   });
-  $("#hwNote").oninput = (e) => { p.hwNote = e.target.value; Store.touch(p); };
+  $("#specNote").oninput = (e) => { sp.note = e.target.value; Store.touch(p); };
+}
+
+function addSpecDialog(p) {
+  const specs = ensureSpecs(p);
+  openDialog(`<h3>＋ 사양 추가</h3>
+    <div class="form"><label class="full">사양 이름<input name="name" required placeholder="예: 기구 사양"></label></div>
+    <div class="pay-presets"><span class="muted small">예시</span>${SPEC_TEMPLATES.map(([n], i) =>
+      `<span class="preset-chip"><button type="button" data-tpl="${i}">${esc(n)}</button></span>`).join("")}</div>
+    <label class="row2" style="margin-top:10px"><input type="checkbox" name="fill" checked> 예시를 고르면 기본 항목도 채우기 <span class="muted small" id="tplItems"></span></label>`,
+  (form) => {
+    const name = form.elements.name.value.trim();
+    if (specs.some((x) => norm(x.name) === norm(name))) { toast("같은 이름의 사양이 이미 있습니다."); return false; }
+    const tpl = SPEC_TEMPLATES.find(([n]) => n === name);
+    const rows = tpl && form.elements.fill.checked ? tpl[1].map((item) => ({ id: Store.uid(), kind: "", item, content: "", review: "" })) : [];
+    const sp = { id: Store.uid(), name, rows, files: [], note: "" };
+    specs.push(sp);
+    route.spec = sp.id;
+    Store.touch(p);
+    rerender();
+  }, { okLabel: "추가", onOpen: (dlg, form) => {
+    dlg.addEventListener("click", (e) => {
+      const i = e.target.dataset.tpl;
+      if (i == null) return;
+      const [n, items] = SPEC_TEMPLATES[i];
+      form.elements.name.value = n;
+      $("#tplItems", dlg).textContent = `(${items.join(", ")})`;
+      $$(".preset-chip", dlg).forEach((c) => c.classList.toggle("on", c.contains(e.target)));
+    });
+  } });
+}
+
+async function specImportDialog(p, sp, file) {
+  let wb;
+  await busy("엑셀 파일을 읽는 중…", async () => { wb = await Xlsx.read(file); });
+  if (!wb) return;
+  const sheets = wb.sheets.map((sh) => ({ sh, info: analyzeSpecSheet(sh) })).filter((x) => x.info);
+  if (!sheets.length) return toast("항목·내용(요구사항) 같은 머리글이 있는 시트를 찾지 못했습니다.", 5000);
+  let cur = sheets[0], mapping = { ...cur.info.mapping };
+  const LABELS = { kind: "구분", item: "항목", content: "내용", review: "검토" };
+  openDialog(`<h3>사양 엑셀 가져오기 <span class="muted small">${esc(file.name)}</span></h3>
+    <div class="form">
+      <label>시트<select name="sheet">${sheets.map((x, i) => `<option value="${i}">${esc(x.sh.name)} (${readSpecRows(x.info, x.info.mapping).length}행)</option>`).join("")}</select></label>
+      <label>넣을 사양<select name="target">${ensureSpecs(p).map((x) => `<option value="${x.id}" ${x === sp ? "selected" : ""}>${esc(x.name)}</option>`).join("")}</select></label>
+      <label class="full">가져오는 방법<select name="mode"><option value="append">기존 항목 뒤에 추가</option><option value="replace">기존 항목을 이 내용으로 바꾸기</option></select></label>
+    </div>
+    <h4>열 맞추기 <span class="muted small">자동으로 맞춘 결과입니다. 틀리면 바꿔 주세요.</span></h4>
+    <div class="map-grid" id="mapGrid"></div>
+    <label class="row2" style="margin-top:10px"><input type="checkbox" name="keep" checked> 원본 엑셀 파일을 사양 자료로 보관</label>
+    <h4>미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
+  async (form) => {
+    const rows = readSpecRows(cur.info, mapping);
+    const target = ensureSpecs(p).find((x) => x.id === form.elements.target.value);
+    target.rows = form.elements.mode.value === "replace" ? rows : [...target.rows, ...rows];
+    if (form.elements.keep.checked) target.files.push(await Store.addFile(file, file.name));
+    route.spec = target.id;
+    Store.touch(p);
+    rerender();
+    toast(`${rows.length}개 항목을 '${target.name}'에 넣었습니다.`);
+  }, { wide: true, okLabel: "가져오기", onOpen: (dlg, form) => {
+    const drawMap = () => {
+      $("#mapGrid", dlg).innerHTML = Object.entries(LABELS).map(([k, label]) => `<label>${label}<select data-map="${k}">
+        <option value="">(없음)</option>${cur.info.columns.map((c) => `<option value="${c.c}" ${String(mapping[k]) === String(c.c) ? "selected" : ""}>${Xlsx.colName(c.c)}: ${esc(c.label.slice(0, 30))}</option>`).join("")}
+        </select></label>`).join("");
+    };
+    const draw = () => {
+      const rows = readSpecRows(cur.info, mapping);
+      $("#pvSum", dlg).textContent = `${rows.length}개 항목`;
+      $("#pv", dlg).innerHTML = `<div class="table-scroll preview"><table class="list"><thead><tr><th>NO</th>${Object.values(LABELS).map((l) => `<th>${l}</th>`).join("")}</tr></thead>
+        <tbody>${rows.slice(0, 60).map((r, i) => `<tr><td class="muted">${i + 1}</td><td>${esc(r.kind)}</td><td>${esc(r.item)}</td><td>${esc(r.content)}</td><td>${esc(r.review)}</td></tr>`).join("")}</tbody></table></div>`;
+    };
+    form.elements.sheet.onchange = () => { cur = sheets[form.elements.sheet.value]; mapping = { ...cur.info.mapping }; drawMap(); draw(); };
+    dlg.addEventListener("change", (e) => { if (e.target.dataset.map != null) { mapping[e.target.dataset.map] = e.target.value; draw(); } });
+    drawMap();
+    draw();
+  } });
 }
 const PART_LISTS = ["bom", "consumables", "supplied"];
 let partsUndo = null; // { pid, key, rows, label } 마지막 가져오기/정리 직전 상태

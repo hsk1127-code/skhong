@@ -115,6 +115,15 @@ const assert = require("assert");
   const sumRows = await p.$$eval(".sum-table tbody tr", (trs) => trs.map((t) => [...t.children].map((td) => td.textContent.trim())));
   assert.deepStrictEqual(sumRows.map((r) => [r[2], r[r.length - 2]]), [["말굽센서", "10"], ["메인제어PC", "1"]]);
 
+  // 사양: 예시(안전 사양)로 구분 추가 → 기본 항목 채움
+  await p.click(".tabs [data-tab=spec]");
+  assert.deepStrictEqual(await p.$$eval(".unit-chip b", (b) => b.map((x) => x.textContent)), ["SW 사양", "HW 주요 Spec"]);
+  await p.click("#addSpec");
+  await p.click('dialog [data-tpl]:text-is("안전 사양")');
+  await p.click("dialog button.primary");
+  assert.match(await p.textContent(".unit-chip.active"), /안전 사양.*5항목/);
+  assert.strictEqual(await p.inputValue("[data-grid^=spec] tbody tr:first-child [data-f=item]"), "비상 정지 (EMO)");
+
   await p.click(".tabs [data-tab=meetings]");
   assert.strictEqual(await p.inputValue("[data-mf=title]"), "고객사 Kick-off");
   assert.strictEqual(await p.inputValue("[data-mf=date]"), "2026-09-16");

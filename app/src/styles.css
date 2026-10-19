@@ -613,3 +613,4 @@ dialog[open] { animation: pop .16s ease-out; }
 .sum-table td, .sum-table th { padding: 7px 8px; white-space: nowrap; } .sum-table tr.shared td { background: var(--accent-soft); }
 .sum-table th.num { white-space: normal; min-width: 76px; max-width: 130px; line-height: 1.3; }
 .sum-table td:last-child { white-space: normal; min-width: 160px; max-width: 280px; }
+.parts-tools .unit-edit:last-child { border-bottom: 0; margin-bottom: 0; padding-bottom: 0; }

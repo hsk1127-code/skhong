@@ -7,9 +7,10 @@ const PART_COLS = [
   { key: "kind", label: "구분", w: 12 }, { key: "item", label: "품목", w: 22 }, { key: "model", label: "모델명", w: 22 },
   { key: "maker", label: "업체명", w: 16 }, { key: "qty", label: "개수", w: 7, type: "number" }, { key: "note", label: "비고", w: 24 },
 ];
+// 사양 항목은 문장이 길어서 항목·내용·검토 모두 줄바꿈되는 칸으로
 const SPEC_COLS = [
-  { key: "kind", label: "구분", w: 12 }, { key: "item", label: "항목", w: 22 },
-  { key: "content", label: "내용", w: 50, type: "textarea" }, { key: "review", label: "검토", w: 16 },
+  { key: "kind", label: "구분", w: 12 }, { key: "item", label: "항목", w: 30, type: "textarea" },
+  { key: "content", label: "내용", w: 40, type: "textarea" }, { key: "review", label: "검토", w: 22, type: "textarea" },
 ];
 const LISTS = {
   sw: { title: "SW 사양", sheet: "SW 사양", cols: SPEC_COLS },
@@ -38,8 +39,10 @@ const OVERVIEW_FIELDS = [
 // "unit:<id>" 는 설비별 BOM, "bom" 은 (예전 코드 호환) 첫 번째 설비의 BOM
 const listRows = (p, key) => (key === "revisions" ? p.revisions
   : key.startsWith("unit:") ? findUnit(p, key)?.bom || []
+  : key.startsWith("spec:") ? findSpec(p, key)?.rows || []
   : key === "bom" ? ensureUnits(p)[0].bom : p.lists[key]);
 const listDef = (p, key) => {
+  if (key.startsWith("spec:")) return { ...LISTS.specsec, title: findSpec(p, key)?.name || "사양" };
   if (!key.startsWith("unit:")) return LISTS[key];
   const u = findUnit(p, key);
   return { ...LISTS.unitbom, title: `BOM · ${u?.name || ""}`, unit: u, units: ensureUnits(p) };
@@ -472,11 +475,14 @@ async function buildWorkbook(p) {
     { v: [x.status, x.paidDate].filter(Boolean).join(" "), s: "cell" }]);
   sheets.push({ name: "개요", cols: [16, 60, 24], rows: ovRows, merges: ["A1:C1"] });
 
-  sheets.push(table("sw"));
-  const hw = table("hw");
-  if (p.hwNote) hw.rows.push([], [{ v: p.hwNote, s: "wrap" }]);
-  hw.images = await imageEntries(p.hwImages, hw.rows.length + 1);
-  sheets.push(hw);
+  for (const sp of ensureSpecs(p)) {
+    const rows = [head(["NO", ...SPEC_COLS.map((c) => c.label)])];
+    sp.rows.forEach((r, i) => rows.push([{ v: i + 1, s: "cell" }, ...SPEC_COLS.map((c) => cellOf(c, r[c.key]))]));
+    if (sp.note) rows.push([], [{ v: sp.note, s: "wrap" }]);
+    const fileList = fileNames(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")));
+    if (fileList) rows.push([], [{ v: `첨부 파일: ${fileList}`, s: "wrap" }]);
+    sheets.push({ name: sp.name, cols: [6, ...SPEC_COLS.map((c) => c.w)], rows, images: await imageEntries(sp.files, rows.length + 1) });
+  }
   sheets.push(table("supplied", "지정품/지급품"), table("consumables", "소모품"), ...unitBomSheets(p), table("submissions"), table("changes"));
 
   const dated = [
@@ -546,7 +552,7 @@ async function buildProjectZip(p) {
   };
   for (const r of p.records) await add(`${fmtDot(r.date)}_${r.title}`, [...r.images, ...r.files]);
   for (const m of p.meetings) await add(`${fmtDot(m.date)}_${m.title}`, m.files);
-  await add("HW 주요 Spec", p.hwImages);
+  for (const sp of ensureSpecs(p)) await add(sp.name, sp.files);
   for (const [key, ids] of Object.entries(p.listFiles || {})) {
     const title = key.startsWith("unit:") ? `BOM_${findUnit(p, key)?.name || "설비"}` : LISTS[key]?.title || key;
     await add(`${title}_원본`, ids);
@@ -898,4 +904,74 @@ async function buildClosingWorkbook(projects) {
       ...p.lists.changes.map((x) => [null, date(x.date), txt(x.author), txt(x.requester), txt(x.content), txt(x.note)])] });
   }
   return Xlsx.write(sheets);
+}
+
+// ------------------------------------------------------------- 사양 (구분 추가 가능)
+LISTS.specsec = { title: "사양", sheet: "사양", cols: SPEC_COLS };
+// 사양 구분이 없으면 예전 SW 사양·HW 주요 Spec(자료·메모 포함)을 첫 두 구분으로 옮긴다
+function ensureSpecs(p) {
+  if (Array.isArray(p.specs) && p.specs.length) return p.specs;
+  p.specs = [
+    { id: Store.uid(), name: "SW 사양", rows: p.lists.sw || [], files: [], note: "" },
+    { id: Store.uid(), name: "HW 주요 Spec", rows: p.lists.hw || [], files: p.hwImages || [], note: p.hwNote || "" },
+  ];
+  p.lists.sw = [];
+  p.lists.hw = [];
+  p.hwImages = [];
+  p.hwNote = "";
+  return p.specs;
+}
+const findSpec = (p, key) => ensureSpecs(p).find((x) => `spec:${x.id}` === key || x.id === key);
+const specItemCount = (p) => ensureSpecs(p).reduce((a, x) => a + x.rows.length, 0);
+// 새 사양 구분 예시와 기본 항목 (AMR·물류 설비 기준)
+const SPEC_TEMPLATES = [
+  ["기구 사양", ["외형 치수 (L×W×H)", "자중", "가반 하중", "프레임 재질", "도장 색상"]],
+  ["전장 사양", ["전원 / 배터리", "충전 방식", "제어기 (PC/PLC)", "모터 / 드라이브", "I/O"]],
+  ["성능 사양", ["최고 속도 (무부하/적재)", "정지 거리", "위치 정밀도", "회전 반경", "연속 운전 시간"]],
+  ["안전 사양", ["비상 정지 (EMO)", "범퍼 / 접촉 센서", "Lidar 안전 영역", "경광등 / 부저", "안전 인증"]],
+  ["통신·인터페이스", ["무선 통신 (Wi-Fi)", "상위 시스템 연동 (ACS/MES)", "PIO / 설비 연동", "원격 조작 (펜던트)", "HMI"]],
+  ["유틸리티·환경", ["설치 환경 (온·습도)", "바닥 조건", "전원 공급", "네트워크", "소음"]],
+];
+// 사양 엑셀(기술 사양서 등) 머리글 인식
+const SPEC_FIELDS = [
+  { key: "kind", exact: ["구분", "분류", "영역", "area", "category", "대분류"], has: ["영역", "area", "구분"] },
+  { key: "item", exact: ["항목", "item", "description", "사양항목"], has: ["항목", "요구사항", "technical", "description", "item"] },
+  { key: "content", exact: ["내용", "사양", "spec", "요청", "requirements", "value", "값", "요구값"], has: ["요청", "requirement", "사양", "spec", "내용"] },
+  { key: "review", exact: ["검토", "비고", "remark", "remarks", "답변", "확인", "status", "결과", "검토결과"], has: ["remark", "답변", "검토", "verified", "확인"] },
+];
+function analyzeSpecSheet(sheet) {
+  const rows = filledRows(sheet);
+  const fieldOf = (label) => {
+    const n = norm(label);
+    if (!n) return null;
+    const f = SPEC_FIELDS.find((x) => x.exact.some((a) => norm(a) === n)) || SPEC_FIELDS.find((x) => x.has.some((a) => n.includes(norm(a))));
+    return f ? f.key : null;
+  };
+  let best = null;
+  for (let r = 0; r < Math.min(rows.length, 30); r++) {
+    const mapping = {};
+    (rows[r] || []).forEach((v, c) => { const k = fieldOf(v); if (k && !(k in mapping)) mapping[k] = c; });
+    const score = Object.keys(mapping).length;
+    if ((mapping.item != null || mapping.content != null) && score >= 2 && (!best || score > best.score)) best = { row: r, mapping, score };
+  }
+  if (!best) return null;
+  const columns = [];
+  (rows[best.row] || []).forEach((v, c) => { const label = cellText(v); if (label && !columns.some((x) => x.c === c)) columns.push({ c, label }); });
+  return { headerRow: best.row, mapping: best.mapping, columns, rows };
+}
+function readSpecRows(info, mapping) {
+  const out = [];
+  let lastKind = "";
+  const header = info.rows[info.headerRow] || [];
+  const get = (row, k) => (mapping[k] === "" || mapping[k] == null ? "" : cellText(row[Number(mapping[k])]));
+  for (let r = info.headerRow + 1; r < info.rows.length; r++) {
+    const row = info.rows[r] || [];
+    if (!row.some((v) => cellText(v))) continue;
+    if (row.every((v, c) => !cellText(v) || norm(v) === norm(header[c]))) continue; // 머리글 반복
+    const rec = { id: Store.uid(), kind: get(row, "kind"), item: get(row, "item"), content: get(row, "content"), review: get(row, "review") };
+    if (rec.kind) lastKind = rec.kind; else rec.kind = lastKind;
+    if (!rec.item && !rec.content && !rec.review) continue;
+    out.push(rec);
+  }
+  return out;
 }
