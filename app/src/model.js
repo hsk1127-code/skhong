@@ -855,17 +855,17 @@ function keyDates(p) {
   const out = {};
   for (const [k] of KEY_DATES) out[k] = { value: isDate(o[k]) ? o[k] : auto[k] || "", auto: !isDate(o[k]) && !!auto[k], autoValue: auto[k] || "" };
   out.deliveryDate = out.receiveDate;
-  // Warranty: 시작일을 직접 넣었거나 Setup 완료일이 있을 때만 시작일이 정해진다 (납품일로 짐작하지 않음)
+  // Warranty: 입력한 Warranty 시작일부터 설정한 기간(년) (다른 날짜로 짐작하지 않음)
   // 기간(년)은 예전 '하자보증기간' 글자에서도 읽어 온다
   const parsed = (/(\d+(?:\.\d+)?)\s*년/.exec(o.warranty) || [])[1] || ((/(\d+)\s*개월/.exec(o.warranty) || [])[1] ? String(+(/(\d+)\s*개월/.exec(o.warranty)[1]) / 12) : "");
   const years = Number(o.warrantyYears || parsed) || 0;
-  const start = isDate(o.warrantyStart) ? o.warrantyStart : out.setupDate.value || "";
+  const start = isDate(o.warrantyStart) ? o.warrantyStart : "";
   const end = isDate(start) && years ? addYears(start, years) : "";
   const started = isDate(start) && start <= today();
   const period = years ? `${years}년` : o.warranty || "";
-  out.warranty = { start, startAuto: !isDate(o.warrantyStart) && !!start, years, end, started,
+  out.warranty = { start, startAuto: false, years, end, started,
     // 보고서용 글자: 정해진 기간 또는 예정
-    text: end ? `${start} ~ ${end} (${years}년)` : start ? `${start} 시작${period ? ` (${period})` : ""}` : period ? `Setup 완료 후 ${period}` : "",
+    text: end ? `${start} ~ ${end} (${years}년)` : start ? `${start} 시작${period ? ` (${period})` : ""}` : period ? `${period} (시작일 미입력)` : "",
     state: !isDate(start) ? (period ? "시작 전" : "") : !started ? "시작 전" : end && today() > end ? "만료" : "보증 중",
     remain: end && started && today() <= end ? dayNo(end) - dayNo(today()) : null, period };
   return out;

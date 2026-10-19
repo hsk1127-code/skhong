@@ -670,9 +670,9 @@ function tabOverviewEdit(p, el) {
       const kd = keyDates(p);
       const hint = (x) => (x.autoValue ? `자동: ${fmtDot(x.autoValue)}` : "");
       return `${KEY_DATES.filter(([k]) => k !== "paidDate").map(([k, label]) => `<label>${label}<input type="date" data-k="${k}" value="${esc(o[k] || "")}" title="${esc(hint(kd[k]))}">
-          <span class="muted small">${kd[k].auto ? `자동: ${esc(fmtDot(kd[k].autoValue))}${k === "receiveDate" ? " ('납품' 일정)" : ""}` : k === "setupDate" ? "Setup 완료되면 입력 → Warranty 시작" : k === "receiveDate" ? "위 개요의 입고일자와 같은 값" : ""}</span></label>`).join("")}
+          <span class="muted small">${kd[k].auto ? `자동: ${esc(fmtDot(kd[k].autoValue))}${k === "receiveDate" ? " ('납품' 일정)" : ""}` : k === "setupDate" ? "Setup 완료되면 입력" : k === "receiveDate" ? "위 개요의 입고일자와 같은 값" : ""}</span></label>`).join("")}
         <label>Warranty 시작일<input type="date" data-k="warrantyStart" value="${esc(o.warrantyStart || "")}">
-          <span class="muted small">${kd.warranty.startAuto ? `Setup 완료일 ${esc(fmtDot(kd.warranty.start))}부터` : isDate(o.warrantyStart) ? "직접 입력" : "비우면 Setup 완료일부터 (아직 시작 전)"}</span></label>
+          <span class="muted small">${kd.warranty.end ? `종료 ${esc(fmtDot(kd.warranty.end))}` : isDate(o.warrantyStart) ? "기간(년)을 넣으면 종료일 계산" : "시작일부터 설정한 기간(년)"}</span></label>
         <label>Warranty 기간 (년)<input data-k="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || "")}" placeholder="${kd.warranty.years ? `${kd.warranty.years} (하자보증기간에서)` : "예: 2"}">
           <span class="muted small" id="wtyText">${esc(kd.warranty.text.replace(/(\d{4})-(\d{2})-(\d{2})/g, "$1.$2.$3"))}</span></label>
         <label>지급 완료일<input type="date" data-k="paidDate" value="${esc(o.paidDate || "")}">
@@ -943,7 +943,7 @@ function tabOverviewView(p, el) {
       <div class="kd-steps">${steps.map(([ico, label, x]) => {
         // Warranty 는 시작 전이면 날짜 대신 '시작 전'과 기간만
         if (label === "Warranty" && x.pending) return `<div class="kd-step ${isDate(x.value) ? "next" : "empty"}"><span class="kd-ico">${ico}</span><span class="kd-label">${label}</span>
-          <b>시작 전</b><span class="kd-sub">${isDate(x.value) ? `${esc(fmtDot(x.value))}부터 ` : kd.warranty.period ? "Setup 완료 후 " : ""}${esc(kd.warranty.period || "")}</span></div>`;
+          <b>시작 전</b><span class="kd-sub">${isDate(x.value) ? `${esc(fmtDot(x.value))}부터 ` : ""}${esc(kd.warranty.period || "")}</span></div>`;
         return `<div class="kd-step ${isDate(x.value) ? (x.value <= base ? "done" : "next") : "empty"}">
         <span class="kd-ico">${ico}</span><span class="kd-label">${label}</span>
         <b>${isDate(x.value) ? esc(fmtDot(x.value)) : "미정"}</b>
@@ -997,7 +997,7 @@ function tabOverviewView(p, el) {
         ${fact("📦", "입고일자 (납품)", kd.receiveDate.value ? fmtDot(kd.receiveDate.value) + (kd.receiveDate.auto ? " · 일정 기준" : "") : "")}${fact("📍", "입고 장소", o.receivePlace)}
         ${fact("👤", "담당자", o.manager)}${fact("🛡", "Warranty", kd.warranty.started
           ? (kd.warranty.end ? `${fmtDot(kd.warranty.start)} ~ ${fmtDot(kd.warranty.end)}` : `${fmtDot(kd.warranty.start)} 시작`)
-          : kd.warranty.state === "시작 전" ? `시작 전${kd.warranty.period ? ` · ${isDate(kd.warranty.start) ? fmtDot(kd.warranty.start) + "부터 " : "Setup 완료 후 "}${kd.warranty.period}` : ""}` : "")}
+          : kd.warranty.state === "시작 전" ? `시작 전${kd.warranty.period ? ` · ${isDate(kd.warranty.start) ? fmtDot(kd.warranty.start) + "부터 " : ""}${kd.warranty.period}` : ""}` : "")}
         ${o.extra.filter((x) => x.label).map((x) => fact("•", esc(x.label), x.value)).join("")}
       </div></div>
       <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}
@@ -1666,7 +1666,7 @@ function reportDialog(p) {
       <label>Kick off일자<input type="date" name="kickoffDate" value="${esc(o.kickoffDate || "")}">${hint(ci.auto.kickoffDate && `비우면 자동: ${fmtDot(ci.auto.kickoffDate)}`)}</label>
       <label>납품일자 (입고일자)<input type="date" name="deliveryDate" value="${esc(o.receiveDate || "")}">${hint(ci.auto.deliveryDate && !o.receiveDate && `비우면 자동: ${fmtDot(ci.auto.deliveryDate)}`)}</label>
       <label>SET UP 완료일<input type="date" name="setupDate" value="${esc(o.setupDate || "")}">${hint("Warranty 시작 기준")}</label>
-      <label>Warranty 시작<input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}">${hint("비우면 SET UP 완료일부터")}</label>
+      <label>Warranty 시작<input type="date" name="warrantyStart" value="${esc(o.warrantyStart || "")}">${hint("시작일부터 아래 기간(년)")}</label>
       <label>보증기간 (년)<input name="warrantyYears" inputmode="decimal" value="${esc(o.warrantyYears || ci.auto.warrantyYears || "")}" placeholder="예: 2">${hint("")}</label>
       <label>입금완료일<input type="date" name="paidDate" value="${esc(o.paidDate || "")}">${hint(ci.paidDate && !o.paidDate ? `비우면 자동: ${fmtDot(ci.paidDate)}` : "정산이 모두 끝나면 자동")}</label>
       ${money("orderAmount", "발주가", "", "개요의 발주금액과 같은 값")}
@@ -1810,7 +1810,7 @@ function reportHtml(p, inc) {
     kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)}` : ""),
     kpi("계획 대비", diffText, isDate(r.completedDate) ? `완료 ${fmtDot(r.completedDate)}` : "", diff > 0 ? "bad" : diff !== null ? "ok" : ""),
     kpi("일정 완료", p.schedule.length ? `${Math.round((doneCount / p.schedule.length) * 100)}<small>%</small>` : "-", `${doneCount} / ${p.schedule.length}건`, doneCount === p.schedule.length && doneCount ? "ok" : ""),
-    kpi("Warranty", kd.warranty.years ? `${kd.warranty.years}<small>년</small>` : "-", kd.warranty.end ? `~ ${fmtDot(kd.warranty.end)}` : kd.warranty.started ? "" : "Setup 완료 후 시작"),
+    kpi("Warranty", kd.warranty.years ? `${kd.warranty.years}<small>년</small>` : "-", kd.warranty.end ? `~ ${fmtDot(kd.warranty.end)}` : kd.warranty.started ? "" : isDate(kd.warranty.start) ? `${fmtDot(kd.warranty.start)} 시작` : "시작일 미입력"),
   ].join("");
 
   // 주요 일자 흐름
