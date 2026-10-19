@@ -407,6 +407,7 @@ function renderProject(p) {
   p.report ||= { summary: "", issues: "", warrantyNote: "", completedDate: "" };
   ensureUnits(p);
   ensureSpecs(p);
+  fillSubmitTo(p);
   for (const k of ["kickoffDate", "deliveryDate", "setupDate", "warrantyStart", "warrantyYears", "paidDate"]) {
     if (!p.overview[k] && p.report[k]) p.overview[k] = p.report[k];
     delete p.report[k];
@@ -497,6 +498,8 @@ function tabOverviewEdit(p, el) {
   $$("#ovForm [data-k]", el).forEach((inp) => (inp.oninput = () => {
     const before = o[inp.dataset.k];
     o[inp.dataset.k] = inp.value;
+    // 고객사를 고치면 그 고객사로 되어 있던 제출처도 함께 바꿈
+    if (inp.dataset.k === "customer") p.lists.submissions.forEach((r) => { if (r.to === before || (!r.to && r.item)) r.to = inp.value; });
     Store.touch(p);
     if (inp.dataset.k === "status" && inp.value === "완료" && before !== "완료")
       toast("프로젝트를 완료로 바꿨습니다. 위쪽 📄 완료 보고서 버튼으로 보고서를 출력할 수 있습니다.", 6000);
@@ -1111,7 +1114,7 @@ function bindGrids(p, root) {
       def.cols.forEach((c) => (r[c.key] = ""));
       if (def.files) r.files = [];
       if (key === "changes" || key === "revisions") { r.date = today(); r.author = Store.state.settings.user; }
-      if (key === "submissions") r.status = "미제출";
+      if (key === "submissions") { r.status = "미제출"; r.to = p.overview.customer || ""; }
       return r;
     };
     const tbody = $("tbody", card);

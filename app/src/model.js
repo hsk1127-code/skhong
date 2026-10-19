@@ -19,8 +19,8 @@ const LISTS = {
   consumables: { title: "소모품", sheet: "소모품", cols: PART_COLS },
   bom: { title: "BOM", sheet: "BOM", cols: PART_COLS },
   submissions: { title: "제출 자료", sheet: "제출 자료", files: true, cols: [
-    { key: "item", label: "자료명", w: 30 }, { key: "to", label: "제출처", w: 14 },
-    { key: "due", label: "기한", w: 12, type: "date" }, { key: "submitted", label: "제출일", w: 12, type: "date" },
+    { key: "item", label: "자료명", w: 30 }, { key: "to", label: "제출처", w: 16 },
+    { key: "submitted", label: "제출일", w: 12, type: "date" },
     { key: "status", label: "상태", w: 9, type: "select", options: ["미제출", "제출", "승인", "반려"] },
     { key: "note", label: "비고", w: 24 }] },
   changes: { title: "변경사항", sheet: "변경사항", files: true, cols: [
@@ -378,7 +378,7 @@ async function importWorkbook(file, onProgress = () => {}) {
       p.lists.submissions = readTable(sheet, [{ key: "item", label: "자료명", alias: ["자료", "항목", "제출 자료"] }, ...LISTS.submissions.cols.slice(1)]);
       if (!p.lists.submissions.length) {
         p.lists.submissions = sheetLines(sheet).filter((v) => norm(v[0]) !== "제출자료")
-          .map((v) => ({ id: Store.uid(), item: v.join(" "), to: "", due: "", submitted: "", status: "미제출", note: "" }));
+          .map((v) => ({ id: Store.uid(), item: v.join(" "), to: "", submitted: "", status: "미제출", note: "" }));
       }
     } else if (key === "변경사항") {
       p.lists.changes = readTable(sheet, LISTS.changes.cols).map((r) => ({ ...r, files: [] }));
@@ -391,10 +391,17 @@ async function importWorkbook(file, onProgress = () => {}) {
       p.records.push({ id: Store.uid(), date: date || today(), kind, title, from: "", to: "", memo, images, files });
     }
   }
+  fillSubmitTo(p);
   if (!p.revisions.length) p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: "신규 작성", note: "" });
   p.records.sort((a, b) => a.date.localeCompare(b.date));
   p.meetings.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   return p;
+}
+
+// 제출 자료의 제출처는 개요의 고객사로 채움 (비어 있는 행만)
+function fillSubmitTo(p) {
+  const c = p.overview.customer || "";
+  if (c) p.lists.submissions.forEach((r) => { if (r.item && !r.to) r.to = c; });
 }
 
 // ------------------------------------------------------------ 엑셀 내보내기
