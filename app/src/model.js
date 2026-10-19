@@ -116,6 +116,37 @@ function scheduleInfos(schedule, base = today()) {
     return !t.done && parent ? { ...i, status: parent.i.status, inherit: parent.t.name } : i;
   });
 }
+// 일정표에 맞춘 프로젝트 상태 (직접 고른 완료·보류가 우선)
+//   { st: 지연|진행|예정|완료|보류|계획, text: 배지 글자, tip: 설명 }
+function scheduleStatus(p, base = today()) {
+  const o = p.overview;
+  if (o.status === "완료" || o.status === "보류") return { st: o.status, text: o.status, tip: "직접 지정한 상태" };
+  const infos = scheduleInfos(p.schedule, base);
+  const list = p.schedule.map((t, k) => ({ t, i: infos[k] })).filter((x) => x.i.status !== "미정");
+  if (!list.length) return { st: o.status || "계획", text: o.status || "계획", tip: "일정이 없어 직접 지정한 상태" };
+  const phases = (xs) => [...new Set(xs.map((x) => x.t.phase || x.t.name))];
+  const names = (ph) => (ph.length <= 2 ? ph.join("·") : `${ph[0]} 외 ${ph.length - 1}`);
+  const late = list.filter((x) => x.i.status === "지연" && !x.i.inherit);
+  if (late.length) {
+    const ph = phases(late);
+    return { st: "지연", text: `${names(ph)} 지연`, tip: `지연: ${late.map((x) => `${x.t.phase} · ${x.t.name}`).join(", ")}` };
+  }
+  let active = list.filter((x) => x.i.status === "진행" && !x.i.inherit);
+  if (active.length) {
+    // 프로젝트 전체에 걸친 일정(PO 등)은 다른 진행 일정이 있으면 빼고, 최근에 시작한 단계부터
+    const sm = projectSummary(p, base);
+    const whole = (x) => x.t.start <= sm.start && x.t.end >= sm.end;
+    if (active.some((x) => !whole(x))) active = active.filter((x) => !whole(x));
+    const now = active.slice().sort((a, b) => b.t.start.localeCompare(a.t.start) || a.t.end.localeCompare(b.t.end));
+    const ph = phases(now);
+    return { st: "진행", text: `${names(ph)} 진행`, tip: `진행 중: ${now.map((x) => `${x.t.phase} · ${x.t.name}`).join(", ")}` };
+  }
+  if (list.every((x) => x.i.status === "완료")) return { st: "완료", text: "일정 완료", tip: "모든 일정이 완료되었습니다" };
+  const next = list.filter((x) => x.i.status === "예정").sort((a, b) => a.t.start.localeCompare(b.t.start))[0];
+  const started = list.some((x) => x.i.status === "완료");
+  return next ? { st: "예정", text: started ? `${next.t.phase || next.t.name} 대기` : "시작 전", tip: `다음: ${next.t.phase} · ${next.t.name} (${next.t.start})` }
+    : { st: "진행", text: "진행", tip: "" };
+}
 // 다른 일정과 60일 넘게 동떨어진 시작/종료일 (입력 실수일 가능성) → 기간 계산에서 제외
 function suspectTasks(schedule) {
   const dated = schedule.filter((t) => isDate(t.start) && isDate(t.end));

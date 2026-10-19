@@ -651,3 +651,6 @@ dialog[open] { animation: pop .16s ease-out; }
 @media (max-width: 640px) { .ag-row { grid-template-columns: 22px minmax(0, 1fr) auto; } .ag-proj, .ag-right { display: none; } }
 .side-row.extra { display: none; } .card.open .side-row.extra { display: flex; }
 .side-row.extra + .side-row:not(.extra) { border-top: 0; }
+.dot.s-지연 { background: var(--bad); } .dot.s-예정 { background: #a3a9b5; }
+.s-예정, .s-계획 { background: var(--panel-2); color: var(--muted); }
+.pcard[data-st="지연"]::before { background: var(--bad); } .pcard[data-st="예정"]::before, .pcard[data-st="계획"]::before { background: #c4c9d4; }

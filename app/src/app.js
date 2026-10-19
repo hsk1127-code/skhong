@@ -16,8 +16,10 @@ function avatar(p, cls = "", withDot = false) {
   const name = (p.overview.customer || p.overview.name || "?").replace(/^[㈜(（\s]*(주\)|주식회사)?\s*/, "");
   let h = 0;
   for (const ch of p.id) h = (h * 31 + ch.charCodeAt(0)) % 360;
-  return `<span class="avatar ${cls}" style="--h:${h}">${esc(name.slice(0, 1) || "?")}${withDot ? `<span class="dot s-${esc(p.overview.status)}"></span>` : ""}</span>`;
+  return `<span class="avatar ${cls}" style="--h:${h}">${esc(name.slice(0, 1) || "?")}${withDot ? (() => { const x = scheduleStatus(p); return `<span class="dot s-${esc(x.st)}" title="${esc(x.text)}"></span>`; })() : ""}</span>`;
 }
+// 일정표에 맞춘 프로젝트 상태 배지
+const stBadge = (p) => { const x = scheduleStatus(p); return `<span class="badge s-${esc(x.st)}" title="${esc(x.tip)}">${esc(x.text)}</span>`; };
 const badge = (s, cls = "") => `<span class="badge s-${esc(s)} ${cls}">${esc(s)}</span>`;
 const opts = (list, sel) => list.map((v) => `<option ${v === sel ? "selected" : ""}>${esc(v)}</option>`).join("");
 
@@ -328,9 +330,9 @@ function renderHome() {
         `<div class="card kpi ${cls}"><span class="kpi-icon">${ico}</span><div class="kpi-body"><span>${label}</span><b>${n}</b></div></div>`).join("")}
     </div>
     <div class="pcards">${all.map(({ p, s }) => `
-      <div class="card pcard" data-st="${esc(p.overview.status)}" ${goto(p, "overview")}>
+      <div class="card pcard" data-st="${esc(scheduleStatus(p).st)}" ${goto(p, "overview")}>
         <div class="pc-head">${avatar(p)}<div><b class="ellipsis" style="display:block">${esc(p.overview.name)}</b>
-          <div class="muted small ellipsis">${esc(p.overview.customer || "-")}${p.overview.project ? " · " + esc(p.overview.project) : ""}</div></div>${badge(p.overview.status)}</div>
+          <div class="muted small ellipsis">${esc(p.overview.customer || "-")}${p.overview.project ? " · " + esc(p.overview.project) : ""}</div></div>${stBadge(p)}</div>
         ${s.progress !== null ? `<div class="progress"><span style="width:${s.progress}%"></span></div>
         <div class="between small"><span>${esc(fmtDot(s.start))} ~ ${esc(fmtDot(s.end))}</span><b>${dday(s.end)}</b></div>` : `<div class="muted small pad">일정 미등록</div>`}
         <div class="small chips-line">
@@ -468,7 +470,7 @@ function renderProject(p) {
   $("#main").innerHTML = `
     <div class="page-head">
       <div class="title-wrap">${avatar(p, "lg")}<div style="min-width:0"><div class="crumb">프로젝트 · ${esc(p.overview.customer || "고객사 미입력")}</div>
-        <h1>${esc(p.overview.name)} ${badge(p.overview.status)}</h1>
+        <h1>${esc(p.overview.name)} ${stBadge(p)}</h1>
         ${p.overview.project ? `<div class="muted small ellipsis">${esc(p.overview.project)}</div>` : ""}</div></div>
       <div class="row2">
         <button class="btn" id="exportXlsx" title="이 프로젝트를 기존 양식의 엑셀 파일로 저장">📊 엑셀로 내보내기</button>
@@ -827,7 +829,7 @@ function tabOverviewView(p, el) {
         <div class="ov-eyebrow">${o.customer ? `🏢 ${esc(o.customer)}` : "고객사 미입력"}</div>
         <h2>${esc(o.project || o.name)}</h2>
         ${o.project ? `<div class="ov-sub">설비/품목명 · ${esc(o.name)}</div>` : ""}
-        <div class="ov-pills"><span class="pill status-pill" title="프로젝트 상태 (계획/진행/보류/완료) · ✏️ 정보 수정에서 바꿉니다">상태 ${badge(o.status)}</span>
+        <div class="ov-pills"><span class="pill status-pill" title="일정표 기준 상태 · 완료·보류는 ✏️ 정보 수정에서 지정">상태 ${stBadge(p)}</span>
           ${o.manager ? `<span class="pill">👤 ${esc(o.manager)}</span>` : ""}
           ${o.status === "완료"
             ? `<span class="pill">🏁 ${isDate(p.report?.completedDate) ? `${esc(fmtDot(p.report.completedDate))} 완료` : "완료"}</span>`
