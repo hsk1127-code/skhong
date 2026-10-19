@@ -656,3 +656,7 @@ dialog[open] { animation: pop .16s ease-out; }
 .pcard[data-st="지연"]::before { background: var(--bad); } .pcard[data-st="예정"]::before, .pcard[data-st="계획"]::before { background: #c4c9d4; }
 .backup-dir { margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .backup-dir a { color: var(--accent); margin-left: 4px; }
+.auto-backup { margin-top: 2px; } .auto-backup.on { color: var(--ok); } .auto-backup a { color: var(--warn); font-weight: 600; }
+.browser-note { margin-top: 2px; }
+.lost-help { margin-top: 16px; } .lost-help ol { padding-left: 20px; line-height: 1.8; } .lost-help li { margin-bottom: 6px; }
+.lost-help code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }

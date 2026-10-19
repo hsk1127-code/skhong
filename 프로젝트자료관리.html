@@ -666,6 +666,10 @@ dialog[open] { animation: pop .16s ease-out; }
 .pcard[data-st="지연"]::before { background: var(--bad); } .pcard[data-st="예정"]::before, .pcard[data-st="계획"]::before { background: #c4c9d4; }
 .backup-dir { margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .backup-dir a { color: var(--accent); margin-left: 4px; }
+.auto-backup { margin-top: 2px; } .auto-backup.on { color: var(--ok); } .auto-backup a { color: var(--warn); font-weight: 600; }
+.browser-note { margin-top: 2px; }
+.lost-help { margin-top: 16px; } .lost-help ol { padding-left: 20px; line-height: 1.8; } .lost-help li { margin-bottom: 6px; }
+.lost-help code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
 </style>
 </head>
@@ -2472,7 +2476,11 @@ function renderSidebar() {
       <label class="small muted">작성자 이름 <input id="userName" value="${esc(s.user)}" placeholder="예: 홍길동"></label>
       <div class="row2"><button class="btn sm" id="backupBtn">💾 백업</button><button class="btn sm" id="restoreBtn">📂 복원</button></div>
       <div class="small backup-note ${warn ? "warn" : "muted"}">${warn ? "⚠" : "✓"} ${s.lastBackup ? `마지막 백업 ${esc(s.lastBackup)} (${days}일 전)` : "아직 백업하지 않았습니다"}</div>
-      ${window.showDirectoryPicker ? `<div class="small muted backup-dir">📁 ${s.backupDirName ? `<b>${esc(s.backupDirName)}</b>\\백업` : "백업 폴더 미지정"} <a href="#" id="backupDirBtn">${s.backupDirName ? "변경" : "지정"}</a></div>` : ""}
+      ${window.showDirectoryPicker ? `<div class="small muted backup-dir">📁 ${s.backupDirName ? `<b>${esc(s.backupDirName)}</b>\\백업` : "백업 폴더 미지정"} <a href="#" id="backupDirBtn">${s.backupDirName ? "변경" : "지정"}</a></div>
+        <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
+          : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
+          : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
+      <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
   $$("[data-project]").forEach((b) => (b.onclick = () => go({ view: "project", id: b.dataset.project, tab: route.id === b.dataset.project ? route.tab : "overview" })));
@@ -2490,9 +2498,60 @@ function renderSidebar() {
   $("#backupBtn").onclick = backupNow;
   $("#backupDirBtn")?.addEventListener("click", async (e) => {
     e.preventDefault();
-    if (await backupDir(true)) { renderSidebar(); toast("백업 폴더를 지정했습니다. 이제 💾 백업을 누르면 이 폴더의 '백업' 폴더에 저장됩니다.", 5000); }
+    if (await backupDir(true)) { await autoDir(); renderSidebar(); toast("백업 폴더를 지정했습니다. 이제 💾 백업을 누르면 이 폴더의 '백업' 폴더에 저장됩니다.", 5000); }
   });
   $("#restoreBtn").onclick = restoreNow;
+  $("#autoResume")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const dir = await Store.getKV("backupDir").catch(() => null);
+    if (dir && (await dir.requestPermission({ mode: "readwrite" })) === "granted") { await autoBackup(true); toast("자동 백업을 켰습니다."); }
+  });
+}
+
+// 데이터는 브라우저마다 따로 저장되므로 어느 브라우저인지 보여 줌
+function browserName() {
+  const brands = (navigator.userAgentData?.brands || []).map((b) => b.brand).join(" ");
+  const ua = navigator.userAgent;
+  if (/Edge|Edg\//.test(brands + ua)) return "Microsoft Edge";
+  if (/Whale/.test(ua)) return "네이버 웨일";
+  if (/Chrome/.test(brands + ua)) return "Chrome";
+  if (/Firefox/.test(ua)) return "Firefox";
+  return "이 브라우저";
+}
+
+// 자동 백업: 백업 폴더가 지정되어 있고 쓰기 권한이 있으면, 바꾼 뒤 2분 동안 조용하면 백업 폴더에
+// '자동백업_날짜.zip'(하루 한 파일, 최근 14개 보관)으로 저장
+let autoState = { mode: "off", last: "" }, autoTimer, autoRunning = false;
+async function autoDir() {
+  if (!window.showDirectoryPicker) return null;
+  const dir = await Store.getKV("backupDir").catch(() => null);
+  if (!dir) { autoState.mode = "off"; return null; }
+  const perm = (await dir.queryPermission?.({ mode: "readwrite" })) ?? "granted";
+  autoState.mode = perm === "granted" ? "on" : "paused";
+  return perm === "granted" ? dir : null;
+}
+async function autoBackup(force = false) {
+  if (autoRunning || !Store.projects.length) return;
+  const dir = await autoDir();
+  if (!dir) return renderSidebar();
+  autoRunning = true;
+  try {
+    const sub = await dir.getDirectoryHandle("백업", { create: true });
+    const w = await (await sub.getFileHandle(`자동백업_${today()}.zip`, { create: true })).createWritable();
+    await w.write(await Store.exportBackup());
+    await w.close();
+    const old = [];
+    for await (const [n] of sub.entries()) if (/^자동백업_\d{4}-\d{2}-\d{2}\.zip$/.test(n)) old.push(n);
+    for (const n of old.sort().slice(0, -14)) await sub.removeEntry(n).catch(() => {});
+    const d = new Date();
+    autoState.last = `${today().slice(5).replace("-", ".")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  } catch (e) { console.error(e); if (force) toast("자동 백업 실패: " + e.message, 5000); }
+  finally { autoRunning = false; renderSidebar(); }
+}
+function scheduleAutoBackup() {
+  if (autoRunning) return;
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(autoBackup, 2 * 60 * 1000);
 }
 
 // ------------------------------------------------------------- 백업: 실행 폴더(프로그램 파일이 있는 폴더)에 저장
@@ -2531,6 +2590,7 @@ async function backupNow() {
     await w.close();
     toast(`${dir.name}\\백업\\${name} 에 저장했습니다.`, 5000);
   });
+  await autoDir();
   renderSidebar();
 }
 async function restoreNow() {
@@ -2758,7 +2818,16 @@ function renderHome() {
     ${!Store.projects.length ? `<div class="card empty-big">
       <div class="hero-emoji">📂</div><h2>시작하기</h2><p>왼쪽의 <b>📥</b> 버튼으로 지금 쓰고 있는 프로젝트 엑셀 파일을 불러오거나, <b>＋</b> 버튼으로 새 프로젝트를 만드세요.</p>
       <p class="muted small">엑셀을 불러오면 개요·일정·BOM·회의록·날짜별 문의/자료 시트(캡처 이미지와 첨부 원본 포함)가 자동으로 정리됩니다.</p>
-      <div class="row2 center"><button class="btn primary" id="homeImport">📥 엑셀 불러오기</button><button class="btn" id="homeNew">＋ 새 프로젝트</button></div></div>` : `
+      <div class="row2 center"><button class="btn primary" id="homeImport">📥 엑셀 불러오기</button><button class="btn" id="homeNew">＋ 새 프로젝트</button></div></div>
+      <div class="card lost-help"><h3>🔎 전에 등록한 자료가 안 보이나요?</h3>
+        <p>자료는 파일이 아니라 <b>브라우저 안</b>에 저장됩니다. 지금 이 화면은 <b>${esc(browserName())}</b>에서 열렸습니다.</p>
+        <ol>
+          <li><b>다른 브라우저로 열렸을 수 있습니다.</b> 윈도우 업데이트 뒤에는 기본 브라우저가 엣지로 바뀌는 일이 많습니다.
+            전에 쓰던 브라우저(크롬 등)에서 열어 보세요: 파일 오른쪽 클릭 → <b>연결 프로그램</b> → Chrome</li>
+          <li><b>백업 파일로 되살리기:</b> 실행 폴더의 <b>백업</b> 폴더나 <b>다운로드</b> 폴더에서 <code>프로젝트자료_백업_….zip</code> 또는 <code>자동백업_….zip</code>을 고르세요.
+            <div style="margin-top:8px"><button class="btn primary sm" id="homeRestore">📂 백업 파일에서 복원</button></div></li>
+          <li>백업이 없으면 프로젝트 엑셀을 <b>📥 엑셀 불러오기</b>로 다시 불러오면 됩니다.</li>
+        </ol></div>` : `
     <div class="kpis">
       ${[["📁", "진행 중 프로젝트", active.length, ""], ["⏰", "지연된 일정", delayed.length, delayed.length ? "bad" : "ok"],
         ["📅", "2주 내 일정", soon.length, ""], ["📝", "미완료 실천 의제", actions.length, actions.length ? "warn" : "ok"],
@@ -2807,6 +2876,7 @@ function renderHome() {
     </div>`}`;
   $("#homeImport")?.addEventListener("click", () => pickFiles(".xlsx", false, (f) => importXlsx(f[0])));
   $("#homeNew")?.addEventListener("click", newProjectDialog);
+  $("#homeRestore")?.addEventListener("click", restoreNow);
   $("#closingAll")?.addEventListener("click", () => {
     const done = Store.projects.filter((p) => p.overview.status === "완료");
     openDialog(`<h3>완료 프로젝트 마감 보고서</h3><p class="muted small">고른 프로젝트가 한 시트에 열로 나란히 들어갑니다. (종합 시트 포함)</p>
@@ -4571,6 +4641,9 @@ async function start() {
     };
     ch.postMessage("hello");
   } catch {}
+  Store.onChange(() => { if (!autoRunning) scheduleAutoBackup(); });
+  // 시작할 때 오늘 자동 백업이 아직 없으면 한 번
+  autoDir().then((dir) => { renderSidebar(); if (dir) autoBackup(); });
   window.addEventListener("beforeunload", () => Store.flush());
   document.addEventListener("visibilitychange", () => document.visibilityState === "hidden" && Store.flush());
   render();
