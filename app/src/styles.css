@@ -700,3 +700,5 @@ dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr));
 #print .rp-costcap i.margin { background: #bfe8cf; } #print .rp-costcap .ok { color: #15803d; } #print .rp-costcap .bad { color: #dc2626; }
 #print .rp-h3 small { font-weight: 500; color: #9ca3af; font-size: 7.5pt; margin-left: 6px; }
 #print .rp-rate { font-weight: 700; color: #15803d; } #print .rp-rate.bad, #print b.bad { color: #dc2626; }
+.today-chip { margin: -4px 6px 12px; padding: 7px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 13px; text-align: center; letter-spacing: -0.01em; }
+.today-big { font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 5px 12px; border-radius: 999px; font-size: 14px; }

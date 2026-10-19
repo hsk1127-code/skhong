@@ -710,6 +710,8 @@ dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr));
 #print .rp-costcap i.margin { background: #bfe8cf; } #print .rp-costcap .ok { color: #15803d; } #print .rp-costcap .bad { color: #dc2626; }
 #print .rp-h3 small { font-weight: 500; color: #9ca3af; font-size: 7.5pt; margin-left: 6px; }
 #print .rp-rate { font-weight: 700; color: #15803d; } #print .rp-rate.bad, #print b.bad { color: #dc2626; }
+.today-chip { margin: -4px 6px 12px; padding: 7px 10px; border-radius: var(--r-sm); background: var(--accent-soft); color: var(--accent-ink); font-weight: 700; font-size: 13px; text-align: center; letter-spacing: -0.01em; }
+.today-big { font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 5px 12px; border-radius: 999px; font-size: 14px; }
 
 </style>
 </head>
@@ -2554,6 +2556,7 @@ function renderSidebar() {
   const warn = Store.projects.length && (days === null || days >= 7);
   $("#side").innerHTML = `
     <div class="brand"><span class="logo">PD</span><div><b>프로젝트 자료 관리</b><small>Project Docs</small></div></div>
+    <div class="today-chip" title="오늘 날짜 (일정·D-day 계산 기준)">📅 ${todayText()}</div>
     <input id="globalSearch" type="search" placeholder="전체 검색" title="모든 프로젝트의 자료·회의록·일정·BOM 등을 검색합니다" value="${esc(route.view === "search" ? route.q : "")}">
     <button class="nav ${route.view === "home" ? "active" : ""}" data-go="home"><span class="nav-ico">📊</span> 통합 대시보드</button>
     <div class="side-head"><span>프로젝트 (${projects.length})</span>
@@ -2926,6 +2929,14 @@ const DROPZONE = (label = "캡처 이미지를 <b>Ctrl+V</b>로 붙여넣거나,
   `<div class="dropzone" tabindex="0" title="이곳을 클릭한 뒤 Ctrl+V 로 붙여넣을 수 있습니다">${label} <button type="button" class="btn sm" data-pick>파일 선택</button></div>`;
 
 // ------------------------------------------------------------- 대시보드
+// 오늘 날짜: 2026년 10월 19일 (월)
+const todayText = () => { const t = today(); return `${+t.slice(0, 4)}년 ${+t.slice(5, 7)}월 ${+t.slice(8, 10)}일 (${weekday(t)})`; };
+// 자정이 지나면 날짜·D-day 를 다시 계산해 표시
+(function watchDay() {
+  let day = today();
+  setInterval(() => { if (today() !== day) { day = today(); render(); } }, 60 * 1000);
+})();
+
 // 대시보드 일정 목록: 날짜별로 묶은 한 줄 목록
 const SOON_MAX = 12, SIDE_MAX = 5;
 const moreBtn = (n) => (n > SIDE_MAX ? `<button class="btn sm more" data-more>＋ ${n - SIDE_MAX}건 더 보기</button>` : "");
@@ -2968,7 +2979,7 @@ function renderHome() {
   const goto = (p, tab) => `data-goto="${p.id}" data-tab="${tab}"`;
 
   $("#main").innerHTML = `
-    <div class="page-head"><h1>통합 대시보드</h1><div class="row2"><span class="muted">기준일 ${esc(base)}</span>
+    <div class="page-head"><h1>통합 대시보드</h1><div class="row2"><span class="today-big">오늘 ${todayText()}</span>
       ${Store.projects.some((p) => p.overview.status === "완료") ? `<button class="btn" id="closingAll" title="완료 상태인 프로젝트를 열로 모은 마감 보고서">📊 완료 프로젝트 마감 보고서</button>` : ""}</div></div>
     ${!Store.projects.length ? `<div class="card empty-big">
       <div class="hero-emoji">📂</div><h2>시작하기</h2><p>왼쪽의 <b>📥</b> 버튼으로 지금 쓰고 있는 프로젝트 엑셀 파일을 불러오거나, <b>＋</b> 버튼으로 새 프로젝트를 만드세요.</p>
