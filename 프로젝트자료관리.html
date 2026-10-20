@@ -711,6 +711,8 @@ dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr));
 .today-big { font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 5px 12px; border-radius: 999px; font-size: 14px; }
 input.auto-field { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: not-allowed; }
 input.need-date { border-color: var(--bad); background: var(--bad-soft); }
+dialog .form.md-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 800px) { dialog .form.md-grid { grid-template-columns: 1fr 1fr; } }
 
 </style>
 </head>
@@ -2138,7 +2140,7 @@ function koreanAmount(n) {
   return out;
 }
 // 인건비: 분야별 M/D × M/D 단가 (인건비를 직접 넣으면 그 값). 실행가와는 따로 관리
-const MD_FIELDS = [["control", "제어"], ["design", "설계"], ["elec", "전장"], ["setup", "Setup"]];
+const MD_FIELDS = [["control", "제어"], ["design", "설계"], ["elec", "전장"], ["make", "제작"], ["setup", "Setup"]];
 const mdNum = (v) => Number(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
 function contractInfo(p) {
   const o = p.overview;
@@ -2636,7 +2638,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.19 22:00</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.20 03:32</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));

@@ -701,3 +701,5 @@ dialog .total-cost .tc-parts { grid-template-columns: repeat(4, minmax(0, 1fr));
 .today-big { font-weight: 700; color: var(--accent-ink); background: var(--accent-soft); padding: 5px 12px; border-radius: 999px; font-size: 14px; }
 input.auto-field { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; cursor: not-allowed; }
 input.need-date { border-color: var(--bad); background: var(--bad-soft); }
+dialog .form.md-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 800px) { dialog .form.md-grid { grid-template-columns: 1fr 1fr; } }

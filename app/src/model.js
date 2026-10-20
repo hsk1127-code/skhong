@@ -851,7 +851,7 @@ function koreanAmount(n) {
   return out;
 }
 // 인건비: 분야별 M/D × M/D 단가 (인건비를 직접 넣으면 그 값). 실행가와는 따로 관리
-const MD_FIELDS = [["control", "제어"], ["design", "설계"], ["elec", "전장"], ["setup", "Setup"]];
+const MD_FIELDS = [["control", "제어"], ["design", "설계"], ["elec", "전장"], ["make", "제작"], ["setup", "Setup"]];
 const mdNum = (v) => Number(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
 function contractInfo(p) {
   const o = p.overview;
