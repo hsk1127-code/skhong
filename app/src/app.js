@@ -2482,7 +2482,15 @@ async function start() {
     };
     ch.postMessage("hello");
   } catch {}
-  Store.onChange(() => { if (!autoRunning) scheduleAutoBackup(); });
+  Store.onChange((why) => {
+    // 다른 창에서 저장한 내용을 받았으면 화면만 새로 그림
+    if (why === "reload") { render(); toast("다른 창에서 저장한 최신 내용으로 화면을 새로 고쳤습니다.", 4000); return; }
+    if (!autoRunning) scheduleAutoBackup();
+  });
+  Store.onConflict(() => {
+    render();
+    toast("⚠ 다른 창에서 더 최신 내용이 저장되어 있어 그 내용을 불러왔습니다. 이 창에서 방금 고친 내용은 저장되지 않았으니 다시 입력해 주세요.", 9000);
+  });
   // 시작할 때 오늘 자동 백업이 아직 없으면 한 번
   autoDir().then((dir) => { renderSidebar(); if (dir) autoBackup(); });
   window.addEventListener("beforeunload", () => Store.flush());

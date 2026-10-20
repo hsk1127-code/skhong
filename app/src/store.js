@@ -6,7 +6,12 @@ const Store = (() => {
   let idb;
   let state;
   let saveTimer, savePromise;
-  const listeners = new Set();
+  // 여러 창(탭)에서 열었을 때 덮어쓰기 방지: 이 창에서 바꾼 것이 있을 때만 저장(dirty),
+  // 저장할 때마다 번호(rev)를 올리고, 저장소의 번호가 이 창이 읽은 번호보다 크면 덮어쓰지 않고 새로 읽음
+  let dirty = false, baseRev = 0;
+  const listeners = new Set(), conflictListeners = new Set();
+  let channel = null;
+  try { channel = new BroadcastChannel("project-docs-sync"); } catch {}
 
   const emptyState = () => ({ version: 1, projects: [], files: {}, settings: { user: "", lastBackup: "" } });
 
@@ -23,20 +28,56 @@ const Store = (() => {
     state = (await req(store("state").get("main"))) || emptyState();
     state.settings ||= { user: "", lastBackup: "" };
     state.files ||= {};
+    baseRev = state.rev || 0;
     navigator.storage?.persist?.().catch(() => {}); // 브라우저가 임의로 데이터를 지우지 않도록 요청
   }
 
   // 변경 후 호출: 잠시 모아서 한 번에 저장한다.
   function changed() {
+    dirty = true;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flush, 250);
     listeners.forEach((fn) => fn());
   }
-  function flush() {
+  // force: 복원처럼 저장소 내용을 일부러 통째로 바꿀 때
+  function flush(force = false) {
     clearTimeout(saveTimer);
-    savePromise = req(store("state", "readwrite").put(state, "main"));
+    if (!dirty && !force) return savePromise || Promise.resolve();
+    savePromise = new Promise((ok, no) => {
+      const tx = idb.transaction("state", "readwrite"), s = tx.objectStore("state");
+      let result = "saved";
+      const g = s.get("main");
+      g.onsuccess = () => {
+        const cur = g.result;
+        if (!force && cur && (cur.rev || 0) > baseRev) {
+          // 다른 창이 더 새 내용을 저장함 → 이 창의 오래된 내용으로 덮어쓰지 않고 새 내용을 받음
+          state = cur; state.settings ||= { user: "", lastBackup: "" }; state.files ||= {};
+          baseRev = cur.rev || 0; dirty = false; result = "conflict";
+          return;
+        }
+        state.rev = Math.max(baseRev, cur?.rev || 0) + 1;
+        s.put(state, "main");
+        baseRev = state.rev; dirty = false;
+      };
+      tx.oncomplete = () => {
+        if (result === "saved") channel?.postMessage({ type: "saved", rev: baseRev });
+        else conflictListeners.forEach((fn) => fn());
+        ok(result);
+      };
+      tx.onerror = () => no(tx.error);
+    });
     return savePromise;
   }
+  // 다른 창이 저장하면: 이 창에서 고치던 것이 없을 때 새 내용을 다시 읽음
+  async function reloadIfNewer() {
+    if (dirty) return false;
+    const cur = await req(store("state").get("main"));
+    if (!cur || (cur.rev || 0) <= baseRev) return false;
+    state = cur; state.settings ||= { user: "", lastBackup: "" }; state.files ||= {};
+    baseRev = cur.rev || 0;
+    return true;
+  }
+  if (channel) channel.onmessage = async (e) => { if (e.data?.type === "saved" && (await reloadIfNewer())) listeners.forEach((fn) => fn("reload")); };
 
   // ------------------------------------------------------------ files
   const uid = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
@@ -58,9 +99,13 @@ const Store = (() => {
       else if (v && typeof v === "object") Object.values(v).forEach(walk);
       else if (typeof v === "string" && state.files[v]) used.add(v);
     };
+    // 다른 창이 더 새 내용을 저장했으면 이 창 기준으로 파일을 지우지 않음
+    const cur = await req(store("state").get("main"));
+    if (cur && (cur.rev || 0) > baseRev) return;
     walk(state.projects);
     const dead = Object.keys(state.files).filter((id) => !used.has(id));
     if (!dead.length) return;
+    dirty = true;
     const s = store("blobs", "readwrite");
     dead.forEach((id) => { s.delete(id); delete state.files[id]; });
     await flush();
@@ -120,6 +165,7 @@ const Store = (() => {
       if (blob) files.push({ name: `files/${id}`, data: blob, compress: !/^(image|video)\//.test(blob.type) });
     }
     state.settings.lastBackup = today();
+    dirty = true;
     await flush();
     listeners.forEach((fn) => fn());
     return Zip.write(files);
@@ -139,7 +185,8 @@ const Store = (() => {
       await req(store("blobs", "readwrite").put(blob, id));
     }
     state = data.state;
-    await flush();
+    dirty = true;
+    await flush(true);
     listeners.forEach((fn) => fn());
   }
 
@@ -149,6 +196,8 @@ const Store = (() => {
     get projects() { return state.projects; },
     project: (id) => state.projects.find((p) => p.id === id),
     onChange: (fn) => listeners.add(fn),
+    onConflict: (fn) => conflictListeners.add(fn),
+    get dirty() { return dirty; },
   };
 })();
 

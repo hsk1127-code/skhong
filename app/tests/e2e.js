@@ -220,6 +220,17 @@ const assert = require("assert");
   await p.click(".tabs [data-tab=records]");
   await p.waitForFunction(() => document.querySelector(".thumb img")?.naturalWidth > 0);
 
+  // 두 번째 창을 열었다 닫아도(아무것도 안 고침) 저장된 자료를 덮어쓰지 않음
+  const n0 = await p.evaluate(() => Store.projects.length);
+  const p2 = await ctx.newPage();
+  await p2.addInitScript(() => { window.showDirectoryPicker = undefined; });
+  await p2.goto("file://" + html);
+  await p2.waitForSelector("#side .plist");
+  await p2.close({ runBeforeUnload: true });
+  await p.reload();
+  await p.waitForSelector("#side .plist");
+  assert.strictEqual(await p.evaluate(() => Store.projects.length), n0);
+
   assert.deepStrictEqual(errors, []);
   await ctx.close();
   console.log("OK", path.join(work, "out.xlsx"), path.join(work, "closing.xlsx"));
