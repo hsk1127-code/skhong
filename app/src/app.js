@@ -633,10 +633,23 @@ function renderHome() {
     async (form) => {
       const ys = $$("[name=year]:checked", form).map((x) => x.value);
       if (!ys.length) { toast("년도를 하나 이상 고르세요."); return false; }
-      const label = ys.filter((y) => y !== "연도 미정").sort();
-      await saveFile(() => buildContractYearWorkbook(Store.projects, ys),
-        `계약정산_${label.length ? (label.length > 1 ? `${label[0]}-${label[label.length - 1]}` : label[0]) : "연도미정"}_${today()}.xlsx`, "엑셀 파일을 만드는 중…");
-    }, { okLabel: "💰 엑셀 다운로드" });
+      await saveFile(() => buildContractYearWorkbook(Store.projects, ys), `${yearFileName(ys)}.xlsx`, "엑셀 파일을 만드는 중…");
+    }, { okLabel: "💰 엑셀 다운로드", onOpen: (dlg, form) => {
+      const pdf = document.createElement("button");
+      pdf.type = "button"; pdf.className = "btn"; pdf.textContent = "🖨 PDF (인쇄)";
+      $(".actions", dlg).insertBefore(pdf, $(".actions .primary", dlg));
+      pdf.onclick = () => {
+        const ys = $$("[name=year]:checked", form).map((x) => x.value);
+        if (!ys.length) return toast("년도를 하나 이상 고르세요.");
+        $("#print").innerHTML = yearReportHtml(Store.projects, ys);
+        dlg.close();
+        // PDF 로 저장할 때 기본 파일 이름
+        const title = document.title;
+        document.title = yearFileName(ys);
+        window.addEventListener("afterprint", () => (document.title = title), { once: true });
+        setTimeout(() => window.print(), 50);
+      };
+    } });
   });
   $("#closingAll")?.addEventListener("click", () => {
     const done = Store.projects.filter((p) => p.overview.status === "완료");
@@ -1988,6 +2001,83 @@ function reportDialog(p) {
   }
 }
 
+const yearFileName = (ys) => {
+  const l = ys.filter((y) => y !== "연도 미정").sort();
+  return `계약정산_${l.length ? (l.length > 1 ? `${l[0]}-${l[l.length - 1]}` : l[0]) : "연도미정"}_${today()}`;
+};
+// 년도별 계약·정산 PDF: 엑셀(완료 보고서 양식)과 같은 내용 — 년도별 합계, 년도마다 프로젝트를 열로 놓은 표 + 종합, 정산 내역
+function yearReportHtml(projects, years) {
+  const label = (y) => (y === "연도 미정" ? y : `${y}년`);
+  const groups = years.map((y) => ({ y, list: projects.filter((p) => contractYear(p) === y)
+    .sort((a, b) => (a.overview.orderDate || "9").localeCompare(b.overview.orderDate || "9") || a.overview.name.localeCompare(b.overview.name)) }))
+    .filter((g) => g.list.length).sort((a, b) => (a.y === "연도 미정") - (b.y === "연도 미정") || a.y.localeCompare(b.y));
+  const v = (x) => (x ? esc(x) : `<span class="rp-dash">-</span>`);
+  const d = (x) => (isDate(x) ? esc(fmtDot(x)) : v(x));
+  const w = (n) => (n ? fmtWon(n) : `<span class="rp-dash">-</span>`);
+  const pct = (r) => (r == null ? `<span class="rp-dash">-</span>` : `${(r * 100).toFixed(1)}%`);
+  const signed = (n, r) => (n == null ? `<span class="rp-dash">-</span>` : `<b class="${n < 0 ? "bad" : ""}">${fmtWon(n)}</b> <span class="rp-sub">${pct(r)}</span>`);
+  const won = (n) => (n ? `${Math.round(n).toLocaleString("ko-KR")}<small>원</small>` : `<span class="rp-dash">-</span>`);
+  let no = 0;
+  const sec = (title, sub = "", cls = "") => `<h2 class="${cls}"><span class="rp-no">${String(++no).padStart(2, "0")}</span>${title}${sub ? `<small>${sub}</small>` : ""}</h2>`;
+  const table = (cols, heads, rows, cls = "") => `<table class="rp-t ${cls}"><colgroup>${cols.map((x) => `<col style="width:${x}%">`).join("")}</colgroup>
+    <thead><tr>${heads.map((h) => `<th class="${h.c || ""}">${h.t ?? h}</th>`).join("")}</tr></thead>
+    <tbody>${rows.map((r) => `<tr class="${r.cls || ""}">${r.map((x, i) => `<td class="${heads[i].c || ""}">${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  const sums = groups.map(({ y, list }) => {
+    const cs = list.map(contractInfo);
+    const t = (f) => cs.reduce((a, c) => a + (f(c) || 0), 0);
+    return { y, list, count: list.length, amount: t((c) => c.amount), total: t((c) => (c.actualCost ? c.totalCost : 0)),
+      profit: t((c) => (c.amount && c.actualCost ? c.totalProfit : 0)), paid: t((c) => c.paidAmount) };
+  });
+  const all = sums.reduce((a, s) => ({ count: a.count + s.count, amount: a.amount + s.amount, total: a.total + s.total, profit: a.profit + s.profit, paid: a.paid + s.paid }),
+    { count: 0, amount: 0, total: 0, profit: 0, paid: 0 });
+  const rate = (s) => (s.amount && s.total ? s.profit / s.amount : null);
+  const kpi = (l, val, sub = "", cls = "") => `<div class="rp-kpi ${cls}"><span>${l}</span><b>${val}</b><small>${sub}</small></div>`;
+  const span = groups.map((g) => g.y).filter((y) => y !== "연도 미정");
+  const head = `<header class="rp-head"><div class="rp-title"><div class="rp-kicker">CONTRACT &amp; SETTLEMENT REPORT</div>
+      <h1>년도별 계약 · 정산 보고서</h1><div class="rp-pname">${span.length ? esc(span.length > 1 ? `${span[0]} ~ ${span[span.length - 1]}년` : `${span[0]}년`) : "연도 미정"} · 프로젝트 ${all.count}건</div></div></header>
+    <div class="rp-meta"><div><span>대상 년도</span><b>${esc(groups.map((g) => label(g.y)).join(", "))}</b></div><div><span>프로젝트</span><b>${all.count}건</b></div>
+      <div><span>년도 기준</span><b>발주일 (없으면 Kick Off)</b></div><div><span>출력일 · 작성자</span><b>${d(today())} · ${v(Store.state.settings.user)}</b></div></div>
+    <div class="rp-kpis">${kpi("발주금액 합계", won(all.amount))}${kpi("실행가 합계", won(all.total), "실행가+인건비+재경비+워런티비", "accent")}
+      ${kpi("합계 기준 이익", `${all.profit < 0 ? "−" : ""}${won(Math.abs(all.profit))}`, `발주금액 − 실행가 합계 · 이익률 ${pct(rate(all))}`, all.profit < 0 ? "bad" : "ok")}
+      ${kpi("수금", won(all.paid), `미수금 ${fmtWon(all.amount - all.paid) || "0원"}`, all.amount && all.paid >= all.amount ? "ok" : "")}</div>`;
+  const yearTable = sec("년도별 합계", "단위: 원") + table([14, 8, 17, 17, 17, 9, 18], ["년도", { t: "건수", c: "r" }, { t: "발주금액", c: "r" }, { t: "실행가 합계", c: "r" }, { t: "합계 기준 이익", c: "r" }, { t: "이익률", c: "r" }, { t: "수금 / 미수금", c: "r" }],
+    [...sums.map((s) => [`<b>${label(s.y)}</b>`, s.count, w(s.amount), w(s.total), `<b class="${s.profit < 0 ? "bad" : ""}">${w(s.profit)}</b>`, pct(rate(s)), `${w(s.paid)}<br><span class="rp-sub">${fmtWon(s.amount - s.paid) || "0원"}</span>`]),
+      ...(sums.length > 1 ? [Object.assign([`<b>전체</b>`, all.count, `<b>${w(all.amount)}</b>`, `<b>${w(all.total)}</b>`, `<b>${w(all.profit)}</b>`, pct(rate(all)), `<b>${w(all.paid)}</b><br><span class="rp-sub">${fmtWon(all.amount - all.paid) || "0원"}</span>`], { cls: "rp-total" })] : [])]);
+  // 년도별: 완료 보고서 양식 (항목이 행, 프로젝트가 열) — 한 표에 4개씩
+  const ITEMS = [["프로젝트 내용", [["프로젝트명", (x) => v(x.projectName)], ["납품 물품 내역", (x) => v(x.items)], ["이슈(특이)사항", (x) => v(x.issues)], ["미완료 내용", (x) => v(x.unfinished)]]],
+    ["진행상황", [["Kick off일자", (x) => d(x.kickoffDate)], ["납품일자", (x) => d(x.deliveryDate)], ["SET UP 완료일", (x) => d(x.setupDate)], ["Warranty 시작", (x) => v(x.warrantyText)]]],
+    ["정산관련", [["지급조건", (x) => v(x.payTerms)], ["입금완료일", (x) => d(x.paidDate)], ["발주가", (x) => `<b>${w(x.orderAmount)}</b>`], ["실행 예가", (x) => w(x.estimateCost)],
+      ["실행목표가", (x) => w(x.targetCost)], ["실행가", (x) => w(x.actualCost)], ["투입 M/D", (x) => v(x.mdTotal ? `${x.mdTotal} M/D (${x.mdText})` : "")], ["인건비", (x) => w(x.labor)],
+      ["재경비", (x) => w(x.overhead)], ["워런티비", (x) => w(x.warrantyCost)], ["실행가 합계", (x) => `<b>${w(x.totalCost)}</b>`],
+      ["합계 기준 이익", (x) => signed(x.totalProfit, x.totalRate)],
+      ["예상 이익 (실행 예가 − 실행가)", (x) => signed(x.estimateCost && x.actualCost ? x.estimateCost - x.actualCost : null, x.estimateCost && x.actualCost ? (x.estimateCost - x.actualCost) / x.estimateCost : null)],
+      ["목표 이익 (실행목표가 − 실행가)", (x) => signed(x.targetCost && x.actualCost ? x.targetCost - x.actualCost : null, x.targetCost && x.actualCost ? (x.targetCost - x.actualCost) / x.targetCost : null)]]]];
+  const TEXT_ROWS = new Set(["프로젝트명", "납품 물품 내역", "이슈(특이)사항", "미완료 내용", "Kick off일자", "납품일자", "SET UP 완료일", "Warranty 시작", "지급조건", "입금완료일", "투입 M/D"]);
+  // 프로젝트 칸 너비는 그 해 건수(최대 4, 최소 2 칸 기준)로 정해 같은 해의 표끼리 줄을 맞춘다
+  const matrix = (infos, per) => {
+    const cw = Math.floor(74 / Math.max(2, Math.min(4, per)));
+    return `<table class="rp-t rp-mx"><colgroup><col style="width:10%"><col style="width:16%">${infos.map(() => `<col style="width:${cw}%">`).join("")}</colgroup>
+      <thead><tr><th>구분</th><th>항목</th>${infos.map((x) => `<th>${v(x.header)}</th>`).join("")}</tr></thead>
+      <tbody>${ITEMS.map(([g, rows]) => rows.map(([l, f], i) => `<tr class="${l === "실행가 합계" || l === "합계 기준 이익" ? "rp-total" : ""}">${i === 0 ? `<th rowspan="${rows.length}" class="rp-grp">${g}</th>` : ""}<th>${l}</th>${infos.map((x) => `<td class="${TEXT_ROWS.has(l) ? "" : "r"}">${f(x)}</td>`).join("")}</tr>`).join("")).join("")}</tbody></table>`;
+  };
+  const yearBlocks = sums.map((s, k) => {
+    const infos = s.list.map(closingInfo), chunks = [];
+    for (let i = 0; i < infos.length; i += 4) chunks.push(infos.slice(i, i + 4));
+    return `<div class="rp-year ${k ? "rp-break" : ""}">${sec(`${label(s.y)} 프로젝트 마감 보고`, `${s.count}건 · 발주 ${fmtWon(s.amount) || "0원"} · 이익 ${fmtWon(s.profit) || "0원"} (${pct(rate(s)).replace(/<[^>]+>/g, "")})`)}
+      ${chunks.map((c) => matrix(c, infos.length)).join("")}
+      <h3 class="rp-h3">${label(s.y)} 종합 <small>프로젝트별 금액</small></h3>
+      ${table([30, 15, 15, 15, 15, 10], ["발주명", { t: "수주가", c: "r" }, { t: "실투입재료비", c: "r" }, { t: "실행가 합계", c: "r" }, { t: "합계 기준 이익", c: "r" }, { t: "이익률", c: "r" }],
+        [...infos.map((x) => [v(x.projectName), w(x.orderAmount), w(x.actualCost), w(x.totalCost), `<span class="${x.totalProfit < 0 ? "bad" : ""}">${w(x.totalProfit)}</span>`, pct(x.totalRate)]),
+          ...(infos.length > 1 ? [Object.assign(["<b>합계</b>", `<b>${w(s.amount)}</b>`, `<b>${w(infos.reduce((a, x) => a + (x.actualCost || 0), 0))}</b>`, `<b>${w(s.total)}</b>`, `<b>${w(s.profit)}</b>`, pct(rate(s))], { cls: "rp-total" })] : [])])}</div>`;
+  }).join("");
+  const pays = groups.flatMap(({ y, list }) => list.flatMap((p) => contractInfo(p).payments.map((x) =>
+    [label(y), v(p.overview.customer), v(p.overview.project || p.overview.name), v(x.name), `${esc(x.ratio)}%`, w(x.amount), d(x.paidDate),
+      `<span class="rp-pill ${x.status === "수금완료" ? "ok" : x.status === "청구" ? "info" : ""}">${esc(x.status || "미청구")}</span>`])));
+  const payTable = pays.length ? `<div class="rp-break">${sec("정산 내역", "프로젝트별 정산 단계")}${table([9, 14, 24, 8, 7, 14, 11, 13],
+    ["년도", "고객사", "프로젝트", "구분", { t: "비율", c: "r" }, { t: "금액", c: "r" }, { t: "정산일", c: "c" }, { t: "상태", c: "c" }], pays)}</div>` : "";
+  return `<div class="rp">${head}${yearTable}<div class="rp-break">${yearBlocks}</div>${payTable}
+    <p class="rp-foot rp-sub">재경비·워런티비 = (실행가 + 인건비) × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 이익 = 발주가 − 실행가 합계 · 예상/목표 이익 = 실행 예가/실행목표가 − 실행가</p></div>`;
+}
 function reportHtml(p, inc) {
   const o = p.overview, r = p.report, base = r.completedDate || today();
   const sm = projectSummary(p, base), c = contractInfo(p), kd = keyDates(p);

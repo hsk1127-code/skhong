@@ -242,6 +242,14 @@ const assert = require("assert");
   assert.ok(yr.names.some((n) => /^\d{4}년 종합$/.test(n)));
   assert.match(yr.title, /^\d{4}년 프로젝트 마감 보고서/);
   assert.deepStrictEqual(yr.items, [["발주가", 120000000], ["실행 예가", 85000000], ["실행목표가", 80000000], ["실행가", 90000000]]);
+  // 같은 내용을 PDF(인쇄)로도: 년도별 합계 · 년도별 마감 보고(항목이 행, 프로젝트가 열) · 종합 · 정산 내역
+  await p.evaluate(() => { window.__printed = 0; });
+  await p.click("#contractYears");
+  await p.click("dialog >> text=🖨 PDF (인쇄)");
+  await p.waitForFunction(() => window.__printed);
+  const yp = await p.textContent("#print");
+  assert.match(yp, /년도별 계약 · 정산 보고서[\s\S]*년도별 합계[\s\S]*\d{4}년 프로젝트 마감 보고[\s\S]*정산관련[\s\S]*발주가[\s\S]*120,000,000원[\s\S]*실행가 합계[\s\S]*\d{4}년 종합[\s\S]*정산 내역/);
+  assert.match(await p.evaluate(() => document.title), /^계약정산_\d{4}/);
   await p.click(".plist .nav");
   await p.waitForSelector(".tabs");
 

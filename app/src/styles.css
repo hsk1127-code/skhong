@@ -428,7 +428,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .rp-kv tr:first-child th, .rp-kv tr:first-child td { border-top: 1pt solid var(--ink); }
   .rp-kv th { background: var(--soft); font-size: 8.3pt; font-weight: 700; color: #374151; }
   .rp-sub { font-size: 8pt; color: var(--sub); } .rp-sub.bad { color: var(--bad); } .rp-sub.ok { color: var(--ok); }
-  .rp-pill { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 0 7px; border-radius: 9px; background: #eceff4; color: #4b5563; line-height: 1.6; }
+  .rp-pill { display: inline-block; font-size: 7.5pt; font-weight: 700; padding: 0 7px; border-radius: 9px; background: #eceff4; color: #4b5563; line-height: 1.6; white-space: nowrap; }
   .rp-pill.ok { background: var(--ok-soft); color: var(--ok); } .rp-pill.bad { background: var(--bad-soft); color: var(--bad); } .rp-pill.info { background: #e7eefc; color: var(--info); }
   .rp-bar { display: inline-block; vertical-align: middle; width: calc(100% - 38px); height: 6px; border-radius: 3px; background: #e6e9ef; overflow: hidden; }
   .rp-bar span { display: block; height: 100%; background: var(--brand); border-radius: 3px; } .rp-bar span.ok { background: var(--ok); }
@@ -449,6 +449,15 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .rp-para { border: .7pt solid var(--line); border-radius: 6px; padding: 8px 11px; min-height: 48px; background: #fff; break-inside: avoid; }
   .rp-para.rp-empty { color: #a3abb8; }
   .rp-none { color: var(--sub); margin: 4px 0; font-size: 9pt; }
+  /* 년도별 계약·정산: 년도마다 새 쪽, 항목이 행·프로젝트가 열인 표 */
+  .rp-break { break-before: page; }
+  .rp-year + .rp-year { break-before: page; }
+  .rp-mx { margin-bottom: 10px !important; }
+  .rp-mx tbody th { background: var(--soft); color: var(--ink); font-size: 8pt; font-weight: 600; text-align: left; padding: 4px 7px; border-bottom: .5pt solid var(--line); vertical-align: top; }
+  .rp-mx tbody th.rp-grp { background: var(--brand-soft); color: var(--brand); font-weight: 800; text-align: center; vertical-align: middle; border-right: .5pt solid var(--line); }
+  .rp-mx td { font-size: 8.6pt; padding: 4px 7px; }
+  .rp-mx tr { break-inside: avoid; }
+  .rp-foot { margin-top: 14px; font-size: 7.5pt; }
   .rp-foot { display: flex; justify-content: space-between; margin-top: 18px; padding-top: 6px; border-top: .7pt solid var(--line); color: #8a93a3; font-size: 7.5pt; }
 }
 .form.three { grid-template-columns: repeat(3, 1fr); } .form .span2 { grid-column: span 2; }
