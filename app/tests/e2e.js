@@ -250,6 +250,9 @@ const assert = require("assert");
   const yp = await p.textContent("#print");
   assert.match(yp, /년도별 계약 · 정산 보고서[\s\S]*년도별 현황[\s\S]*프로젝트 한눈에[\s\S]*\d{4}년 프로젝트 마감 보고[\s\S]*정산관련[\s\S]*발주가[\s\S]*120,000,000원[\s\S]*실행가 합계[\s\S]*\d{4}년 종합[\s\S]*정산 진행/);
   assert.match(await p.evaluate(() => document.title), /^계약정산_\d{4}/);
+  // 한 쪽에 프로젝트 4칸 고정 (모자라면 빈 칸), 4개씩 한 쪽 단위로 묶어 잘리지 않게
+  assert.deepStrictEqual(await p.$$eval("#print .rp-mx", (ts) => ts.map((t) => t.querySelectorAll("thead th").length)), Array(await p.locator("#print .rp-mx").count()).fill(5));
+  assert.ok(await p.locator("#print .yr-page .rp-mx").count() >= 1);
   await p.click(".plist .nav");
   await p.waitForSelector(".tabs");
 

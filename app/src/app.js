@@ -2085,12 +2085,12 @@ function yearReportHtml(projects, years) {
       ["예상 이익 (예가 − 실행가)", (x) => signed(x.estimateCost && x.actualCost ? x.estimateCost - x.actualCost : null, x.estimateCost && x.actualCost ? (x.estimateCost - x.actualCost) / x.estimateCost : null)],
       ["목표 이익 (목표가 − 실행가)", (x) => signed(x.targetCost && x.actualCost ? x.targetCost - x.actualCost : null, x.targetCost && x.actualCost ? (x.targetCost - x.actualCost) / x.targetCost : null)]]]];
   const TEXT_ROWS = new Set(["프로젝트명", "납품 물품 내역", "이슈(특이)사항", "미완료 내용", "Kick off일자", "납품일자", "SET UP 완료일", "Warranty 시작", "지급조건", "입금완료일", "투입 M/D"]);
-  // 프로젝트 칸 너비는 그 해 건수(최대 4, 최소 2 칸 기준)로 정해 같은 해의 표끼리 줄을 맞춘다
-  const matrix = (infos, per) => {
-    const cw = Math.floor(76 / Math.max(2, Math.min(4, per)));
-    return `<table class="rp-t rp-mx"><colgroup><col style="width:8%"><col style="width:16%">${infos.map(() => `<col style="width:${cw}%">`).join("")}</colgroup>
-      <thead><tr><th colspan="2">항목</th>${infos.map((x) => `<th>${v(x.header)}</th>`).join("")}</tr></thead>
-      <tbody>${ITEMS.map(([g, rows]) => rows.map(([l, f], k) => `<tr class="${l === "실행가 합계" || l === "합계 기준 이익" ? "rp-total" : ""}">${k === 0 ? `<th rowspan="${rows.length}" class="rp-grp">${g.replace(" ", "<br>")}</th>` : ""}<th>${l}</th>${infos.map((x) => `<td class="${TEXT_ROWS.has(l) ? "" : "r"}">${f(x)}</td>`).join("")}</tr>`).join("")).join("")}</tbody></table>`;
+  // 한 쪽에 프로젝트 4개: 항상 4칸, 모자라면 빈 칸으로 채운다 (쪽마다 표 모양이 같도록)
+  const matrix = (infos) => {
+    const cells = [...infos, ...Array(4 - infos.length).fill(null)];
+    return `<table class="rp-t rp-mx"><colgroup><col style="width:8%"><col style="width:16%">${cells.map(() => `<col style="width:19%">`).join("")}</colgroup>
+      <thead><tr><th colspan="2">항목</th>${cells.map((x) => `<th>${x ? v(x.header) : ""}</th>`).join("")}</tr></thead>
+      <tbody>${ITEMS.map(([g, rows]) => rows.map(([l, f], k) => `<tr class="${l === "실행가 합계" || l === "합계 기준 이익" ? "rp-total" : ""}">${k === 0 ? `<th rowspan="${rows.length}" class="rp-grp">${g.replace(" ", "<br>")}</th>` : ""}<th>${l}</th>${cells.map((x) => `<td class="${TEXT_ROWS.has(l) ? "" : "r"}${x ? "" : " empty"}">${x ? f(x) : ""}</td>`).join("")}</tr>`).join("")).join("")}</tbody></table>`;
   };
   const band = (s) => `<div class="yr-band"><div class="yr-band-y">${label(s.y)}</div>
     ${[["프로젝트", `${s.count}건`, s.done ? `완료 ${s.done}건` : ""], ["발주금액", eok(s.amount), fmtWon(s.amount)], ["실행가 합계", s.total ? eok(s.total) : "-", s.total ? fmtWon(s.total) : "실행가 미입력"],
@@ -2099,12 +2099,14 @@ function yearReportHtml(projects, years) {
   const yearBlocks = sums.map((s) => {
     const infos = s.list.map(closingInfo), chunks = [];
     for (let k = 0; k < infos.length; k += 4) chunks.push(infos.slice(k, k + 4));
-    return `<div class="rp-year">${sec(`${label(s.y)} 프로젝트 마감 보고`, "완료 보고서 양식")}${band(s)}
-      ${chunks.map((c) => matrix(c, infos.length)).join("")}
-      <h3 class="rp-h3">${label(s.y)} 종합 <small>프로젝트별 금액</small></h3>
-      ${table([32, 14, 14, 14, 16, 10], ["발주명", { t: "수주가", c: "r" }, { t: "실투입재료비", c: "r" }, { t: "실행가 합계", c: "r" }, { t: "합계 기준 이익", c: "r" }, { t: "이익률", c: "r" }],
+    // 4개씩 한 쪽 (쪽 안에서 잘리지 않음), 종합은 표째로 다음 쪽에 넘어가더라도 나뉘지 않게
+    return `<div class="rp-year">${chunks.map((c, k) => `<div class="yr-page">${k === 0 ? `${sec(`${label(s.y)} 프로젝트 마감 보고`, "완료 보고서 양식")}${band(s)}`
+        : `<h3 class="rp-h3">${label(s.y)} 프로젝트 마감 보고 <small>(계속) ${k * 4 + 1}~${k * 4 + c.length} / ${infos.length}건</small></h3>`}
+      ${matrix(c)}</div>`).join("")}
+      <div class="yr-keep"><h3 class="rp-h3">${label(s.y)} 종합 <small>프로젝트별 금액</small></h3>
+      ${table([26, 16, 15, 15, 17, 11], ["발주명", { t: "수주가", c: "r" }, { t: "실투입재료비", c: "r" }, { t: "실행가 합계", c: "r" }, { t: "합계 기준 이익", c: "r" }, { t: "이익률", c: "r" }],
         [...infos.map((x) => [v(x.projectName), w(x.orderAmount), w(x.actualCost), w(x.totalCost), `<span class="${x.totalProfit < 0 ? "bad" : ""}">${w(x.totalProfit)}</span>`, pct(x.totalRate)]),
-          ...(infos.length > 1 ? [Object.assign(["<b>합계</b>", `<b>${w(s.amount)}</b>`, `<b>${w(infos.reduce((a, x) => a + (x.actualCost || 0), 0))}</b>`, `<b>${w(s.total)}</b>`, `<b>${w(s.profit)}</b>`, pct(s.rate)], { cls: "rp-total" })] : [])])}</div>`;
+          ...(infos.length > 1 ? [Object.assign(["<b>합계</b>", `<b>${w(s.amount)}</b>`, `<b>${w(infos.reduce((a, x) => a + (x.actualCost || 0), 0))}</b>`, `<b>${w(s.total)}</b>`, `<b>${w(s.profit)}</b>`, pct(s.rate)], { cls: "rp-total" })] : [])])}</div></div>`;
   }).join("");
 
   // ── 정산 진행: 프로젝트마다 단계 막대 + 단계 표

@@ -453,9 +453,16 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .rp-break { break-before: page; }
   .rp-year + .rp-year { break-before: page; }
   .rp-mx { margin-bottom: 10px !important; }
-  .rp-mx tbody th { background: var(--soft); color: var(--ink); font-size: 8pt; font-weight: 600; text-align: left; padding: 4px 7px; border-bottom: .5pt solid var(--line); vertical-align: top; }
+  .yr-page { break-inside: avoid; } .yr-page + .yr-page { break-before: page; }
+  .yr-keep { break-inside: avoid; }
+  .rp-mx td, .rp-mx thead th + th { border-left: .5pt solid var(--line); }
+  .rp-mx td.empty { background: #f8f9fb; }
+  .rp-mx tbody th.rp-grp { word-break: keep-all; font-size: 7.8pt; padding: 3px 2px; }
+  .yr-keep td.r { white-space: nowrap; }
+  .rp-t tr { break-inside: avoid; }
+  .rp-mx tbody th { background: var(--soft); color: var(--ink); font-size: 8pt; font-weight: 600; text-align: left; padding: 3px 6px; border-bottom: .5pt solid var(--line); vertical-align: top; }
   .rp-mx tbody th.rp-grp { background: var(--brand-soft); color: var(--brand); font-weight: 800; text-align: center; vertical-align: middle; border-right: .5pt solid var(--line); }
-  .rp-mx td { font-size: 8.6pt; padding: 4px 7px; }
+  .rp-mx td { font-size: 8.2pt; padding: 3px 6px; }
   .rp-mx tr { break-inside: avoid; }
   .rp-foot { margin-top: 14px; font-size: 7.5pt; }
   /* 년도별 막대 */
