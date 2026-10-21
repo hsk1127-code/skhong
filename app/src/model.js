@@ -917,6 +917,8 @@ function contractInfo(p) {
     profit: amount && actualCost ? amount - actualCost : null, profitRate: rate(actualCost),
     // 목표 대비: 실행가가 있으면 실행가, 없으면 실행 예가 기준
     overBasis: actualCost ? "실행가" : estimateCost ? "실행 예가" : "",
+    // 예가 대비: 실행가 − 실행 예가 (+면 예가보다 더 씀 → 예상보다 이익 감소)
+    overEstimate: actualCost && estimateCost ? actualCost - estimateCost : null,
     overBudget: targetCost && (actualCost || estimateCost) ? (actualCost || estimateCost) - targetCost : null };
 }
 

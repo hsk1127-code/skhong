@@ -47,7 +47,11 @@ const assert = require("assert");
   await p.type("[data-ck=actualCost]", "90000000");
   // 예상·목표·실제 이익 칸은 없음, 목표 대비만
   assert.doesNotMatch(await p.textContent("#costView"), /예상 이익|목표 이익|실제 이익/);
-  assert.match(await p.textContent("#costView"), /목표 대비\+10,000,000원/);
+  // 이익 = 발주금액 − 실행가 (실행 예가보다 더 써도 발주금액보다 적으면 이익), 예가·목표 초과는 ▲ 로 따로 표시
+  const cv = await p.textContent("#costView");
+  assert.match(cv, /이익 \(발주금액 − 실행가 합계\)30,000,000원120,000,000원 − 90,000,000원 · 이익률 25\.0%/);
+  assert.match(cv, /예가 대비▲ 5,000,000원 초과실행가 90,000,000원 − 실행 예가 85,000,000원 · 예상보다 이익 5,000,000원 감소/);
+  assert.match(cv, /목표 대비▲ 10,000,000원 초과/);
   // 인건비: M/D × 단가 자동 계산, 칸에 숫자로 보임 (실행가·이익은 그대로)
   await p.fill("[data-md=setup]", "2");
   await p.type("[data-ck=mdRate]", "500000");
