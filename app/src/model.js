@@ -1020,63 +1020,47 @@ function contractYear(p) {
   const d = [p.overview.orderDate, kd.kickoffDate.value, first].find(isDate);
   return d ? d.slice(0, 4) : "연도 미정";
 }
+// 년도마다 완료 보고서 양식(프로젝트를 열로) 시트 + 그 년도 종합, 맨 앞에 년도별 합계, 맨 뒤에 정산 내역
 async function buildContractYearWorkbook(projects, years) {
   const H = (v) => ({ v, s: "head" }), txt = (v) => ({ v: v ?? "", s: "cell" }), money = (v) => ({ v: v || "", s: "money" });
-  const date = (v) => ({ v: v || "", s: isDate(v) ? "date" : "cell" }), pctv = (v) => ({ v: v == null ? "" : v, s: "pct" });
-  const sheetName = (y) => (y === "연도 미정" ? y : `${y}년`);
+  const date = (v) => ({ v: v || "", s: isDate(v) ? "date" : "cell" });
+  const label = (y) => (y === "연도 미정" ? y : `${y}년`);
   const byYear = years.map((y) => ({ y, list: projects.filter((p) => contractYear(p) === y)
     .sort((a, b) => (a.overview.orderDate || "9").localeCompare(b.overview.orderDate || "9") || a.overview.name.localeCompare(b.overview.name)) }))
     .filter((g) => g.list.length);
-  // 프로젝트 열: B 고객사 ~ V 지급 완료일
-  const HEAD = ["고객사", "프로젝트", "Project No", "상태", "발주일", "발주금액", "실행 예가", "실행목표가", "실행가", "인건비", "재경비", "워런티비",
-    "실행가 합계", "합계 기준 이익", "이익률", "정산 조건", "수금액", "미수금", "정산률", "지급 완료일", "비고"];
-  const summary = [];
-  const sheets = byYear.map(({ y, list }) => {
-    const rows = [[null, { v: `${sheetName(y)} 계약 · 정산 현황`, s: "title" }], [null, { v: `출력일 ${today()} · 단위 (원) · 재경비·워런티비 = (실행가 + 인건비) × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 이익 = 발주금액 - 실행가 합계`, s: "cell" }],
-      [null, ...HEAD.map(H)]];
-    list.forEach((p, i) => {
-      const o = p.overview, c = contractInfo(p), kd = keyDates(p), r = 4 + i;
-      rows.push([null, txt(o.customer), txt(o.project || o.name), txt(o.projectNo), txt(o.status), date(o.orderDate),
-        money(c.amount), money(c.estimateCost), money(c.targetCost), money(c.actualCost), money(c.labor), money(c.overhead), money(c.warrantyCost),
-        c.actualCost ? { f: `J${r}+K${r}+L${r}+M${r}`, v: c.totalCost, s: "moneyb" } : money(""),
-        c.amount && c.actualCost ? { f: `G${r}-N${r}`, v: c.totalProfit, s: "moneyb" } : money(""),
-        c.amount && c.actualCost ? { f: `IF(G${r}=0,"",O${r}/G${r})`, v: c.totalRate, s: "pct" } : pctv(null),
-        txt(c.payments.map((x) => `${x.name} ${x.ratio}%`).join(" / ")),
-        money(c.paidAmount), c.amount ? { f: `G${r}-R${r}`, v: c.amount - c.paidAmount, s: "money" } : money(""),
-        c.payments.length ? { v: c.paidRatio / 100, s: "pct" } : pctv(null), date(kd.paidDate.value), txt(o.note)]);
-    });
-    const n = 3 + list.length, t = n + 1, sum = (L) => ({ f: `SUM(${L}4:${L}${n})`, s: "moneyb" });
-    rows.push([null, H("합계"), H(`${list.length}건`), H(""), H(""), H(""), ...["G", "H", "I", "J", "K", "L", "M", "N", "O"].map(sum),
-      { f: `IF(G${t}=0,"",O${t}/G${t})`, s: "pct" }, H(""), sum("R"), sum("S"), { f: `IF(G${t}=0,"",R${t}/G${t})`, s: "pct" }, H(""), H("")]);
-    const tot = (f) => list.reduce((a, p) => a + (f(contractInfo(p)) || 0), 0);
-    summary.push({ y, name: sheetName(y), t, count: list.length, amount: tot((c) => c.amount), total: tot((c) => (c.actualCost ? c.totalCost : 0)),
-      profit: tot((c) => (c.amount && c.actualCost ? c.totalProfit : 0)), paid: tot((c) => c.paidAmount) });
-    return { name: sheetName(y), cols: [3, 18, 30, 14, 8, 11, 15, 15, 15, 15, 13, 13, 13, 15, 15, 9, 26, 15, 15, 8, 11, 24], rows, merges: ["B1:V1", "B2:V2"] };
-  });
-  // 년도별 합계 (각 년도 시트의 합계 행을 참조)
-  const ref = (s, cell) => `'${s.name}'!${cell}${s.t}`;
+  const sheets = [], summary = [];
+  for (const { y, list } of byYear) {
+    const [main, sum] = closingSheets(list, { title: `${label(y)} 프로젝트 마감 보고서 (계약 · 정산)`, name: label(y), sumName: `${label(y)} 종합` });
+    sheets.push(main, sum);
+    const cs = list.map(contractInfo);
+    summary.push({ name: label(y), sumName: sum.name, t: sum.totalRow, count: list.length,
+      amount: cs.reduce((a, c) => a + c.amount, 0), total: cs.reduce((a, c) => a + (c.actualCost ? c.totalCost : 0), 0),
+      profit: cs.reduce((a, c) => a + (c.amount && c.actualCost ? c.totalProfit : 0), 0), paid: cs.reduce((a, c) => a + c.paidAmount, 0) });
+  }
+  // 년도별 합계: 각 '년도 종합' 시트의 합계 행을 수식으로 참조 (C 수주가 · F 실행가 합계 · G 합계 기준 이익)
+  const ref = (s, L) => `'${s.sumName}'!${L}${s.t}`;
   const sumRows = summary.map((s, i) => {
     const r = 4 + i;
-    return [null, txt(s.name), { v: s.count, s: "cell" }, { f: ref(s, "G"), v: s.amount, s: "money" }, { f: ref(s, "N"), v: s.total, s: "money" },
-      { f: ref(s, "O"), v: s.profit, s: "money" }, { f: `IF(D${r}=0,"",F${r}/D${r})`, s: "pct" }, { f: ref(s, "R"), v: s.paid, s: "money" },
-      { f: `D${r}-H${r}`, v: s.amount - s.paid, s: "money" }];
+    return [null, txt(s.name), { v: s.count, s: "cell" }, { f: ref(s, "C"), v: s.amount, s: "money" }, { f: ref(s, "F"), v: s.total, s: "money" },
+      { f: ref(s, "G"), v: s.profit, s: "money" }, { f: `IF(D${r}=0,"",F${r}/D${r})`, s: "pct" }, money(s.paid), { f: `D${r}-H${r}`, v: s.amount - s.paid, s: "money" }];
   });
   const m = 3 + summary.length;
   const front = { name: "년도별 합계", cols: [3, 14, 8, 17, 17, 17, 10, 17, 17], merges: ["B1:I1"], rows: [
-    [null, { v: "년도별 계약 · 정산 합계", s: "title" }], [null, { v: `출력일 ${today()} · 단위 (원) · 년도 = 발주일 기준 (없으면 Kick Off·첫 일정)`, s: "cell" }],
+    [null, { v: "년도별 계약 · 정산 합계", s: "title" }], [null, { v: `출력일 ${today()} · 단위 (원) · 년도 = 발주일 기준 (없으면 Kick Off·첫 일정) · 이익 = 발주가 - 실행가 합계`, s: "cell" }],
     [null, ...["년도", "건수", "발주금액", "실행가 합계", "합계 기준 이익", "이익률", "수금액", "미수금"].map(H)], ...sumRows,
     ...(summary.length > 1 ? [[null, H("전체"), { f: `SUM(C4:C${m})`, s: "cell" }, ...["D", "E", "F"].map((L) => ({ f: `SUM(${L}4:${L}${m})`, s: "moneyb" })),
       { f: `IF(D${m + 1}=0,"",F${m + 1}/D${m + 1})`, s: "pct" }, ...["H", "I"].map((L) => ({ f: `SUM(${L}4:${L}${m})`, s: "moneyb" }))]] : [])] };
   // 정산 내역: 프로젝트별 정산 단계
   const payRows = byYear.flatMap(({ y, list }) => list.flatMap((p) => contractInfo(p).payments.map((x) =>
-    [null, txt(sheetName(y)), txt(p.overview.customer), txt(p.overview.project || p.overview.name), txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" },
+    [null, txt(label(y)), txt(p.overview.customer), txt(p.overview.project || p.overview.name), txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" },
       money(x.amount), txt(x.cond), date(x.paidDate), txt(x.status || "미청구")])));
   const pays = { name: "정산 내역", cols: [3, 10, 18, 30, 10, 8, 15, 20, 11, 10], merges: ["B1:J1"], rows: [
     [null, { v: "프로젝트별 정산 내역", s: "title" }], [],
     [null, ...["년도", "고객사", "프로젝트", "구분", "비율", "금액", "지급 조건", "정산일", "상태"].map(H)], ...payRows] };
   return Xlsx.write([front, ...sheets, ...(payRows.length ? [pays] : [])]);
 }
-async function buildClosingWorkbook(projects) {
+// 마감 보고서 양식 시트 2장 (프로젝트를 열로 + 종합). 완료 보고서·년도별 계약·정산이 함께 씀
+function closingSheets(projects, { title = "완료 프로젝트 마감 보고서", name = "완료프로젝트 마감보고서", sumName = "종합" } = {}) {
   const infos = projects.map(closingInfo);
   const col = (i) => Xlsx.colName(3 + i); // D부터
   const H = (v) => ({ v, s: "head" });
@@ -1087,7 +1071,7 @@ async function buildClosingWorkbook(projects) {
   const money = (v) => ({ v: v || "", s: "money" });
   const last = col(infos.length - 1);
   const rows = [
-    [null, { v: "완료 프로젝트 마감 보고서", s: "title" }], [],
+    [null, { v: title, s: "title" }], [],
     [null, H("구분"), H("항목"), ...infos.map((x) => H(x.header))],
     row("프로젝트 내용", "프로젝트명", (x) => txt(x.projectName)),
     row("", "납품 물품 내역", (x) => txt(x.items)),
@@ -1125,7 +1109,7 @@ async function buildClosingWorkbook(projects) {
     const max = Math.max(1, ...row.slice(3).map((c) => lines(c && typeof c === "object" ? c.v : c)));
     heights[r] = Math.max(20, max * 15 + 5);
   });
-  const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
+  const sheets = [{ name, cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
     merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B28", `B30:${last}30`] }];
 
   // 종합: 프로젝트별 금액
@@ -1147,7 +1131,13 @@ async function buildClosingWorkbook(projects) {
       { f: `SUM(F3:F${n})`, v: infos.reduce((a, x) => a + (x.totalCost || 0), 0), s: "moneyb" },
       { f: `SUM(G3:G${n})`, s: "moneyb" }, { f: `IF(C${n + 1}=0,"",G${n + 1}/C${n + 1})`, s: "pct" }, txt("")]);
   }
-  sheets.push({ name: "종합", cols: [3, 40, 16, 16, 16, 16, 16, 14, 40], rows: sum });
+  sheets.push({ name: sumName, cols: [3, 40, 16, 16, 16, 16, 16, 14, 40], rows: sum, totalRow: infos.length > 1 ? infos.length + 3 : 3 });
+  return sheets;
+}
+async function buildClosingWorkbook(projects) {
+  const sheets = closingSheets(projects);
+  const H = (v) => ({ v, s: "head" }), txt = (v) => ({ v: v || "", s: "cell" });
+  const date = (v) => ({ v: v || "", s: isDate(v) ? "dateL" : "cell" }), money = (v) => ({ v: v || "", s: "money" });
 
   // 한 프로젝트만 내려받을 때는 근거 자료 시트도 함께
   if (projects.length === 1) {

@@ -234,11 +234,14 @@ const assert = require("assert");
   const yr = await p.evaluate(async () => {
     const wb = await Xlsx.read(new Blob([await buildContractYearWorkbook(Store.projects, [...new Set(Store.projects.map(contractYear))])]));
     const ysheet = wb.sheets.find((x) => /^\d{4}년$/.test(x.name));
-    return { names: wb.sheets.map((x) => x.name), row: ysheet.rows[3].slice(1, 16) };
+    return { names: wb.sheets.map((x) => x.name), title: ysheet.rows[0][1], items: ysheet.rows.slice(13, 17).map((r) => [r[2], r[3]]) };
   });
+  // 완료 보고서와 같은 양식: 항목이 행, 프로젝트가 열 (발주가~실행가 = 14~17행)
   assert.strictEqual(yr.names[0], "년도별 합계");
   assert.ok(yr.names.includes("정산 내역"));
-  assert.deepStrictEqual(yr.row.slice(5, 9), [120000000, 85000000, 80000000, 90000000]);
+  assert.ok(yr.names.some((n) => /^\d{4}년 종합$/.test(n)));
+  assert.match(yr.title, /^\d{4}년 프로젝트 마감 보고서/);
+  assert.deepStrictEqual(yr.items, [["발주가", 120000000], ["실행 예가", 85000000], ["실행목표가", 80000000], ["실행가", 90000000]]);
   await p.click(".plist .nav");
   await p.waitForSelector(".tabs");
 

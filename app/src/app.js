@@ -627,8 +627,8 @@ function renderHome() {
     const years = [...new Set(Store.projects.map(contractYear))].sort((a, b) => (a === "연도 미정") - (b === "연도 미정") || b.localeCompare(a));
     const count = (y) => Store.projects.filter((p) => contractYear(p) === y).length;
     openDialog(`<h3>년도별 계약 · 정산 다운로드</h3>
-      <p class="muted small">고른 년도마다 시트를 만들어 프로젝트별 발주금액·실행가·인건비·재경비·워런티비·이익·정산 현황을 넣습니다. 년도는 발주일 기준 (없으면 Kick Off·첫 일정).
-        '년도별 합계'와 '정산 내역' 시트도 함께 들어갑니다.</p>
+      <p class="muted small">완료 보고서(마감 보고서)와 같은 양식으로, 고른 년도마다 그 해 프로젝트를 열로 나란히 놓은 시트와 그 해 종합 시트를 만듭니다.
+        년도는 발주일 기준 (없으면 Kick Off·첫 일정). 맨 앞에 '년도별 합계', 맨 뒤에 '정산 내역' 시트가 함께 들어갑니다.</p>
       <div class="opts">${years.map((y) => `<label><input type="checkbox" name="year" value="${esc(y)}" checked> ${esc(y === "연도 미정" ? y : `${y}년`)} <span class="muted small">${count(y)}건</span></label>`).join("")}</div>`,
     async (form) => {
       const ys = $$("[name=year]:checked", form).map((x) => x.value);
