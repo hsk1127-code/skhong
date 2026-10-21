@@ -7,5 +7,5 @@
   3. PDF 보고서 (`reportHtml`: KPI · 원가 구성 · 이익 분석 · 예가/목표 대비 · 계약 및 정산)
   4. 완료 보고서 엑셀 (`model.js` 마감 보고서 시트 행·수식·메모, 종합 시트)
   5. 엑셀 내보내기 (`buildWorkbook` 개요 시트)
-  - 공통 계산은 `contractInfo` / `closingInfo`, 공통 문구는 `costDiffText` 처럼 `model.js` 에 두고 함께 쓴다.
+  - 공통 계산은 `contractInfo` / `closingInfo`, 공통 문구도 `model.js` 에 두고 함께 쓴다.
 - 테스트: `app/tests/e2e.js` (Playwright). 바꾼 표시는 위 출력마다 확인을 추가한다.
