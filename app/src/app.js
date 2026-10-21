@@ -763,7 +763,7 @@ function tabOverviewEdit(p, el) {
     if (!confirm(`'${o.name}' 프로젝트와 모든 자료·첨부 파일을 삭제할까요?\n(삭제 전 백업을 권장합니다)`)) return;
     Store.state.projects = Store.projects.filter((x) => x !== p);
     Store.changed();
-    await Store.gc();
+    Store.gc().catch(console.error);
     go({ view: "home" });
   };
 }
@@ -1421,6 +1421,7 @@ function gridInput(c, v) {
   // 날짜 칸은 달력 아이콘까지 다 보이도록 고정 너비
   return `<input data-f="${c.key}" ${c.type === "date" ? 'type="date"' : c.type === "number" ? 'inputmode="decimal"' : ""} value="${esc(v)}" style="width:${c.type === "date" ? 150 : c.w * 8}px">`;
 }
+// (삭제 뒤 쓰지 않는 첨부 정리 Store.gc 는 기다리지 않고 뒤에서 실행 → 화면이 바로 바뀜)
 function bindGrids(p, root) {
   for (const card of $$("[data-grid]", root)) {
     const key = card.dataset.grid, def = listDef(p, key);
@@ -1464,7 +1465,7 @@ function bindGrids(p, root) {
       if (!ids.length || !confirm(msg)) return;
       for (let i = rows.length - 1; i >= 0; i--) if (ids.includes(rows[i].id)) rows.splice(i, 1);
       Store.touch(p);
-      await Store.gc();
+      Store.gc().catch(console.error);
       toast(`${ids.length}행을 삭제했습니다.`);
       rerender();
     };
@@ -1486,7 +1487,7 @@ function bindGrids(p, root) {
         if (!confirm("이 첨부 파일을 삭제할까요?")) return;
         rows[i].files = rows[i].files.filter((x) => x !== e.target.dataset.remove);
         Store.touch(p);
-        await Store.gc();
+        Store.gc().catch(console.error);
         rerender();
       } else if ("delrow" in e.target.dataset) {
         if (!confirm(`${i + 1}번 행을 삭제할까요?`)) return;
@@ -1555,7 +1556,7 @@ function tabRecords(p, el) {
     if (!confirm(`'${r.title}' 자료와 첨부 파일을 삭제할까요?`)) return;
     p.records = p.records.filter((x) => x !== r);
     Store.touch(p);
-    await Store.gc();
+    Store.gc().catch(console.error);
     rerender();
   }));
   if (route.record) {
@@ -1669,14 +1670,14 @@ function tabMeetings(p, el) {
     const t = e.target;
     if ("addAction" in t.dataset) { cur.actions.push({ id: Store.uid(), text: "", owner: "", due: "", done: false, note: "" }); }
     else if (t.dataset.delAction) { cur.actions = cur.actions.filter((a) => a.id !== t.dataset.delAction); }
-    else if (t.dataset.remove) { e.stopPropagation(); cur.files = cur.files.filter((x) => x !== t.dataset.remove); await Store.gc(); }
+    else if (t.dataset.remove) { e.stopPropagation(); cur.files = cur.files.filter((x) => x !== t.dataset.remove); Store.gc().catch(console.error); }
     else if ("print" in t.dataset) return printMeeting(p, cur);
     else if ("delMeeting" in t.dataset) {
       if (!confirm(`'${cur.title}' 회의록을 삭제할까요?`)) return;
       p.meetings = p.meetings.filter((m) => m !== cur);
       route.meeting = null;
       Store.touch(p);
-      await Store.gc();
+      Store.gc().catch(console.error);
     } else return;
     Store.touch(p);
     tabMeetings(p, el);
@@ -1721,7 +1722,7 @@ async function importMeetings(p, files) {
         Store.addRevision(p, m.title, `회의록 · ${fmtDot(m.date)} (엑셀 가져오기)`, m.id);
       }
     }
-    await Store.gc();
+    Store.gc().catch(console.error);
     if (lastId) route.meeting = lastId;
     rerender();
     const msg = [`회의록 ${added}건을 등록했습니다.`, dup && `같은 제목·날짜 ${dup}건은 건너뜀`,
@@ -2120,7 +2121,7 @@ function tabSpec(p, el) {
     p.specs = specs.filter((x) => x !== sp);
     route.spec = p.specs[0].id;
     Store.touch(p);
-    await Store.gc();
+    Store.gc().catch(console.error);
     rerender();
   };
   $("#specImport").onclick = () => pickFiles(".xlsx", false, (f) => specImportDialog(p, sp, f[0]));
@@ -2146,7 +2147,7 @@ function tabSpec(p, el) {
     if (!confirm("이 파일을 삭제할까요?")) return;
     sp.files = sp.files.filter((x) => x !== e.target.dataset.remove);
     Store.touch(p);
-    await Store.gc();
+    Store.gc().catch(console.error);
     rerender();
   });
   $("#specNote").oninput = (e) => { sp.note = e.target.value; Store.touch(p); };
@@ -2314,7 +2315,7 @@ function tabParts(p, el) {
     if (!confirm("원본 파일을 목록에서 삭제할까요? (표 내용은 그대로 남습니다)")) return;
     p.listFiles[key] = files.filter((x) => x !== id);
     Store.touch(p);
-    await Store.gc();
+    Store.gc().catch(console.error);
     rerender();
   });
 
