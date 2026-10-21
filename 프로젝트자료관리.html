@@ -482,7 +482,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .yr-bar { display: flex; height: 20px; background: #f1f3f7; border-radius: 4px; overflow: hidden; }
   .yr-bar span { display: flex; align-items: center; padding-left: 6px; font-size: 7pt; font-weight: 700; white-space: nowrap; overflow: hidden; color: #fff; }
   .yr-bar .cost, .yr-legend .cost { background: #4f5bd5; } .yr-bar .prof, .yr-legend .prof { background: #22a05a; }
-  .yr-bar .over, .yr-legend .over { background: #dc2626; } .yr-bar .none { background: repeating-linear-gradient(135deg, #e5e8ee, #e5e8ee 5px, #eef0f4 5px, #eef0f4 10px); color: var(--sub); }
+  .yr-bar .over, .yr-legend .over { background: #dc2626; } .yr-bar .none, .yr-legend .none { background: repeating-linear-gradient(135deg, #e5e8ee, #e5e8ee 5px, #eef0f4 5px, #eef0f4 10px); color: var(--sub); }
   .yr-pay { height: 4px; margin-top: 3px; background: #eef0f4; border-radius: 2px; overflow: hidden; } .yr-pay span { display: block; height: 100%; background: #f59e0b; } .yr-legend .pay { background: #f59e0b; }
   .yr-num { text-align: right; line-height: 1.25; } .yr-num b { display: block; font-size: 10pt; font-variant-numeric: tabular-nums; }
   .yr-num span { display: block; font-size: 7.5pt; color: var(--sub); } .yr-num .ok { color: var(--ok); } .yr-num .bad { color: var(--bad); }
@@ -2465,6 +2465,19 @@ function contractYear(p) {
   const d = [p.overview.orderDate, kd.kickoffDate.value, first].find(isDate);
   return d ? d.slice(0, 4) : "연도 미정";
 }
+// 여러 프로젝트 합계 (년도별 계약·정산 엑셀·PDF 공통).
+// 이익·이익률은 실행가를 넣은 프로젝트만으로 계산 (실행가 없는 프로젝트의 발주금액을 이익으로 세지 않도록)
+function contractStats(list) {
+  const cs = list.map(contractInfo), t = (f) => cs.reduce((a, c) => a + (f(c) || 0), 0);
+  const o = { count: list.length, done: list.filter((p) => p.overview.status === "완료").length,
+    amount: t((c) => c.amount), costedAmount: t((c) => (c.actualCost ? c.amount : 0)),
+    total: t((c) => (c.actualCost ? c.totalCost : 0)), profit: t((c) => (c.amount && c.actualCost ? c.totalProfit : 0)),
+    paid: t((c) => c.paidAmount), missingCount: cs.filter((c) => c.amount && !c.actualCost).length };
+  o.missingAmount = o.amount - o.costedAmount;
+  o.rate = o.costedAmount && o.total ? o.profit / o.costedAmount : null;
+  o.unpaid = o.amount - o.paid;
+  return o;
+}
 // 년도마다 완료 보고서 양식(프로젝트를 열로) 시트 + 그 년도 종합, 맨 앞에 년도별 합계, 맨 뒤에 정산 내역
 async function buildContractYearWorkbook(projects, years) {
   const H = (v) => ({ v, s: "head" }), txt = (v) => ({ v: v ?? "", s: "cell" }), money = (v) => ({ v: v || "", s: "money" });
@@ -2477,24 +2490,24 @@ async function buildContractYearWorkbook(projects, years) {
   for (const { y, list } of byYear) {
     const [main, sum] = closingSheets(list, { title: `${label(y)} 프로젝트 마감 보고서 (계약 · 정산)`, name: label(y), sumName: `${label(y)} 종합` });
     sheets.push(main, sum);
-    const cs = list.map(contractInfo);
-    summary.push({ name: label(y), sumName: sum.name, t: sum.totalRow, count: list.length,
-      amount: cs.reduce((a, c) => a + c.amount, 0), total: cs.reduce((a, c) => a + (c.actualCost ? c.totalCost : 0), 0),
-      profit: cs.reduce((a, c) => a + (c.amount && c.actualCost ? c.totalProfit : 0), 0), paid: cs.reduce((a, c) => a + c.paidAmount, 0) });
+    summary.push({ name: label(y), sumName: sum.name, t: sum.totalRow, ...contractStats(list) });
   }
   // 년도별 합계: 각 '년도 종합' 시트의 합계 행을 수식으로 참조 (C 수주가 · F 실행가 합계 · G 합계 기준 이익)
   const ref = (s, L) => `'${s.sumName}'!${L}${s.t}`;
+  // 이익률 = 이익 / 실행가를 넣은 프로젝트의 발주금액 (J열). 실행가 미입력 프로젝트는 이익에 넣지 않음
   const sumRows = summary.map((s, i) => {
-    const r = 4 + i;
+    const r = 4 + i, n = s.t === 3 ? 3 : s.t - 1;
     return [null, txt(s.name), { v: s.count, s: "cell" }, { f: ref(s, "C"), v: s.amount, s: "money" }, { f: ref(s, "F"), v: s.total, s: "money" },
-      { f: ref(s, "G"), v: s.profit, s: "money" }, { f: `IF(D${r}=0,"",F${r}/D${r})`, s: "pct" }, money(s.paid), { f: `D${r}-H${r}`, v: s.amount - s.paid, s: "money" }];
+      { f: ref(s, "G"), v: s.profit, s: "money" }, { f: `IF(J${r}=0,"",F${r}/J${r})`, v: s.rate ?? "", s: "pct" }, money(s.paid), { f: `D${r}-H${r}`, v: s.amount - s.paid, s: "money" },
+      { f: `SUMIF('${s.sumName}'!F3:F${n},">0",'${s.sumName}'!C3:C${n})`, v: s.costedAmount, s: "money" },
+      txt(s.missingCount ? `${s.missingCount}건 · ${fmtWon(s.missingAmount)}` : "")];
   });
   const m = 3 + summary.length;
-  const front = { name: "년도별 합계", cols: [3, 14, 8, 17, 17, 17, 10, 17, 17], merges: ["B1:I1"], rows: [
-    [null, { v: "년도별 계약 · 정산 합계", s: "title" }], [null, { v: `출력일 ${today()} · 단위 (원) · 년도 = 발주일 기준 (없으면 Kick Off·첫 일정) · 이익 = 발주가 - 실행가 합계`, s: "cell" }],
-    [null, ...["년도", "건수", "발주금액", "실행가 합계", "합계 기준 이익", "이익률", "수금액", "미수금"].map(H)], ...sumRows,
+  const front = { name: "년도별 합계", cols: [3, 14, 8, 17, 17, 17, 10, 17, 17, 19, 22], merges: ["B1:K1"], rows: [
+    [null, { v: "년도별 계약 · 정산 합계", s: "title" }], [null, { v: `출력일 ${today()} · 단위 (원) · 년도 = 발주일 기준 (없으면 Kick Off·첫 일정) · 이익 = 발주가 - 실행가 합계 (실행가를 넣은 프로젝트만) · 이익률 = 이익 / 이익 계산 발주금액`, s: "cell" }],
+    [null, ...["년도", "건수", "발주금액", "실행가 합계", "합계 기준 이익", "이익률", "수금액", "미수금", "이익 계산 발주금액", "실행가 미입력"].map(H)], ...sumRows,
     ...(summary.length > 1 ? [[null, H("전체"), { f: `SUM(C4:C${m})`, s: "cell" }, ...["D", "E", "F"].map((L) => ({ f: `SUM(${L}4:${L}${m})`, s: "moneyb" })),
-      { f: `IF(D${m + 1}=0,"",F${m + 1}/D${m + 1})`, s: "pct" }, ...["H", "I"].map((L) => ({ f: `SUM(${L}4:${L}${m})`, s: "moneyb" }))]] : [])] };
+      { f: `IF(J${m + 1}=0,"",F${m + 1}/J${m + 1})`, s: "pct" }, ...["H", "I", "J"].map((L) => ({ f: `SUM(${L}4:${L}${m})`, s: "moneyb" })), txt("")]] : [])] };
   // 정산 내역: 프로젝트별 정산 단계
   const payRows = byYear.flatMap(({ y, list }) => list.flatMap((p) => contractInfo(p).payments.map((x) =>
     [null, txt(label(y)), txt(p.overview.customer), txt(p.overview.project || p.overview.name), txt(x.name), { v: (Number(x.ratio) || 0) / 100, s: "pct" },
@@ -2574,7 +2587,7 @@ function closingSheets(projects, { title = "완료 프로젝트 마감 보고서
       { f: `SUM(D3:D${n})`, v: infos.reduce((a, x) => a + (x.salesActual || 0), 0), s: "moneyb" },
       { f: `SUM(E3:E${n})`, v: infos.reduce((a, x) => a + (x.actualCost || 0), 0), s: "moneyb" },
       { f: `SUM(F3:F${n})`, v: infos.reduce((a, x) => a + (x.totalCost || 0), 0), s: "moneyb" },
-      { f: `SUM(G3:G${n})`, s: "moneyb" }, { f: `IF(C${n + 1}=0,"",G${n + 1}/C${n + 1})`, s: "pct" }, txt("")]);
+      { f: `SUM(G3:G${n})`, s: "moneyb" }, { f: `IF(SUMIF(F3:F${n},">0",C3:C${n})=0,"",G${n + 1}/SUMIF(F3:F${n},">0",C3:C${n}))`, s: "pct" }, txt("")]);
   }
   sheets.push({ name: sumName, cols: [3, 40, 16, 16, 16, 16, 16, 14, 40], rows: sum, totalRow: infos.length > 1 ? infos.length + 3 : 3 });
   return sheets;
@@ -2877,7 +2890,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 07:43</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 08:01</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -4803,17 +4816,9 @@ function yearReportHtml(projects, years) {
   const table = (cols, heads, rows, cls = "") => `<table class="rp-t ${cls}"><colgroup>${cols.map((x) => `<col style="width:${x}%">`).join("")}</colgroup>
     <thead><tr>${heads.map((h) => `<th class="${h.c || ""}">${h.t ?? h}</th>`).join("")}</tr></thead>
     <tbody>${rows.map((r) => `<tr class="${r.cls || ""}">${r.span ? `<td colspan="${heads.length}">${r[0]}</td>` : r.map((x, k) => `<td class="${heads[k].c || ""}">${x}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
-  const stat = (list) => {
-    const cs = list.map(contractInfo), t = (f) => cs.reduce((a, c) => a + (f(c) || 0), 0);
-    const o = { count: list.length, amount: t((c) => c.amount), total: t((c) => (c.actualCost ? c.totalCost : 0)),
-      profit: t((c) => (c.amount && c.actualCost ? c.totalProfit : 0)), paid: t((c) => c.paidAmount),
-      done: list.filter((p) => p.overview.status === "완료").length };
-    o.rate = o.amount && o.total ? o.profit / o.amount : null;
-    o.unpaid = o.amount - o.paid;
-    return o;
-  };
-  const sums = groups.map((g) => ({ ...g, ...stat(g.list) }));
-  const all = stat(groups.flatMap((g) => g.list));
+  const sums = groups.map((g) => ({ ...g, ...contractStats(g.list) }));
+  const all = contractStats(groups.flatMap((g) => g.list));
+  const missText = (o) => (o.missingCount ? `실행가 미입력 ${o.missingCount}건 (발주 ${eok(o.missingAmount)}) 제외` : "");
   const span = groups.map((g) => g.y).filter((y) => y !== "연도 미정");
   const kpi = (l, val, sub = "", cls = "") => `<div class="rp-kpi ${cls}"><span>${l}</span><b>${val}</b><small>${sub}</small></div>`;
 
@@ -4823,21 +4828,22 @@ function yearReportHtml(projects, years) {
     <div class="rp-meta"><div><span>대상 년도</span><b>${esc(groups.map((g) => label(g.y)).join(", "))}</b></div><div><span>프로젝트</span><b>${all.count}건 <small>(완료 ${all.done}건)</small></b></div>
       <div><span>년도 기준</span><b>발주일 (없으면 Kick Off)</b></div><div><span>출력일 · 작성자</span><b>${d(today())} · ${v(Store.state.settings.user)}</b></div></div>
     <div class="rp-kpis">${kpi("발주금액 합계", won(all.amount), `${all.count}건`)}${kpi("실행가 합계", won(all.total), "실행가+인건비+재경비+워런티비", "accent")}
-      ${kpi("합계 기준 이익", `${all.profit < 0 ? "−" : ""}${won(Math.abs(all.profit))}`, `이익률 ${pct(all.rate)}`, all.profit < 0 ? "bad" : "ok")}
+      ${kpi("합계 기준 이익", `${all.profit < 0 ? "−" : ""}${won(Math.abs(all.profit))}`, [`이익률 ${pct(all.rate)}`, missText(all)].filter(Boolean).join(" · "), all.profit < 0 ? "bad" : "ok")}
       ${kpi("수금", won(all.paid), all.amount ? `수금률 ${pct(all.paid / all.amount)} · 미수금 ${fmtWon(all.unpaid) || "0원"}` : "", all.amount && all.unpaid <= 0 ? "ok" : "")}</div>`;
 
   // ── 년도별 막대: 발주금액 = 실행가 합계(파랑) + 이익(초록), 아래 얇은 막대 = 수금
   const max = Math.max(1, ...sums.map((s) => Math.max(s.amount, s.total)));
-  const bars = sec("년도별 현황", "막대 = 발주금액 (실행가 합계 + 이익) · 아래 = 수금") + `<div class="yr-bars">${sums.map((s) => {
-    const cost = Math.min(s.total, s.amount), over = Math.max(0, s.total - s.amount), prof = Math.max(0, s.amount - s.total);
+  // 이익 = 실행가를 넣은 프로젝트의 (발주금액 − 실행가 합계). 실행가 미입력 프로젝트의 발주금액은 회색으로 따로
+  const bars = sec("년도별 현황", "막대 = 발주금액 (실행가 합계 + 이익 + 실행가 미입력) · 아래 = 수금") + `<div class="yr-bars">${sums.map((s) => {
+    const cost = Math.min(s.total, s.costedAmount), over = Math.max(0, s.total - s.costedAmount), prof = Math.max(0, s.costedAmount - s.total);
     const pc = (n) => `${(n / max) * 100}%`;
     return `<div class="yr-row"><div class="yr-y"><b>${label(s.y)}</b><span>${s.count}건${s.done ? ` · 완료 ${s.done}` : ""}</span></div>
-      <div class="yr-track"><div class="yr-bar">${s.total ? `<span class="cost" style="width:${pc(cost)}">${(cost / max) > 0.14 ? `실행 ${eok(s.total)}` : ""}</span>` : ""}${prof && s.total ? `<span class="prof" style="width:${pc(prof)}">${(prof / max) > 0.1 ? `이익 ${eok(prof)}` : ""}</span>` : ""}
-        ${!s.total ? `<span class="none" style="width:${pc(s.amount)}">실행가 미입력</span>` : ""}${over ? `<span class="over" style="width:${pc(over)}">손실 ${eok(over)}</span>` : ""}</div>
+      <div class="yr-track"><div class="yr-bar">${cost ? `<span class="cost" style="width:${pc(cost)}">${(cost / max) > 0.14 ? `실행 ${eok(s.total)}` : ""}</span>` : ""}${prof ? `<span class="prof" style="width:${pc(prof)}">${(prof / max) > 0.07 ? `이익 ${eok(prof)}` : ""}</span>` : ""}
+        ${over ? `<span class="over" style="width:${pc(over)}">${(over / max) > 0.1 ? `손실 ${eok(over)}` : ""}</span>` : ""}${s.missingAmount ? `<span class="none" style="width:${pc(s.missingAmount)}">${(s.missingAmount / max) > 0.16 ? `실행가 미입력 ${s.missingCount}건 ${eok(s.missingAmount)}` : ""}</span>` : ""}</div>
         <div class="yr-pay"><span style="width:${pc(s.paid)}"></span></div></div>
-      <div class="yr-num"><b>${fmtWon(s.amount) || "0원"}</b><span class="${s.profit < 0 ? "bad" : "ok"}">이익 ${s.total ? `${eok(s.profit)} · ${pct(s.rate)}` : "-"}</span><span>수금 ${s.amount ? pct(s.paid / s.amount) : "-"}</span></div></div>`;
+      <div class="yr-num"><b>${fmtWon(s.amount) || "0원"}</b><span class="${s.profit < 0 ? "bad" : "ok"}">이익 ${s.total ? `${eok(s.profit)} · ${pct(s.rate)}` : "-"}</span><span>수금 ${s.amount ? pct(s.paid / s.amount) : "-"}</span>${s.missingCount ? `<span>미입력 ${s.missingCount}건 제외</span>` : ""}</div></div>`;
   }).join("")}</div>
-    <div class="yr-legend"><i class="cost"></i>실행가 합계 <i class="prof"></i>이익 <i class="over"></i>손실(발주금액 초과) <i class="pay"></i>수금</div>`;
+    <div class="yr-legend"><i class="cost"></i>실행가 합계 <i class="prof"></i>이익 <i class="over"></i>손실(발주금액 초과) <i class="none"></i>실행가 미입력 <i class="pay"></i>수금</div>`;
 
   // ── 프로젝트 한 줄 요약 (년도별 묶음)
   const mini = (r) => (r == null ? "" : `<span class="yr-mini"><span class="${r < 0 ? "bad" : ""}" style="width:${Math.min(100, Math.abs(r) * 250)}%"></span></span>`);
@@ -4871,7 +4877,7 @@ function yearReportHtml(projects, years) {
   };
   const band = (s) => `<div class="yr-band"><div class="yr-band-y">${label(s.y)}</div>
     ${[["프로젝트", `${s.count}건`, s.done ? `완료 ${s.done}건` : ""], ["발주금액", eok(s.amount), fmtWon(s.amount)], ["실행가 합계", s.total ? eok(s.total) : "-", s.total ? fmtWon(s.total) : "실행가 미입력"],
-      ["이익", s.total ? eok(s.profit) : "-", s.total ? `이익률 ${pct(s.rate)}` : "", s.profit < 0 ? "bad" : "ok"], ["수금", eok(s.paid), s.amount ? `수금률 ${pct(s.paid / s.amount)}` : "", s.amount && s.unpaid <= 0 ? "ok" : ""]]
+      ["이익", s.total ? eok(s.profit) : "-", s.total ? `이익률 ${pct(s.rate)}${s.missingCount ? ` · 미입력 ${s.missingCount}건 제외` : ""}` : "", s.profit < 0 ? "bad" : "ok"], ["수금", eok(s.paid), s.amount ? `수금률 ${pct(s.paid / s.amount)}` : "", s.amount && s.unpaid <= 0 ? "ok" : ""]]
       .map(([l, b, sub, cls = ""]) => `<div class="${cls}"><span>${l}</span><b>${b}</b><small>${sub}</small></div>`).join("")}</div>`;
   const yearBlocks = sums.map((s) => {
     const infos = s.list.map(closingInfo), chunks = [];

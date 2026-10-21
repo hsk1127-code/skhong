@@ -253,6 +253,15 @@ const assert = require("assert");
   // 한 쪽에 프로젝트 4칸 고정 (모자라면 빈 칸), 4개씩 한 쪽 단위로 묶어 잘리지 않게
   assert.deepStrictEqual(await p.$$eval("#print .rp-mx", (ts) => ts.map((t) => t.querySelectorAll("thead th").length)), Array(await p.locator("#print .rp-mx").count()).fill(5));
   assert.ok(await p.locator("#print .yr-page .rp-mx").count() >= 1);
+  // 실행가를 안 넣은 프로젝트의 발주금액은 이익으로 세지 않음 (이익·이익률은 실행가 넣은 프로젝트만)
+  const st = await p.evaluate(() => {
+    const a = Store.projects[0], b = structuredClone(a);
+    b.overview.actualCost = ""; b.overview.laborCost = ""; b.overview.md = {}; b.overview.mdRate = "";
+    return contractStats([a, b]);
+  });
+  assert.strictEqual(st.profit, 29000000);
+  assert.strictEqual(st.missingCount, 1);
+  assert.strictEqual(Math.round(st.rate * 1000), 242);
   await p.click(".plist .nav");
   await p.waitForSelector(".tabs");
 

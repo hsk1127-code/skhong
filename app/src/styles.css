@@ -472,7 +472,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .yr-bar { display: flex; height: 20px; background: #f1f3f7; border-radius: 4px; overflow: hidden; }
   .yr-bar span { display: flex; align-items: center; padding-left: 6px; font-size: 7pt; font-weight: 700; white-space: nowrap; overflow: hidden; color: #fff; }
   .yr-bar .cost, .yr-legend .cost { background: #4f5bd5; } .yr-bar .prof, .yr-legend .prof { background: #22a05a; }
-  .yr-bar .over, .yr-legend .over { background: #dc2626; } .yr-bar .none { background: repeating-linear-gradient(135deg, #e5e8ee, #e5e8ee 5px, #eef0f4 5px, #eef0f4 10px); color: var(--sub); }
+  .yr-bar .over, .yr-legend .over { background: #dc2626; } .yr-bar .none, .yr-legend .none { background: repeating-linear-gradient(135deg, #e5e8ee, #e5e8ee 5px, #eef0f4 5px, #eef0f4 10px); color: var(--sub); }
   .yr-pay { height: 4px; margin-top: 3px; background: #eef0f4; border-radius: 2px; overflow: hidden; } .yr-pay span { display: block; height: 100%; background: #f59e0b; } .yr-legend .pay { background: #f59e0b; }
   .yr-num { text-align: right; line-height: 1.25; } .yr-num b { display: block; font-size: 10pt; font-variant-numeric: tabular-nums; }
   .yr-num span { display: block; font-size: 7.5pt; color: var(--sub); } .yr-num .ok { color: var(--ok); } .yr-num .bad { color: var(--bad); }
