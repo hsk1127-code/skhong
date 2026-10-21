@@ -2073,7 +2073,8 @@ function yearReportHtml(projects, years) {
     ["정산관련", [["지급조건", (x) => v(x.payTerms)], ["입금완료일", (x) => d(x.paidDate)], ["발주가", (x) => `<b>${w(x.orderAmount)}</b>`], ["실행 예가", (x) => w(x.estimateCost)],
       ["실행목표가", (x) => w(x.targetCost)], ["실행가", (x) => w(x.actualCost)]]],
     ["실행가 구성", [["투입 M/D", (x) => v(x.mdTotal ? `${x.mdTotal} M/D (${x.mdText})` : "")], ["인건비", (x) => w(x.labor)],
-      ["재경비", (x) => w(x.overhead)], ["워런티비", (x) => w(x.warrantyCost)], ["실행가 합계", (x) => `<b>${w(x.totalCost)}</b>`]]],
+      ["재경비", (x) => `${w(x.overhead)}${x.overheadRate ? ` <span class="rp-sub">(${x.overheadRate}%)</span>` : ""}`],
+      ["워런티비", (x) => `${w(x.warrantyCost)}${x.warrantyRate ? ` <span class="rp-sub">(${x.warrantyRate}%)</span>` : ""}`], ["실행가 합계", (x) => `<b>${w(x.totalCost)}</b>`]]],
     ["이익", [["합계 기준 이익", (x) => signed(x.totalProfit, x.totalRate)],
       ["예상 이익 (예가 − 실행가)", (x) => signed(x.estimateCost && x.actualCost ? x.estimateCost - x.actualCost : null, x.estimateCost && x.actualCost ? (x.estimateCost - x.actualCost) / x.estimateCost : null)],
       ["목표 이익 (목표가 − 실행가)", (x) => signed(x.targetCost && x.actualCost ? x.targetCost - x.actualCost : null, x.targetCost && x.actualCost ? (x.targetCost - x.actualCost) / x.targetCost : null)]]]];

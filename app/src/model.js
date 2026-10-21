@@ -1100,19 +1100,22 @@ function closingSheets(projects, { title = "완료 프로젝트 마감 보고서
     row("", "실행 예가", (x) => money(x.estimateCost)),
     row("", "실행목표가", (x) => money(x.targetCost)),
     row("", "실행가", (x) => money(x.actualCost)),
-    // 실행가 구성: 인건비(M/D) · 재경비 · 워런티비 → 실행가 합계 (18~24행)
+    // 실행가 구성: 인건비(M/D) · 재경비(비율) · 워런티비(비율) → 실행가 합계 (18~26행)
+    // 재경비·워런티비 = (실행가 + 인건비) × 비율 칸 (비율을 고치면 금액·합계·이익이 따라 바뀜)
     row("", "투입 M/D", (x) => txt(x.mdTotal ? `${x.mdTotal} M/D (${x.mdText})` : "")),
     row("", "인건비", (x) => money(x.labor)),
-    row("", "재경비", (x, i) => (x.actualCost && x.overheadRate ? { f: `(${col(i)}17+N(${col(i)}19))*${x.overheadRate}/100`, v: x.overhead, s: "money" } : money(""))),
-    row("", "워런티비", (x, i) => (x.actualCost && x.warrantyRate ? { f: `(${col(i)}17+N(${col(i)}19))*${x.warrantyRate}/100`, v: x.warrantyCost, s: "money" } : money(""))),
-    row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}19)+N(${col(i)}20)+N(${col(i)}21)`, v: x.totalCost, s: "moneyb" } : txt(""))),
-    row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}22`, v: x.totalProfit, s: "moneyb" } : txt(""))),
-    row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}23/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
-    // 예상 이익 = 실행 예가 − 실행가, 목표 이익 = 실행목표가 − 실행가, 이익률은 각 기준 금액 대비 (25~28행)
-    ...[["예상", 15, "estimateCost", 25], ["목표", 16, "targetCost", 27]].flatMap(([l, br, key, pr]) => [
+    row("", "재경비 비율", (x) => (x.overheadRate ? { v: x.overheadRate / 100, s: "pct" } : txt(""))),
+    row("", "재경비", (x, i) => (x.actualCost && x.overheadRate ? { f: `(${col(i)}17+N(${col(i)}19))*N(${col(i)}20)`, v: x.overhead, s: "money" } : money(""))),
+    row("", "워런티비 비율", (x) => (x.warrantyRate ? { v: x.warrantyRate / 100, s: "pct" } : txt(""))),
+    row("", "워런티비", (x, i) => (x.actualCost && x.warrantyRate ? { f: `(${col(i)}17+N(${col(i)}19))*N(${col(i)}22)`, v: x.warrantyCost, s: "money" } : money(""))),
+    row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}19)+N(${col(i)}21)+N(${col(i)}23)`, v: x.totalCost, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}24`, v: x.totalProfit, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}25/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
+    // 예상 이익 = 실행 예가 − 실행가, 목표 이익 = 실행목표가 − 실행가, 이익률은 각 기준 금액 대비 (27~30행)
+    ...[["예상", 15, "estimateCost", 27], ["목표", 16, "targetCost", 29]].flatMap(([l, br, key, pr]) => [
       row("", `${l} 이익 (${br === 15 ? "실행 예가" : "실행목표가"} − 실행가)`, (x, i) => (x[key] && x.actualCost ? { f: `${col(i)}${br}-${col(i)}17`, v: x[key] - x.actualCost, s: "money" } : txt(""))),
       row("", `${l} 이익률`, (x, i) => (x[key] && x.actualCost ? { f: `IF(${col(i)}${br}=0,"",${col(i)}${pr}/${col(i)}${br})`, v: (x[key] - x.actualCost) / x[key], s: "pct" } : txt("")))]),
-    [], [null, { v: `※ 예상 이익 = 실행 예가 - 실행가 (이익률 = 예상 이익 / 실행 예가) · 목표 이익 = 실행목표가 - 실행가 (이익률 = 목표 이익 / 실행목표가) · 재경비·워런티비 = (실행가 + 인건비) × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 (이익률 = 합계 기준 이익 / 발주가) · 출력일 ${today()}`, s: "wrap" }],
+    [], [null, { v: `※ 예상 이익 = 실행 예가 - 실행가 (이익률 = 예상 이익 / 실행 예가) · 목표 이익 = 실행목표가 - 실행가 (이익률 = 목표 이익 / 실행목표가) · 재경비·워런티비 = (실행가 + 인건비) × 각 비율 (재경비 비율·워런티비 비율 행) · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 (이익률 = 합계 기준 이익 / 발주가) · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);
@@ -1123,7 +1126,7 @@ function closingSheets(projects, { title = "완료 프로젝트 마감 보고서
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name, cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B28", `B30:${last}30`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B30", `B32:${last}32`] }];
 
   // 종합: 프로젝트별 금액
   const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],

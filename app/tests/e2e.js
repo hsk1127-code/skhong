@@ -262,6 +262,16 @@ const assert = require("assert");
   assert.strictEqual(st.profit, 29000000);
   assert.strictEqual(st.missingCount, 1);
   assert.strictEqual(Math.round(st.rate * 1000), 242);
+  // 년도별 엑셀·PDF 에 재경비·워런티비 비율 (엑셀은 비율 행, 금액은 그 비율을 참조하는 수식)
+  const rates = await p.evaluate(async () => {
+    const a = structuredClone(Store.projects[0]); a.overview.overheadRate = "5"; a.overview.warrantyRate = "2";
+    const wb = await Xlsx.read(new Blob([await buildContractYearWorkbook([a], [contractYear(a)])]));
+    const sh = wb.sheets.find((x) => /^\d{4}년$/.test(x.name));
+    const div = document.createElement("div"); div.innerHTML = yearReportHtml([a], [contractYear(a)]);
+    return { rows: sh.rows.slice(19, 23).map((r) => [r[2], r[3]]), pdf: div.textContent.replace(/\s+/g, " ") };
+  });
+  assert.deepStrictEqual(rates.rows, [["재경비 비율", 0.05], ["재경비", 4550000], ["워런티비 비율", 0.02], ["워런티비", 1820000]]);
+  assert.match(rates.pdf, /재경비 ?4,550,000원 \(5%\) ?워런티비 ?1,820,000원 \(2%\)/);
   await p.click(".plist .nav");
   await p.waitForSelector(".tabs");
 
