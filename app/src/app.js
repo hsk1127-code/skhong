@@ -2042,8 +2042,12 @@ function reportHtml(p, inc) {
   // 주요 일자 흐름
   const steps = [["발주", o.orderDate], ["Kick Off", kd.kickoffDate.value], ["납품", kd.receiveDate.value], ["Setup 완료", kd.setupDate.value],
     ["지급 완료", kd.paidDate.value], ["Warranty 종료", kd.warranty.end]];
-  const flow = `<div class="rp-flow">${steps.map(([label, dt]) => `<div class="rp-step ${isDate(dt) ? (dt <= base ? "done" : "plan") : "none"}">
-      <i></i><span>${label}</span><b>${isDate(dt) ? esc(fmtDot(dt)) : "미정"}</b></div>`).join("")}</div>`;
+  // 완료/예정은 보고서를 만드는 오늘 기준 (완료일 기준이면 그 뒤의 지급 완료가 '예정'으로 남음).
+  // Warranty 는 보증이 시작돼 아직 끝나지 않았으면 '보증 중'
+  const now = today();
+  const stepState = (label, dt) => !isDate(dt) ? "none" : dt <= now ? "done" : label === "Warranty 종료" && kd.warranty.started ? "active" : "plan";
+  const flow = `<div class="rp-flow">${steps.map(([label, dt]) => { const st = stepState(label, dt); return `<div class="rp-step ${st}">
+      <i></i><span>${label}${st === "active" ? " · 보증 중" : ""}</span><b>${isDate(dt) ? esc(fmtDot(dt)) : "미정"}</b></div>`; }).join("")}</div>`;
 
   // 원가 구성: 실행가 + 인건비 + 재경비 + 워런티비 = 실행가 합계, 발주금액 대비 막대
   const costRows = [["실행가", c.actualCost, "자재 · 외주 등 실제 투입", "c1"],

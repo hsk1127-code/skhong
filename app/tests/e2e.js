@@ -105,6 +105,17 @@ const assert = require("assert");
   assert.doesNotMatch(rp, /예가 · 목표 대비|▲/);
   assert.match(await p.textContent("#print .rp-kpi:has-text('이익')"), /29,000,000원.*발주금액 − 실행가 합계/);
   assert.match(rp, /납품 완료/);
+  // 주요 일자 흐름: 완료일 뒤의 지급 완료도 오늘 이전이면 완료(초록), 보증 기간 중인 Warranty 는 '보증 중'
+  const flowSteps = await p.evaluate(() => {
+    const t = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+    const pr = structuredClone(Store.project(route.id));
+    Object.assign(pr.overview, { setupDate: t(-30), warrantyStart: t(-30), warrantyYears: "1", paidDate: t(-10), paidDateAuto: false });
+    pr.report = { ...(pr.report || {}), completedDate: t(-30) };
+    const div = document.createElement("div"); div.innerHTML = reportHtml(pr, {});
+    return Object.fromEntries([...div.querySelectorAll(".rp-step")].map((s) => [s.querySelector("span").textContent, s.className.replace("rp-step ", "")]));
+  });
+  assert.strictEqual(flowSteps["지급 완료"], "done");
+  assert.strictEqual(flowSteps["Warranty 종료 · 보증 중"], "active");
   assert.match(await p.textContent(".page-head h1 .badge"), /완료/);
   await p.click("[data-ovmode=edit]");
   assert.strictEqual(await p.inputValue("[data-k=scope]"), "AMR : 2EA\nCharger : 1EA");

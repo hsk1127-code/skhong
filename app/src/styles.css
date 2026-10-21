@@ -407,7 +407,7 @@ h4 { font-size: 14px; margin: 16px 0 8px; }
   .rp-flow::before { content: ""; position: absolute; left: 8%; right: 8%; top: 10px; height: 2pt; background: var(--line); }
   .rp-step { position: relative; text-align: center; }
   .rp-step i { display: block; width: 11px; height: 11px; margin: 0 auto 4px; border-radius: 50%; background: #fff; border: 2pt solid #c3c9d4; position: relative; z-index: 1; }
-  .rp-step.done i { background: var(--ok); border-color: var(--ok); } .rp-step.plan i { border-color: var(--brand); }
+  .rp-step.done i { background: var(--ok); border-color: var(--ok); } .rp-step.plan i { border-color: var(--brand); } .rp-step.active i { border-color: var(--ok); background: linear-gradient(90deg, var(--ok) 50%, #fff 50%); } .rp-step.active span { color: var(--ok); }
   .rp-step span { display: block; font-size: 7.5pt; color: var(--sub); } .rp-step b { font-size: 9pt; font-variant-numeric: tabular-nums; }
   .rp-step.none b { color: #a3abb8; font-weight: 500; }
   /* 제목 */
