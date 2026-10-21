@@ -38,8 +38,9 @@ const assert = require("assert");
   // 발주금액·정산 비율
   await p.fill("[data-k=note]", "고객 요청: 도장 색상 별도 협의");
   await p.fill("[data-ck=orderDate]", "2026-09-11");
-  // 정보 수정: 비어 있는 칸은 맨 위 '미입력' 목록과 노란 칸으로 표시, 채우면 목록에서 빠짐
-  assert.match(await p.textContent("#unfilledBar"), /미입력 \d+개[\s\S]*발주금액/);
+  // 정보 수정: 맨 위 입력 현황(진행률 + 영역별 미입력 목록), 빈 칸은 점선 + '미입력' 표시, 채우면 빠짐
+  assert.match(await p.textContent("#unfilledBar"), /입력 현황\d+칸 중 \d+칸 입력 · \d+칸 남음[\s\S]*계약 · 정산[\s\S]*발주금액/);
+  assert.match(await p.textContent("label:has([data-ck=orderAmount]) .uf-tag"), /미입력/);
   assert.ok(await p.locator("[data-ck=orderAmount].unfilled").count());
   await p.type("[data-ck=orderAmount]", "120000000");
   assert.doesNotMatch(await p.textContent("#unfilledBar"), /발주금액/);

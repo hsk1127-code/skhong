@@ -787,7 +787,7 @@ function rerender() {
 function tabOverviewEdit(p, el) {
   const o = p.overview;
   const s = projectSummary(p);
-  el.innerHTML = `<div class="unfilled-bar" id="unfilledBar"></div><div class="grid2 wide-left">
+  el.innerHTML = `<div class="uf-card" id="unfilledBar"></div><div class="grid2 wide-left">
     <div class="card"><h3>프로젝트 개요</h3><div class="form ov" id="ovForm">
       <label class="full">설비/품목명<input data-k="name" value="${esc(o.name)}"></label>
       ${OVERVIEW_FIELDS.filter(([k]) => k !== "warranty").map(([k, label]) => k === "scope" || k === "note"
@@ -851,35 +851,57 @@ function tabOverviewEdit(p, el) {
   };
 }
 
-// 정보 수정: 비어 있는 칸을 노란색으로 표시하고 맨 위에 목록 (누르면 그 칸으로). 다른 자료에서 자동으로 채워지는 칸은 제외
+// 정보 수정: 비어 있는 칸 표시 — 맨 위 입력 현황 카드(진행률 고리 + 영역별 미입력 목록, 누르면 그 칸으로),
+// 칸은 점선 테두리와 이름 옆 '미입력' 표시. 다른 자료에서 자동으로 채워지는 칸은 제외
+let unfilledOpen = true;
 function markUnfilled(el) {
   const fields = $$("#ovForm [data-k], #kdForm [data-k], #contractCard [data-ck], #contractCard [data-rate], #contractCard [data-md]", el)
     .filter((f) => !f.readOnly && f.closest("label") && !f.closest(".pay-table"));
+  const area = (f) => (f.closest("#ovForm") ? "개요" : f.closest("#kdForm") ? "주요 일자" : "md" in f.dataset || f.dataset.ck === "mdRate" ? "인건비" : "계약 · 정산");
   const missing = [];
+  let total = 0;
   for (const f of fields) {
     const lab = f.closest("label");
     const auto = /자동:/.test(lab.textContent) || "labor" in f.dataset || /에서\)$/.test(f.placeholder || "");
-    const empty = !String(f.value || "").trim() && !auto;
+    if (auto) { f.classList.remove("unfilled"); lab.classList.remove("unfilled-label"); lab.querySelector(":scope > .uf-tag")?.remove(); continue; }
+    total++;
+    const empty = !String(f.value || "").trim();
     f.classList.toggle("unfilled", empty);
     lab.classList.toggle("unfilled-label", empty);
-    if (empty) missing.push({ f, name: [...lab.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").replace(/\s+/g, " ").trim() });
+    let tag = lab.querySelector(":scope > .uf-tag");
+    if (empty && !tag) {
+      tag = document.createElement("span");
+      tag.className = "uf-tag"; tag.textContent = "미입력";
+      const text = [...lab.childNodes].find((n) => n.nodeType === 3 && n.textContent.trim());
+      text ? text.after(tag) : lab.prepend(tag);
+    } else if (!empty && tag) tag.remove();
+    if (empty) missing.push({ f, area: area(f), name: [...lab.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").replace(/\s+/g, " ").trim() });
   }
   const bar = $("#unfilledBar", el);
   if (!bar) return;
   // 목록이 바뀔 때만 다시 그림 (입력 칸을 벗어날 때 다시 그리면 누른 버튼이 사라짐)
   bar._missing = missing;
-  const key = missing.map((m) => m.name).join("|");
+  const key = `${unfilledOpen}|${total}|${missing.map((m) => m.name).join("|")}`;
   if (bar.dataset.key === key && bar.innerHTML) return;
   bar.dataset.key = key;
-  bar.innerHTML = missing.length
-    ? `<b>⚠ 미입력 ${missing.length}개</b> <span class="muted small">눌러서 바로 입력</span> ${missing.map((m, i) => `<button type="button" class="chip-btn" data-goto-field="${i}">${esc(m.name)}</button>`).join("")}`
-    : `<b class="ok">✓ 모든 칸이 입력되었습니다</b>`;
-  bar.classList.toggle("done", !missing.length);
+  const done = total - missing.length, pctDone = total ? Math.round((done / total) * 100) : 100;
+  const areas = ["개요", "주요 일자", "계약 · 정산", "인건비"].map((a) => ({ a, list: missing.map((m, i) => ({ ...m, i })).filter((m) => m.area === a) })).filter((g) => g.list.length);
+  bar.className = `uf-card ${missing.length ? "" : "done"}`;
+  bar.innerHTML = !missing.length
+    ? `<div class="uf-head"><div class="uf-ring" style="--p:100"><span>✓</span></div><div class="uf-title"><b>모든 칸이 입력되었습니다</b><small>${total}칸 입력 완료</small></div></div>`
+    : `<div class="uf-head"><div class="uf-ring" style="--p:${pctDone}"><span>${pctDone}<small>%</small></span></div>
+        <div class="uf-title"><b>입력 현황</b><small>${total}칸 중 <em>${done}칸</em> 입력 · <em class="warn">${missing.length}칸</em> 남음</small></div>
+        <button type="button" class="uf-toggle">${unfilledOpen ? "접기 ▲" : "미입력 보기 ▼"}</button></div>
+      ${unfilledOpen ? `<div class="uf-groups">${areas.map((g) => `<div class="uf-group"><div class="uf-gname">${g.a}<em>${g.list.length}</em></div>
+        <div class="uf-chips">${g.list.map((m) => `<button type="button" class="uf-chip" data-goto-field="${m.i}" title="눌러서 입력">${esc(m.name.replace(/\s*\((원|%|M\/D|년)\)$/, ""))}</button>`).join("")}</div></div>`).join("")}</div>` : ""}`;
+  $(".uf-toggle", bar)?.addEventListener("click", () => { unfilledOpen = !unfilledOpen; markUnfilled(el); });
   $$("[data-goto-field]", bar).forEach((b) => (b.onclick = () => {
     const f = bar._missing[b.dataset.gotoField]?.f;
     if (!f) return;
     f.scrollIntoView({ behavior: "smooth", block: "center" });
-    f.focus();
+    f.focus({ preventScroll: true });
+    f.classList.add("uf-flash");
+    setTimeout(() => f.classList.remove("uf-flash"), 1200);
   }));
 }
 
