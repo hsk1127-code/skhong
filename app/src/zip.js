@@ -37,6 +37,9 @@ const Zip = (() => {
     let p = view.getUint32(eocd + 16, true);
     const entries = {};
     const utf8 = new TextDecoder("utf-8");
+    let euckr = null;
+    try { euckr = new TextDecoder("euc-kr"); } catch {}
+    const utf8Valid = (b) => { try { new TextDecoder("utf-8", { fatal: true }).decode(b); return true; } catch { return false; } };
     for (let i = 0; i < count; i++) {
       if (view.getUint32(p, true) !== 0x02014b50) throw new Error("손상된 ZIP 파일입니다.");
       const method = view.getUint16(p + 10, true);
@@ -45,7 +48,14 @@ const Zip = (() => {
       const xlen = view.getUint16(p + 30, true);
       const clen = view.getUint16(p + 32, true);
       const local = view.getUint32(p + 42, true);
-      const name = utf8.decode(buf.subarray(p + 46, p + 46 + nlen));
+      let name = (view.getUint16(p + 8, true) & 0x0800) || !euckr ? utf8.decode(buf.subarray(p + 46, p + 46 + nlen))
+        : utf8Valid(buf.subarray(p + 46, p + 46 + nlen)) ? utf8.decode(buf.subarray(p + 46, p + 46 + nlen)) : euckr.decode(buf.subarray(p + 46, p + 46 + nlen));
+      // Unicode Path 추가 필드(0x7075)가 있으면 그 UTF-8 이름을 씀
+      for (let x = p + 46 + nlen; x + 4 <= p + 46 + nlen + xlen;) {
+        const tag = view.getUint16(x, true), size = view.getUint16(x + 2, true);
+        if (tag === 0x7075 && size > 5) name = utf8.decode(buf.subarray(x + 9, x + 4 + size));
+        x += 4 + size;
+      }
       p += 46 + nlen + xlen + clen;
       if (name.endsWith("/")) continue;
       const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
@@ -59,6 +69,51 @@ const Zip = (() => {
   }
 
   // 쓰기: files = [{ name, data: Uint8Array|string|Blob, compress?: boolean }]
+  // 한글 파일 이름: 윈도우 기본 압축 풀기(특히 윈도우 10)는 UTF-8 표시를 모르고 CP949 로 읽으므로
+  // 이름은 CP949 로 쓰고, 반디집·7-Zip 등을 위해 UTF-8 이름을 Unicode Path 추가 필드(0x7075)로 함께 넣는다.
+  let cp949 = null;
+  function cp949Map() {
+    if (cp949) return cp949;
+    cp949 = new Map();
+    try {
+      const dec = new TextDecoder("euc-kr", { fatal: false });
+      for (let lead = 0x81; lead <= 0xfe; lead++) {
+        const buf = [];
+        for (let trail = 0x41; trail <= 0xfe; trail++) buf.push(lead, trail, 0x0a);
+        const parts = dec.decode(new Uint8Array(buf)).split("\n");
+        for (let i = 0, trail = 0x41; trail <= 0xfe; trail++, i++) {
+          const ch = parts[i];
+          if (ch && ch.length === 1 && ch !== "\ufffd" && !cp949.has(ch)) cp949.set(ch, [lead, trail]);
+        }
+      }
+    } catch { /* euc-kr 디코더가 없으면 UTF-8 이름만 사용 */ }
+    return cp949;
+  }
+  function encodeCp949(str) {
+    const map = cp949Map(), out = [];
+    for (const ch of str) {
+      const c = ch.codePointAt(0);
+      if (c < 0x80) out.push(c);
+      else if (map.has(ch)) out.push(...map.get(ch));
+      else return null; // CP949 로 못 쓰는 글자 → UTF-8 이름 사용
+    }
+    return new Uint8Array(out);
+  }
+  // 이름 바이트, UTF-8 표시 여부, 추가 필드
+  function entryName(name, enc) {
+    const utf8 = enc.encode(name);
+    if (/^[\x00-\x7f]*$/.test(name)) return { bytes: utf8, flag: 0, extra: new Uint8Array(0) };
+    const local = encodeCp949(name);
+    if (!local) return { bytes: utf8, flag: 0x0800, extra: new Uint8Array(0) };
+    const extra = new DataView(new ArrayBuffer(9 + utf8.length));
+    extra.setUint16(0, 0x7075, true);
+    extra.setUint16(2, 5 + utf8.length, true);
+    extra.setUint8(4, 1);
+    extra.setUint32(5, crc32(local), true);
+    new Uint8Array(extra.buffer).set(utf8, 9);
+    return { bytes: local, flag: 0, extra: new Uint8Array(extra.buffer) };
+  }
+
   async function write(files) {
     const enc = new TextEncoder();
     const parts = [], central = [];
@@ -70,7 +125,7 @@ const Zip = (() => {
       let data = f.data;
       if (typeof data === "string") data = enc.encode(data);
       else if (data instanceof Blob) data = new Uint8Array(await data.arrayBuffer());
-      const name = enc.encode(f.name);
+      const { bytes: name, flag, extra } = entryName(f.name, enc);
       const crc = crc32(data);
       let body = data, method = 0;
       if (f.compress !== false && data.length > 64) {
@@ -80,7 +135,7 @@ const Zip = (() => {
       const head = new DataView(new ArrayBuffer(30));
       head.setUint32(0, 0x04034b50, true);
       head.setUint16(4, 20, true);
-      head.setUint16(6, 0x0800, true); // UTF-8 파일명
+      head.setUint16(6, flag, true); // 0x0800 = UTF-8 파일명 (CP949 로 쓸 수 없을 때만)
       head.setUint16(8, method, true);
       head.setUint16(10, dosTime, true);
       head.setUint16(12, dosDate, true);
@@ -88,12 +143,13 @@ const Zip = (() => {
       head.setUint32(18, body.length, true);
       head.setUint32(22, data.length, true);
       head.setUint16(26, name.length, true);
-      parts.push(head, name, body);
+      head.setUint16(28, extra.length, true);
+      parts.push(head, name, extra, body);
       const cen = new DataView(new ArrayBuffer(46));
       cen.setUint32(0, 0x02014b50, true);
       cen.setUint16(4, 20, true);
       cen.setUint16(6, 20, true);
-      cen.setUint16(8, 0x0800, true);
+      cen.setUint16(8, flag, true);
       cen.setUint16(10, method, true);
       cen.setUint16(12, dosTime, true);
       cen.setUint16(14, dosDate, true);
@@ -101,9 +157,10 @@ const Zip = (() => {
       cen.setUint32(20, body.length, true);
       cen.setUint32(24, data.length, true);
       cen.setUint16(28, name.length, true);
+      cen.setUint16(30, extra.length, true);
       cen.setUint32(42, offset, true);
-      central.push(cen, name);
-      offset += 30 + name.length + body.length;
+      central.push(cen, name, extra);
+      offset += 30 + name.length + extra.length + body.length;
     }
     const csize = central.reduce((n, x) => n + x.byteLength, 0);
     const end = new DataView(new ArrayBuffer(22));

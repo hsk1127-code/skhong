@@ -95,6 +95,7 @@ function renderSidebar() {
       <div class="row2"><button class="btn sm" id="backupBtn">💾 백업</button><button class="btn sm" id="restoreBtn">📂 복원</button></div>
       <div class="small backup-note ${warn ? "warn" : "muted"}">${warn ? "⚠" : "✓"} ${s.lastBackup ? `마지막 백업 ${esc(s.lastBackup)} (${days}일 전)` : "아직 백업하지 않았습니다"}</div>
       ${window.showDirectoryPicker ? `<div class="small muted backup-dir">📁 ${s.backupDirName ? `<b>${esc(s.backupDirName)}</b>\\백업` : "백업 폴더 미지정"} <a href="#" id="backupDirBtn">${s.backupDirName ? "변경" : "지정"}</a></div>
+        <div class="small muted backup-dir">💾 저장 폴더: ${s.reportDirName ? `<b>${esc(s.reportDirName)}</b>` : "미지정"} <a href="#" id="saveDirBtn">${s.reportDirName ? "변경" : "지정"}</a></div>
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
@@ -120,6 +121,10 @@ function renderSidebar() {
     if (await backupDir(true)) { await autoDir(); renderSidebar(); toast("백업 폴더를 지정했습니다. 이제 💾 백업을 누르면 이 폴더의 '백업' 폴더에 저장됩니다.", 5000); }
   });
   $("#restoreBtn").onclick = restoreNow;
+  $("#saveDirBtn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (await reportDir(true)) { renderSidebar(); toast("저장 폴더를 지정했습니다. 엑셀·ZIP·보고서·첨부 파일이 이 폴더에 저장됩니다.", 5000); }
+  });
   $("#autoResume")?.addEventListener("click", async (e) => {
     e.preventDefault();
     const dir = await Store.getKV("backupDir").catch(() => null);
@@ -254,7 +259,7 @@ async function reportDir(change = false) {
     if (perm !== "granted") dir = null;
   }
   if (!dir) {
-    toast("보고서를 저장할 폴더를 골라 주세요. 다음부터는 이 폴더에 바로 저장합니다.", 6000);
+    toast("파일을 저장할 폴더를 골라 주세요. 다음부터는 이 폴더에 바로 저장합니다 (보고서·엑셀·ZIP·첨부 열기).", 7000);
     try { dir = await window.showDirectoryPicker({ id: "pd-report", mode: "readwrite", startIn: "documents" }); }
     catch (e) { if (e.name === "AbortError") return null; throw e; }
     await Store.putKV("reportDir", dir);
@@ -263,20 +268,26 @@ async function reportDir(change = false) {
   }
   return dir;
 }
-async function saveReport(make, name) {
+// 모든 내려받기(엑셀·ZIP·보고서·첨부)를 저장 폴더에 정확한 파일 이름으로 저장.
+// 파일로 연 프로그램(file://)에서는 브라우저가 내려받기 파일 이름을 무시해 'download' 로 저장되므로,
+// 크롬·엣지에서는 한 번 고른 폴더에 직접 쓴다. 폴더는 클릭 직후에 먼저 확인(브라우저 규칙), 그다음 파일을 만든다.
+async function saveFile(make, name, msg = "파일을 만드는 중…") {
+  name = fileSafe(name.replace(/(\.[a-z0-9]+)$/i, "")) + (/(\.[a-z0-9]+)$/i.exec(name)?.[1] || "");
   let dir = null;
   try { dir = await reportDir(); } catch (e) { console.error(e); }
   if (window.showDirectoryPicker && !dir) { toast("저장 폴더를 고르지 않아 취소했습니다."); return false; }
-  await busy("보고서를 만드는 중…", async () => {
-    const blob = await make();
+  await busy(msg, async () => {
+    const blob = typeof make === "function" ? await make() : make;
     if (!dir) { download(blob, name); return toast(`${name} 을(를) 내려받았습니다.`, 4000); }
     const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
     await w.write(blob);
     await w.close();
-    toast(`📁 ${dir.name}\\${name} 에 저장했습니다.`, 5000);
+    toast(`📁 ${dir.name}\\${name} 에 저장했습니다. 그 폴더에서 열어 보세요.`, 6000);
   });
+  renderSidebar();
   return true;
 }
+const saveReport = (make, name) => saveFile(make, name, "보고서를 만드는 중…");
 async function restoreNow() {
   const run = (file) => {
     if (!confirm("현재 저장된 모든 데이터를 지우고 백업 파일 내용으로 바꿀까요?")) return;
@@ -291,7 +302,7 @@ async function restoreNow() {
       return run(await h.getFile());
     } catch (e) { if (e.name === "AbortError") return; console.error(e); }
   }
-  pickFiles(".zip", false, (f) => run(f[0]));
+  pickFiles("", false, (f) => run(f[0])); // 예전에 이름 없이(download) 저장된 백업도 고를 수 있게
 }
 
 function pickFiles(accept, multiple, cb) {
@@ -386,7 +397,7 @@ async function openFile(id) {
   if (!blob) return toast("파일을 찾을 수 없습니다.");
   if (m.type.startsWith("image/")) return lightbox([id], 0);
   if (m.type === "application/pdf") return window.open(await blobUrl(id), "_blank");
-  download(blob, m.name);
+  saveFile(blob, m.name, "파일을 저장하는 중…");
 }
 function lightbox(ids, index) {
   const box = document.createElement("div");
@@ -402,7 +413,7 @@ function lightbox(ids, index) {
     if (e.target.matches("[data-close]") || e.target === box || e.target.classList.contains("lb-img")) close();
     else if (e.target.matches(".prev")) { index = (index - 1 + ids.length) % ids.length; show(); }
     else if (e.target.matches(".next")) { index = (index + 1) % ids.length; show(); }
-    else if (e.target.matches("[data-dl]")) download(await Store.getBlob(ids[index]), Store.fileMeta(ids[index]).name);
+    else if (e.target.matches("[data-dl]")) saveFile(() => Store.getBlob(ids[index]), Store.fileMeta(ids[index]).name, "파일을 저장하는 중…");
     else if (e.target.tagName === "IMG") e.target.classList.toggle("zoom");
   };
   const key = (e) => {
@@ -685,9 +696,9 @@ function renderProject(p) {
     <nav class="tabs">${TABS.map(([k, label]) => `<button data-tab="${k}" class="${k === tab ? "active" : ""}">${label}${counts[k] ? ` <small>${counts[k]}</small>` : ""}</button>`).join("")}</nav>
     <section id="tab"></section>`;
   $$(".tabs button").forEach((b) => (b.onclick = () => go({ view: "project", id: p.id, tab: b.dataset.tab })));
-  $("#exportXlsx").onclick = () => busy("엑셀 파일을 만드는 중…", async () => download(await buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`));
+  $("#exportXlsx").onclick = () => saveFile(() => buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`, "엑셀 파일을 만드는 중…");
   $("#reportBtn").onclick = () => reportDialog(p);
-  $("#exportZip").onclick = () => busy("ZIP 파일을 만드는 중…", async () => download(await buildProjectZip(p), `${p.overview.name}_${today()}.zip`));
+  $("#exportZip").onclick = () => saveFile(() => buildProjectZip(p), `${p.overview.name}_${today()}.zip`, "ZIP 파일을 만드는 중…");
   ({ overview: tabOverview, schedule: tabSchedule, records: tabRecords, meetings: tabMeetings, spec: tabSpec, parts: tabParts,
     submissions: (p, el) => el.innerHTML = gridCard(p, "submissions"), changes: (p, el) => el.innerHTML = gridCard(p, "changes"),
     revisions: (p, el) => el.innerHTML = gridCard(p, "revisions", "자료 이력·회의록이 추가되면 자동으로 기록되며, 직접 추가할 수도 있습니다.") })[tab](p, $("#tab"));
@@ -1820,7 +1831,7 @@ function reportDialog(p) {
       <label class="full">성과 요약<textarea name="summary" rows="2" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료.">${esc(r.summary)}</textarea></label>
       <label class="full">하자보증 · 후속 조치<textarea name="warrantyNote" rows="2">${esc(r.warrantyNote || warrantyDefault)}</textarea></label>
     </div>
-    ${window.showDirectoryPicker ? `<div class="small muted report-dir">📁 엑셀 보고서 저장 폴더: <b id="rdDirName">${esc(Store.state.settings.reportDirName || "미지정 (다운로드 시 고름)")}</b>
+    ${window.showDirectoryPicker ? `<div class="small muted report-dir">📁 저장 폴더: <b id="rdDirName">${esc(Store.state.settings.reportDirName || "미지정 (다운로드 시 고름)")}</b>
       <a href="#" id="rdDir">${Store.state.settings.reportDirName ? "변경" : "지정"}</a> · 파일 이름: <b>${esc(fileSafe(o.name))}_완료보고서_${today()}.xlsx</b></div>` : ""}
     <div class="opts row-opts">
       <label><input type="checkbox" name="incMeetings" checked> 회의 (${p.meetings.length})</label>

@@ -766,6 +766,9 @@ const Zip = (() => {
     let p = view.getUint32(eocd + 16, true);
     const entries = {};
     const utf8 = new TextDecoder("utf-8");
+    let euckr = null;
+    try { euckr = new TextDecoder("euc-kr"); } catch {}
+    const utf8Valid = (b) => { try { new TextDecoder("utf-8", { fatal: true }).decode(b); return true; } catch { return false; } };
     for (let i = 0; i < count; i++) {
       if (view.getUint32(p, true) !== 0x02014b50) throw new Error("손상된 ZIP 파일입니다.");
       const method = view.getUint16(p + 10, true);
@@ -774,7 +777,14 @@ const Zip = (() => {
       const xlen = view.getUint16(p + 30, true);
       const clen = view.getUint16(p + 32, true);
       const local = view.getUint32(p + 42, true);
-      const name = utf8.decode(buf.subarray(p + 46, p + 46 + nlen));
+      let name = (view.getUint16(p + 8, true) & 0x0800) || !euckr ? utf8.decode(buf.subarray(p + 46, p + 46 + nlen))
+        : utf8Valid(buf.subarray(p + 46, p + 46 + nlen)) ? utf8.decode(buf.subarray(p + 46, p + 46 + nlen)) : euckr.decode(buf.subarray(p + 46, p + 46 + nlen));
+      // Unicode Path 추가 필드(0x7075)가 있으면 그 UTF-8 이름을 씀
+      for (let x = p + 46 + nlen; x + 4 <= p + 46 + nlen + xlen;) {
+        const tag = view.getUint16(x, true), size = view.getUint16(x + 2, true);
+        if (tag === 0x7075 && size > 5) name = utf8.decode(buf.subarray(x + 9, x + 4 + size));
+        x += 4 + size;
+      }
       p += 46 + nlen + xlen + clen;
       if (name.endsWith("/")) continue;
       const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
@@ -788,6 +798,51 @@ const Zip = (() => {
   }
 
   // 쓰기: files = [{ name, data: Uint8Array|string|Blob, compress?: boolean }]
+  // 한글 파일 이름: 윈도우 기본 압축 풀기(특히 윈도우 10)는 UTF-8 표시를 모르고 CP949 로 읽으므로
+  // 이름은 CP949 로 쓰고, 반디집·7-Zip 등을 위해 UTF-8 이름을 Unicode Path 추가 필드(0x7075)로 함께 넣는다.
+  let cp949 = null;
+  function cp949Map() {
+    if (cp949) return cp949;
+    cp949 = new Map();
+    try {
+      const dec = new TextDecoder("euc-kr", { fatal: false });
+      for (let lead = 0x81; lead <= 0xfe; lead++) {
+        const buf = [];
+        for (let trail = 0x41; trail <= 0xfe; trail++) buf.push(lead, trail, 0x0a);
+        const parts = dec.decode(new Uint8Array(buf)).split("\n");
+        for (let i = 0, trail = 0x41; trail <= 0xfe; trail++, i++) {
+          const ch = parts[i];
+          if (ch && ch.length === 1 && ch !== "\ufffd" && !cp949.has(ch)) cp949.set(ch, [lead, trail]);
+        }
+      }
+    } catch { /* euc-kr 디코더가 없으면 UTF-8 이름만 사용 */ }
+    return cp949;
+  }
+  function encodeCp949(str) {
+    const map = cp949Map(), out = [];
+    for (const ch of str) {
+      const c = ch.codePointAt(0);
+      if (c < 0x80) out.push(c);
+      else if (map.has(ch)) out.push(...map.get(ch));
+      else return null; // CP949 로 못 쓰는 글자 → UTF-8 이름 사용
+    }
+    return new Uint8Array(out);
+  }
+  // 이름 바이트, UTF-8 표시 여부, 추가 필드
+  function entryName(name, enc) {
+    const utf8 = enc.encode(name);
+    if (/^[\x00-\x7f]*$/.test(name)) return { bytes: utf8, flag: 0, extra: new Uint8Array(0) };
+    const local = encodeCp949(name);
+    if (!local) return { bytes: utf8, flag: 0x0800, extra: new Uint8Array(0) };
+    const extra = new DataView(new ArrayBuffer(9 + utf8.length));
+    extra.setUint16(0, 0x7075, true);
+    extra.setUint16(2, 5 + utf8.length, true);
+    extra.setUint8(4, 1);
+    extra.setUint32(5, crc32(local), true);
+    new Uint8Array(extra.buffer).set(utf8, 9);
+    return { bytes: local, flag: 0, extra: new Uint8Array(extra.buffer) };
+  }
+
   async function write(files) {
     const enc = new TextEncoder();
     const parts = [], central = [];
@@ -799,7 +854,7 @@ const Zip = (() => {
       let data = f.data;
       if (typeof data === "string") data = enc.encode(data);
       else if (data instanceof Blob) data = new Uint8Array(await data.arrayBuffer());
-      const name = enc.encode(f.name);
+      const { bytes: name, flag, extra } = entryName(f.name, enc);
       const crc = crc32(data);
       let body = data, method = 0;
       if (f.compress !== false && data.length > 64) {
@@ -809,7 +864,7 @@ const Zip = (() => {
       const head = new DataView(new ArrayBuffer(30));
       head.setUint32(0, 0x04034b50, true);
       head.setUint16(4, 20, true);
-      head.setUint16(6, 0x0800, true); // UTF-8 파일명
+      head.setUint16(6, flag, true); // 0x0800 = UTF-8 파일명 (CP949 로 쓸 수 없을 때만)
       head.setUint16(8, method, true);
       head.setUint16(10, dosTime, true);
       head.setUint16(12, dosDate, true);
@@ -817,12 +872,13 @@ const Zip = (() => {
       head.setUint32(18, body.length, true);
       head.setUint32(22, data.length, true);
       head.setUint16(26, name.length, true);
-      parts.push(head, name, body);
+      head.setUint16(28, extra.length, true);
+      parts.push(head, name, extra, body);
       const cen = new DataView(new ArrayBuffer(46));
       cen.setUint32(0, 0x02014b50, true);
       cen.setUint16(4, 20, true);
       cen.setUint16(6, 20, true);
-      cen.setUint16(8, 0x0800, true);
+      cen.setUint16(8, flag, true);
       cen.setUint16(10, method, true);
       cen.setUint16(12, dosTime, true);
       cen.setUint16(14, dosDate, true);
@@ -830,9 +886,10 @@ const Zip = (() => {
       cen.setUint32(20, body.length, true);
       cen.setUint32(24, data.length, true);
       cen.setUint16(28, name.length, true);
+      cen.setUint16(30, extra.length, true);
       cen.setUint32(42, offset, true);
-      central.push(cen, name);
-      offset += 30 + name.length + body.length;
+      central.push(cen, name, extra);
+      offset += 30 + name.length + extra.length + body.length;
     }
     const csize = central.reduce((n, x) => n + x.byteLength, 0);
     const end = new DataView(new ArrayBuffer(22));
@@ -2725,10 +2782,11 @@ function renderSidebar() {
       <div class="row2"><button class="btn sm" id="backupBtn">💾 백업</button><button class="btn sm" id="restoreBtn">📂 복원</button></div>
       <div class="small backup-note ${warn ? "warn" : "muted"}">${warn ? "⚠" : "✓"} ${s.lastBackup ? `마지막 백업 ${esc(s.lastBackup)} (${days}일 전)` : "아직 백업하지 않았습니다"}</div>
       ${window.showDirectoryPicker ? `<div class="small muted backup-dir">📁 ${s.backupDirName ? `<b>${esc(s.backupDirName)}</b>\\백업` : "백업 폴더 미지정"} <a href="#" id="backupDirBtn">${s.backupDirName ? "변경" : "지정"}</a></div>
+        <div class="small muted backup-dir">💾 저장 폴더: ${s.reportDirName ? `<b>${esc(s.reportDirName)}</b>` : "미지정"} <a href="#" id="saveDirBtn">${s.reportDirName ? "변경" : "지정"}</a></div>
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 00:27</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 01:20</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -2750,6 +2808,10 @@ function renderSidebar() {
     if (await backupDir(true)) { await autoDir(); renderSidebar(); toast("백업 폴더를 지정했습니다. 이제 💾 백업을 누르면 이 폴더의 '백업' 폴더에 저장됩니다.", 5000); }
   });
   $("#restoreBtn").onclick = restoreNow;
+  $("#saveDirBtn")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    if (await reportDir(true)) { renderSidebar(); toast("저장 폴더를 지정했습니다. 엑셀·ZIP·보고서·첨부 파일이 이 폴더에 저장됩니다.", 5000); }
+  });
   $("#autoResume")?.addEventListener("click", async (e) => {
     e.preventDefault();
     const dir = await Store.getKV("backupDir").catch(() => null);
@@ -2884,7 +2946,7 @@ async function reportDir(change = false) {
     if (perm !== "granted") dir = null;
   }
   if (!dir) {
-    toast("보고서를 저장할 폴더를 골라 주세요. 다음부터는 이 폴더에 바로 저장합니다.", 6000);
+    toast("파일을 저장할 폴더를 골라 주세요. 다음부터는 이 폴더에 바로 저장합니다 (보고서·엑셀·ZIP·첨부 열기).", 7000);
     try { dir = await window.showDirectoryPicker({ id: "pd-report", mode: "readwrite", startIn: "documents" }); }
     catch (e) { if (e.name === "AbortError") return null; throw e; }
     await Store.putKV("reportDir", dir);
@@ -2893,20 +2955,26 @@ async function reportDir(change = false) {
   }
   return dir;
 }
-async function saveReport(make, name) {
+// 모든 내려받기(엑셀·ZIP·보고서·첨부)를 저장 폴더에 정확한 파일 이름으로 저장.
+// 파일로 연 프로그램(file://)에서는 브라우저가 내려받기 파일 이름을 무시해 'download' 로 저장되므로,
+// 크롬·엣지에서는 한 번 고른 폴더에 직접 쓴다. 폴더는 클릭 직후에 먼저 확인(브라우저 규칙), 그다음 파일을 만든다.
+async function saveFile(make, name, msg = "파일을 만드는 중…") {
+  name = fileSafe(name.replace(/(\.[a-z0-9]+)$/i, "")) + (/(\.[a-z0-9]+)$/i.exec(name)?.[1] || "");
   let dir = null;
   try { dir = await reportDir(); } catch (e) { console.error(e); }
   if (window.showDirectoryPicker && !dir) { toast("저장 폴더를 고르지 않아 취소했습니다."); return false; }
-  await busy("보고서를 만드는 중…", async () => {
-    const blob = await make();
+  await busy(msg, async () => {
+    const blob = typeof make === "function" ? await make() : make;
     if (!dir) { download(blob, name); return toast(`${name} 을(를) 내려받았습니다.`, 4000); }
     const w = await (await dir.getFileHandle(name, { create: true })).createWritable();
     await w.write(blob);
     await w.close();
-    toast(`📁 ${dir.name}\\${name} 에 저장했습니다.`, 5000);
+    toast(`📁 ${dir.name}\\${name} 에 저장했습니다. 그 폴더에서 열어 보세요.`, 6000);
   });
+  renderSidebar();
   return true;
 }
+const saveReport = (make, name) => saveFile(make, name, "보고서를 만드는 중…");
 async function restoreNow() {
   const run = (file) => {
     if (!confirm("현재 저장된 모든 데이터를 지우고 백업 파일 내용으로 바꿀까요?")) return;
@@ -2921,7 +2989,7 @@ async function restoreNow() {
       return run(await h.getFile());
     } catch (e) { if (e.name === "AbortError") return; console.error(e); }
   }
-  pickFiles(".zip", false, (f) => run(f[0]));
+  pickFiles("", false, (f) => run(f[0])); // 예전에 이름 없이(download) 저장된 백업도 고를 수 있게
 }
 
 function pickFiles(accept, multiple, cb) {
@@ -3016,7 +3084,7 @@ async function openFile(id) {
   if (!blob) return toast("파일을 찾을 수 없습니다.");
   if (m.type.startsWith("image/")) return lightbox([id], 0);
   if (m.type === "application/pdf") return window.open(await blobUrl(id), "_blank");
-  download(blob, m.name);
+  saveFile(blob, m.name, "파일을 저장하는 중…");
 }
 function lightbox(ids, index) {
   const box = document.createElement("div");
@@ -3032,7 +3100,7 @@ function lightbox(ids, index) {
     if (e.target.matches("[data-close]") || e.target === box || e.target.classList.contains("lb-img")) close();
     else if (e.target.matches(".prev")) { index = (index - 1 + ids.length) % ids.length; show(); }
     else if (e.target.matches(".next")) { index = (index + 1) % ids.length; show(); }
-    else if (e.target.matches("[data-dl]")) download(await Store.getBlob(ids[index]), Store.fileMeta(ids[index]).name);
+    else if (e.target.matches("[data-dl]")) saveFile(() => Store.getBlob(ids[index]), Store.fileMeta(ids[index]).name, "파일을 저장하는 중…");
     else if (e.target.tagName === "IMG") e.target.classList.toggle("zoom");
   };
   const key = (e) => {
@@ -3315,9 +3383,9 @@ function renderProject(p) {
     <nav class="tabs">${TABS.map(([k, label]) => `<button data-tab="${k}" class="${k === tab ? "active" : ""}">${label}${counts[k] ? ` <small>${counts[k]}</small>` : ""}</button>`).join("")}</nav>
     <section id="tab"></section>`;
   $$(".tabs button").forEach((b) => (b.onclick = () => go({ view: "project", id: p.id, tab: b.dataset.tab })));
-  $("#exportXlsx").onclick = () => busy("엑셀 파일을 만드는 중…", async () => download(await buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`));
+  $("#exportXlsx").onclick = () => saveFile(() => buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`, "엑셀 파일을 만드는 중…");
   $("#reportBtn").onclick = () => reportDialog(p);
-  $("#exportZip").onclick = () => busy("ZIP 파일을 만드는 중…", async () => download(await buildProjectZip(p), `${p.overview.name}_${today()}.zip`));
+  $("#exportZip").onclick = () => saveFile(() => buildProjectZip(p), `${p.overview.name}_${today()}.zip`, "ZIP 파일을 만드는 중…");
   ({ overview: tabOverview, schedule: tabSchedule, records: tabRecords, meetings: tabMeetings, spec: tabSpec, parts: tabParts,
     submissions: (p, el) => el.innerHTML = gridCard(p, "submissions"), changes: (p, el) => el.innerHTML = gridCard(p, "changes"),
     revisions: (p, el) => el.innerHTML = gridCard(p, "revisions", "자료 이력·회의록이 추가되면 자동으로 기록되며, 직접 추가할 수도 있습니다.") })[tab](p, $("#tab"));
@@ -4450,7 +4518,7 @@ function reportDialog(p) {
       <label class="full">성과 요약<textarea name="summary" rows="2" placeholder="예: Conveyor AMR 2대 납품 및 고객사 검수 완료.">${esc(r.summary)}</textarea></label>
       <label class="full">하자보증 · 후속 조치<textarea name="warrantyNote" rows="2">${esc(r.warrantyNote || warrantyDefault)}</textarea></label>
     </div>
-    ${window.showDirectoryPicker ? `<div class="small muted report-dir">📁 엑셀 보고서 저장 폴더: <b id="rdDirName">${esc(Store.state.settings.reportDirName || "미지정 (다운로드 시 고름)")}</b>
+    ${window.showDirectoryPicker ? `<div class="small muted report-dir">📁 저장 폴더: <b id="rdDirName">${esc(Store.state.settings.reportDirName || "미지정 (다운로드 시 고름)")}</b>
       <a href="#" id="rdDir">${Store.state.settings.reportDirName ? "변경" : "지정"}</a> · 파일 이름: <b>${esc(fileSafe(o.name))}_완료보고서_${today()}.xlsx</b></div>` : ""}
     <div class="opts row-opts">
       <label><input type="checkbox" name="incMeetings" checked> 회의 (${p.meetings.length})</label>
