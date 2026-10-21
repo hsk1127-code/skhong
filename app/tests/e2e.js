@@ -56,11 +56,12 @@ const assert = require("assert");
   await p.type("[data-ck=mdRate]", "500000");
   assert.strictEqual(await p.inputValue("[data-ck=laborCost]"), "1,000,000");
   assert.match(await p.textContent("#laborView"), /총 2 M\/D[\s\S]*인건비 1,000,000원/);
-  // 재경비·워런티비 = 실행가 × 비율, 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
+  // 재경비·워런티비 = (실행가 + 인건비) × 비율, 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비
   await p.fill("[data-rate=overheadRate]", "5");
   await p.fill("[data-rate=warrantyRate]", "2");
-  assert.strictEqual(await p.textContent("#amt-overhead"), "4,500,000원");
-  assert.match(await p.textContent("#totalView"), /실행가 합계97,300,000원/);
+  assert.strictEqual(await p.textContent("#amt-overhead"), "4,550,000원");
+  assert.strictEqual(await p.textContent("#amt-warrantyCost"), "1,820,000원");
+  assert.match(await p.textContent("#totalView"), /실행가 합계97,370,000원/);
   await p.fill("[data-rate=overheadRate]", ""); await p.fill("[data-rate=warrantyRate]", "");
   await p.click('.preset-chip button:text-is("30 : 70")');
   assert.deepStrictEqual(await p.$$eval(".pay-table [data-amt]", (els) => els.map((e) => e.textContent)), ["36,000,000", "84,000,000"]);
@@ -224,6 +225,22 @@ const assert = require("assert");
   await x.saveAs(path.join(work, "out.xlsx"));
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));
+
+  // 년도별 계약·정산: 대시보드 버튼 → 년도 시트 + 년도별 합계 + 정산 내역 (재경비 = (실행가 + 인건비) × 비율)
+  await p.evaluate(() => go({ view: "home" }));
+  await p.click("#contractYears");
+  const [cy] = await Promise.all([p.waitForEvent("download"), p.click("dialog button.primary")]);
+  await cy.saveAs(path.join(work, "years.xlsx"));
+  const yr = await p.evaluate(async () => {
+    const wb = await Xlsx.read(new Blob([await buildContractYearWorkbook(Store.projects, [...new Set(Store.projects.map(contractYear))])]));
+    const ysheet = wb.sheets.find((x) => /^\d{4}년$/.test(x.name));
+    return { names: wb.sheets.map((x) => x.name), row: ysheet.rows[3].slice(1, 16) };
+  });
+  assert.strictEqual(yr.names[0], "년도별 합계");
+  assert.ok(yr.names.includes("정산 내역"));
+  assert.deepStrictEqual(yr.row.slice(5, 9), [120000000, 85000000, 80000000, 90000000]);
+  await p.click(".plist .nav");
+  await p.waitForSelector(".tabs");
 
   // 삭제 후 복원
   await p.click(".tabs [data-tab=overview]");

@@ -557,6 +557,7 @@ function renderHome() {
 
   $("#main").innerHTML = `
     <div class="page-head"><h1>통합 대시보드</h1><div class="row2"><span class="today-big">오늘 ${todayText()}</span>
+      ${Store.projects.length ? `<button class="btn" id="contractYears" title="년도별로 모든 프로젝트의 계약·정산 내용을 엑셀로">💰 년도별 계약·정산</button>` : ""}
       ${Store.projects.some((p) => p.overview.status === "완료") ? `<button class="btn" id="closingAll" title="완료 상태인 프로젝트를 열로 모은 마감 보고서">📊 완료 프로젝트 마감 보고서</button>` : ""}</div></div>
     ${!Store.projects.length ? `<div class="card empty-big">
       <div class="hero-emoji">📂</div><h2>시작하기</h2><p>왼쪽의 <b>📥</b> 버튼으로 지금 쓰고 있는 프로젝트 엑셀 파일을 불러오거나, <b>＋</b> 버튼으로 새 프로젝트를 만드세요.</p>
@@ -622,6 +623,21 @@ function renderHome() {
   $("#homeNew")?.addEventListener("click", newProjectDialog);
   $("#homeRestore")?.addEventListener("click", restoreNow);
   $("#homeFolder")?.addEventListener("click", loadFromFolder);
+  $("#contractYears")?.addEventListener("click", () => {
+    const years = [...new Set(Store.projects.map(contractYear))].sort((a, b) => (a === "연도 미정") - (b === "연도 미정") || b.localeCompare(a));
+    const count = (y) => Store.projects.filter((p) => contractYear(p) === y).length;
+    openDialog(`<h3>년도별 계약 · 정산 다운로드</h3>
+      <p class="muted small">고른 년도마다 시트를 만들어 프로젝트별 발주금액·실행가·인건비·재경비·워런티비·이익·정산 현황을 넣습니다. 년도는 발주일 기준 (없으면 Kick Off·첫 일정).
+        '년도별 합계'와 '정산 내역' 시트도 함께 들어갑니다.</p>
+      <div class="opts">${years.map((y) => `<label><input type="checkbox" name="year" value="${esc(y)}" checked> ${esc(y === "연도 미정" ? y : `${y}년`)} <span class="muted small">${count(y)}건</span></label>`).join("")}</div>`,
+    async (form) => {
+      const ys = $$("[name=year]:checked", form).map((x) => x.value);
+      if (!ys.length) { toast("년도를 하나 이상 고르세요."); return false; }
+      const label = ys.filter((y) => y !== "연도 미정").sort();
+      await saveFile(() => buildContractYearWorkbook(Store.projects, ys),
+        `계약정산_${label.length ? (label.length > 1 ? `${label[0]}-${label[label.length - 1]}` : label[0]) : "연도미정"}_${today()}.xlsx`, "엑셀 파일을 만드는 중…");
+    }, { okLabel: "💰 엑셀 다운로드" });
+  });
   $("#closingAll")?.addEventListener("click", () => {
     const done = Store.projects.filter((p) => p.overview.status === "완료");
     openDialog(`<h3>완료 프로젝트 마감 보고서</h3><p class="muted small">고른 프로젝트가 한 시트에 열로 나란히 들어갑니다. (종합 시트 포함)</p>
@@ -835,7 +851,7 @@ function contractEditHtml(p) {
     <div class="form rate-grid" style="margin-top:10px">
       ${[["overheadRate", "재경비", "overhead"], ["warrantyRate", "워런티비", "warrantyCost"]].map(([k, l, a]) => `<label>${l} 비율 (%)
         <span class="rate-row"><input data-rate="${k}" inputmode="decimal" value="${esc(o[k] ?? "")}" placeholder="예: ${k === "overheadRate" ? "5" : "2"}">
-        <b class="rate-amt" id="amt-${a}">${c[a] ? fmtWon(c[a]) : "0원"}</b></span><span class="muted small">실행가 × 비율</span></label>`).join("")}
+        <b class="rate-amt" id="amt-${a}">${c[a] ? fmtWon(c[a]) : "0원"}</b></span><span class="muted small">(실행가 + 인건비) × 비율</span></label>`).join("")}
     </div>
     <h4 style="margin:16px 0 8px">인건비 <span class="muted small" style="font-weight:400">분야별 M/D × M/D 단가</span></h4>
     <div class="form md-grid">${MD_FIELDS.map(([k, l]) => `<label>${l} (M/D)<input data-md="${k}" inputmode="decimal" value="${esc((o.md || {})[k] ?? "")}" placeholder="0"></label>`).join("")}</div>
@@ -1922,8 +1938,8 @@ function reportDialog(p) {
       const lab = form.laborCost;
       if (!lab.dataset.manual && document.activeElement !== lab) lab.value = c.laborAuto ? c.laborAuto.toLocaleString("ko-KR") : "";
       $("#rLaborHint", dlg).textContent = lab.dataset.manual ? "직접 입력 · 지우면 자동" : c.mdTotal ? `자동: ${c.mdTotal} M/D × 단가` : "M/D × 단가 자동";
-      $("#rOverheadHint", dlg).textContent = c.overhead ? `= ${fmtWon(c.overhead)}` : "실행가 × 비율";
-      $("#rWarrantyHint", dlg).textContent = c.warrantyCost ? `= ${fmtWon(c.warrantyCost)}` : "실행가 × 비율";
+      $("#rOverheadHint", dlg).textContent = c.overhead ? `= ${fmtWon(c.overhead)}` : "(실행가 + 인건비) × 비율";
+      $("#rWarrantyHint", dlg).textContent = c.warrantyCost ? `= ${fmtWon(c.warrantyCost)}` : "(실행가 + 인건비) × 비율";
       $("#rTotal", dlg).innerHTML = totalViewHtml(c);
       const amt = c.amount, cost = c.actualCost;
       const line = (label, x) => `${label} ${fmtWon(amt - x)} <span class="muted small">(${(((amt - x) / amt) * 100).toFixed(1)}%)</span>`;
@@ -2052,8 +2068,8 @@ function reportHtml(p, inc) {
   // 원가 구성: 실행가 + 인건비 + 재경비 + 워런티비 = 실행가 합계, 발주금액 대비 막대
   const costRows = [["실행가", c.actualCost, "자재 · 외주 등 실제 투입", "c1"],
     ["인건비", c.labor, c.mdTotal ? `${esc(c.mdText)} = ${c.mdTotal} M/D${c.mdRate ? ` × ${fmtWon(c.mdRate)}` : ""}${c.laborManual ? " (직접 입력)" : ""}` : c.labor ? "직접 입력" : "", "c2"],
-    ["재경비", c.overhead, c.overheadRate ? `실행가 × ${c.overheadRate}%` : "", "c3"],
-    ["워런티비", c.warrantyCost, c.warrantyRate ? `실행가 × ${c.warrantyRate}%` : "", "c4"]];
+    ["재경비", c.overhead, c.overheadRate ? `(실행가 + 인건비) × ${c.overheadRate}%` : "", "c3"],
+    ["워런티비", c.warrantyCost, c.warrantyRate ? `(실행가 + 인건비) × ${c.warrantyRate}%` : "", "c4"]];
   const share = (x) => (c.totalCost ? (x / c.totalCost) * 100 : 0);
   // 이익 분석: 실행 예가(예상) · 실행목표가(목표) · 실행가(실제) · 실행가 합계 기준
   // 예상·목표: 기준 금액 − 실행가 (이익률 = 이익 / 기준 금액), 합계 기준: 발주금액 − 실행가 합계
