@@ -44,6 +44,7 @@ textarea { resize: vertical; }
 h1 { font-size: 22px; margin: 0; font-weight: 700; letter-spacing: -0.02em; } h2 { font-size: 17px; letter-spacing: -0.01em; }
 h3 { font-size: 15px; margin: 0 0 12px; font-weight: 700; letter-spacing: -0.01em; }
 .muted { color: var(--muted); } .small { font-size: 12px; } .bad { color: var(--bad); } .warn { color: var(--warn); }
+.rp td .ok, #profitView .ok { color: var(--ok); }
 .center { text-align: center; } .pad { padding: 16px; } .nowrap { white-space: nowrap; } .full { grid-column: 1 / -1; width: 100%; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .between { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
@@ -1131,7 +1132,9 @@ const Xlsx = (() => {
           const o = typeof cell === "object" ? cell : { v: cell };
           const ref = `${colName(c)}${r + 1}`;
           const s = STYLE[o.s] ? ` s="${STYLE[o.s]}"` : "";
-          if (o.f) cells.push(`<c r="${ref}"${s}><f>${xmlEsc(o.f)}</f>${typeof o.v === "number" && isFinite(o.v) ? `<v>${o.v}</v>` : ""}</c>`);
+          if (o.f) cells.push(typeof o.v === "string" && o.v
+            ? `<c r="${ref}"${s} t="str"><f>${xmlEsc(o.f)}</f><v>${xmlEsc(o.v)}</v></c>`
+            : `<c r="${ref}"${s}><f>${xmlEsc(o.f)}</f>${typeof o.v === "number" && isFinite(o.v) ? `<v>${o.v}</v>` : ""}</c>`);
           else if (o.v == null || o.v === "") cells.push(`<c r="${ref}"${s}/>`);
           else if ((o.s === "date" || o.s === "dateL") && /^\d{4}-\d{2}-\d{2}$/.test(o.v)) cells.push(`<c r="${ref}"${s}><v>${dateToSerial(o.v)}</v></c>`);
           else if (typeof o.v === "number" && isFinite(o.v)) cells.push(`<c r="${ref}"${s}><v>${o.v}</v></c>`);
@@ -2011,13 +2014,13 @@ async function buildWorkbook(p) {
   const ci = contractInfo(p);
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
-  ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+  ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: [ci.estProfit != null && `예상 이익 ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)`, ci.overEstimate != null && `예가 대비 ${costDiffText(ci.overEstimate)}`].filter(Boolean).join(" · "), s: "cell" }],
     [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
     [{ v: "재경비", s: "head" }, { v: ci.overhead || "", s: "money" }, { v: ci.overheadRate ? `실행가 × ${ci.overheadRate}%` : "", s: "cell" }],
     [{ v: "워런티비", s: "head" }, { v: ci.warrantyCost || "", s: "money" }, { v: ci.warrantyRate ? `실행가 × ${ci.warrantyRate}%` : "", s: "cell" }],
-    [{ v: "실행가 합계", s: "head" }, { v: ci.totalCost || "", s: "money" }, { v: ci.totalProfit != null ? `실행가+인건비+재경비+워런티비 · 이익 ${fmtWon(ci.totalProfit)} (${(ci.totalRate * 100).toFixed(1)}%)` : "실행가+인건비+재경비+워런티비", s: "cell" }],
+    [{ v: "실행가 합계", s: "head" }, { v: ci.totalCost || "", s: "money" }, { v: ci.totalProfit != null ? `실행가+인건비+재경비+워런티비 · 이익(발주금액 − 실행가 합계) ${ci.totalProfit < 0 ? "−" : ""}${fmtWon(Math.abs(ci.totalProfit))} (${(ci.totalRate * 100).toFixed(1)}%)` : "실행가+인건비+재경비+워런티비", s: "cell" }],
     [{ v: "인건비", s: "head" }, { v: ci.labor || "", s: "money" }, { v: [ci.mdTotal && `${ci.mdText} = ${ci.mdTotal} M/D`, ci.mdRate && `단가 ${fmtWon(ci.mdRate)}`].filter(Boolean).join(" · "), s: "cell" }],
-    [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetRate != null ? `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%` : "", s: "cell" }]);
+    [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: [ci.targetRate != null && `목표 이익률 ${(ci.targetRate * 100).toFixed(1)}%`, ci.overTarget != null && `목표 대비 ${costDiffText(ci.overTarget)}`].filter(Boolean).join(" · "), s: "cell" }]);
   for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
     { v: [x.status, x.paidDate].filter(Boolean).join(" "), s: "cell" }]);
   sheets.push({ name: "개요", cols: [16, 60, 24], rows: ovRows, merges: ["A1:C1"] });
@@ -2289,6 +2292,9 @@ function koreanAmount(n) {
 // 인건비: 분야별 M/D × M/D 단가 (인건비를 직접 넣으면 그 값). 실행가와는 따로 관리
 const MD_FIELDS = [["control", "제어"], ["design", "설계"], ["elec", "전장"], ["make", "제작"], ["setup", "Setup"]];
 const mdNum = (v) => Number(String(v ?? "").replace(/[^\d.]/g, "")) || 0;
+// 원가 차이 (실행가 − 기준 원가): +면 초과(이익 감소), −면 절감(이익 증가). 화면·보고서 공통 표시
+const costDiffText = (d) => (d == null ? "" : d > 0 ? `▲ ${fmtWon(d)} 초과` : d < 0 ? `▼ ${fmtWon(-d)} 절감` : "같음");
+const costDiffEffect = (d) => (!d ? "" : d > 0 ? `이익 ${fmtWon(d)} 감소` : `이익 ${fmtWon(-d)} 증가`);
 function contractInfo(p) {
   const o = p.overview;
   const amount = toAmount(o.orderAmount);
@@ -2318,6 +2324,7 @@ function contractInfo(p) {
     overBasis: actualCost ? "실행가" : estimateCost ? "실행 예가" : "",
     // 예가 대비: 실행가 − 실행 예가 (+면 예가보다 더 씀 → 예상보다 이익 감소)
     overEstimate: actualCost && estimateCost ? actualCost - estimateCost : null,
+    overTarget: actualCost && targetCost ? actualCost - targetCost : null,
     overBudget: targetCost && (actualCost || estimateCost) ? (actualCost || estimateCost) - targetCost : null };
 }
 
@@ -2459,7 +2466,14 @@ async function buildClosingWorkbook(projects) {
     row("", "예상 이익률", (x, i) => (x.orderAmount && x.estimateCost ? { f: `IF(${col(i)}14=0,"",${col(i)}27/${col(i)}14)`, v: (x.orderAmount - x.estimateCost) / x.orderAmount, s: "pct" } : txt(""))),
     row("", "목표 이익", (x, i) => (x.orderAmount && x.targetCost ? { f: `${col(i)}14-${col(i)}16`, v: x.orderAmount - x.targetCost, s: "money" } : txt(""))),
     row("", "목표 이익률", (x, i) => (x.orderAmount && x.targetCost ? { f: `IF(${col(i)}14=0,"",${col(i)}29/${col(i)}14)`, v: (x.orderAmount - x.targetCost) / x.orderAmount, s: "pct" } : txt(""))),
-    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 예상 이익 = 발주가 - 실행 예가 · 목표 이익 = 발주가 - 실행목표가 · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 · 출력일 ${today()}`, s: "wrap" }],
+    // 예가·목표 대비: 실행가 − 기준 원가 (▲ 초과 = 이익 감소, ▼ 절감 = 이익 증가) (31~32행)
+    ...[["예가 대비", 15, "estimateCost"], ["목표 대비", 16, "targetCost"]].map(([label, br, key]) => row("", label, (x, i) => {
+      if (!x.actualCost || !x[key]) return txt("");
+      const a = `${col(i)}17`, b = `${col(i)}${br}`;
+      return { f: `IF(${a}-${b}>0,"▲ "&TEXT(${a}-${b},"#,##0")&"원 초과",IF(${a}-${b}<0,"▼ "&TEXT(${b}-${a},"#,##0")&"원 절감","같음"))`,
+        v: costDiffText(x.actualCost - x[key]), s: "cell" };
+    })),
+    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 예가 대비 = 실행가 - 실행 예가, 목표 대비 = 실행가 - 실행목표가 (▲ 초과는 그만큼 이익 감소) · 예상 이익 = 발주가 - 실행 예가 · 목표 이익 = 발주가 - 실행목표가 · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);
@@ -2470,7 +2484,7 @@ async function buildClosingWorkbook(projects) {
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B30", `B32:${last}32`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B32", `B34:${last}34`] }];
 
   // 종합: 프로젝트별 금액
   const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],
@@ -2789,7 +2803,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 02:20</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 02:24</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -3582,15 +3596,14 @@ function costViewHtml(c) {
   if (!c.amount) return `<span class="muted small">발주금액을 넣으면 이익이 계산됩니다.</span>`;
   const cell = (label, v, sub, cls = "") => `<div class="cv ${cls}"><span>${label}</span><b>${v}</b><small>${sub || ""}</small></div>`;
   // 이익은 발주금액 − 실행가 합계. 실행 예가·실행목표가와의 차이는 '예상보다 얼마나 더/덜 썼는지'
-  const diff = (d, over, under) => (d > 0 ? `▲ ${fmtWon(d)} ${over}` : d < 0 ? `▼ ${fmtWon(-d)} ${under}` : "같음");
   const profit = c.totalProfit;
   return cell("이익 (발주금액 − 실행가 합계)", profit != null ? `${profit < 0 ? "−" : ""}${fmtWon(Math.abs(profit))}` : "-",
       profit != null ? `${fmtWon(c.amount)} − ${fmtWon(c.totalCost)} · 이익률 ${pctText(c.totalRate)}${profit < 0 ? " · 손실" : ""}` : "실행가를 입력하면 계산됩니다",
       `wide ${profit != null && profit < 0 ? "bad" : profit > 0 ? "good" : ""}`)
-    + cell("예가 대비", c.overEstimate != null ? diff(c.overEstimate, "초과", "절감") : "-",
+    + cell("예가 대비", c.overEstimate != null ? costDiffText(c.overEstimate) : "-",
       c.overEstimate != null ? `실행가 ${fmtWon(c.actualCost)} − 실행 예가 ${fmtWon(c.estimateCost)}${c.overEstimate > 0 ? ` · 예상보다 이익 ${fmtWon(c.overEstimate)} 감소` : c.overEstimate < 0 ? ` · 예상보다 이익 ${fmtWon(-c.overEstimate)} 증가` : ""}` : "실행 예가와 실행가를 비교",
       c.overEstimate > 0 ? "bad" : c.overEstimate < 0 ? "good" : "")
-    + cell("목표 대비", c.overBudget != null ? diff(c.overBudget, "초과", "절감") : "-",
+    + cell("목표 대비", c.overBudget != null ? costDiffText(c.overBudget) : "-",
       c.overBudget != null ? `${c.overBasis} ${fmtWon(c.actualCost || c.estimateCost)} − 실행목표가 ${fmtWon(c.targetCost)}` : "실행목표가와 실행가(없으면 실행 예가)를 비교",
       c.overBudget > 0 ? "bad" : c.overBudget < 0 ? "good" : "");
 }
@@ -4617,9 +4630,10 @@ function reportDialog(p) {
       $("#rTotal", dlg).innerHTML = totalViewHtml(c);
       const amt = c.amount, cost = c.actualCost;
       const line = (label, x) => `${label} ${fmtWon(amt - x)} <span class="muted small">(${(((amt - x) / amt) * 100).toFixed(1)}%)</span>`;
+      const diff = (label, d) => d != null && `<span class="${d > 0 ? "bad" : "ok"}">${label} ${costDiffText(d)}</span>`;
       $("#profitView", dlg).innerHTML = amt && cost
         ? [line("실제", cost), c.totalCost !== cost && line("합계 기준", c.totalCost), c.estimateCost && `<span class="muted">${line("예상", c.estimateCost)}</span>`,
-            c.targetCost && `<span class="muted">${line("목표", c.targetCost)}</span>`].filter(Boolean).join(" &nbsp;·&nbsp; ")
+            c.targetCost && `<span class="muted">${line("목표", c.targetCost)}</span>`, diff("예가 대비", c.overEstimate), diff("목표 대비", c.overTarget)].filter(Boolean).join(" &nbsp;·&nbsp; ")
         : `<span class="muted small">발주가와 실행가를 넣으면 계산됩니다</span>`;
     };
     $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
@@ -4719,9 +4733,9 @@ function reportHtml(p, inc) {
   const kpis = [
     kpi("발주금액", won(c.amount), c.amount ? `부가세 ${esc(o.vat || "별도")}` : ""),
     kpi("실행가 합계", won(c.totalCost), c.totalCost ? "실행가+인건비+재경비+워런티비" : "실행가 미입력", "accent"),
-    kpi("이익", c.profit != null ? won(c.profit) : c.estProfit != null ? won(c.estProfit) : "-",
-      c.profit != null ? `이익률 ${pct(c.profitRate)}${c.totalProfit != null && c.totalCost !== c.actualCost ? ` · 합계 기준 ${pct(c.totalRate)}` : ""}` : c.estRate != null ? `예상 이익률 ${pct(c.estRate)}` : "",
-      c.profit < 0 ? "bad" : "ok"),
+    kpi("이익", c.totalProfit != null ? `${c.totalProfit < 0 ? "−" : ""}${won(Math.abs(c.totalProfit))}` : c.estProfit != null ? won(c.estProfit) : "-",
+      c.totalProfit != null ? `발주금액 − 실행가 합계 · 이익률 ${pct(c.totalRate)}${c.totalProfit < 0 ? " · 손실" : ""}` : c.estRate != null ? `예상 이익률 ${pct(c.estRate)}` : "",
+      c.totalProfit < 0 ? "bad" : "ok"),
     kpi("정산", c.payments.length ? `${c.paidRatio}<small>%</small>` : "-", c.payments.length ? `수금 ${fmtWon(c.paidAmount)}` : "정산 비율 미입력", c.paidRatio === 100 ? "ok" : ""),
     kpi("프로젝트 기간", planDays ? `${planDays}<small>일</small>` : "-", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(endDate)}` : ""),
     kpi("완료 일자", doneDate ? esc(fmtDot(doneDate)) : "-", doneDate ? (doneDate === o.setupDate ? "Setup 완료일" : "보고서 완료일") : "Setup 완료일 미입력", doneDate ? "ok" : ""),
@@ -4745,10 +4759,17 @@ function reportHtml(p, inc) {
   const profitRows = [["예상", "실행 예가", c.estimateCost, c.estProfit, c.estRate], ["목표", "실행목표가", c.targetCost, c.targetProfit, c.targetRate],
     ["실제", "실행가", c.actualCost, c.profit, c.profitRate], ["합계 기준", "실행가 합계", c.totalCost !== c.actualCost ? c.totalCost : 0, c.totalProfit, c.totalRate]]
     .filter(([, , cost]) => cost);
+  // 예가·목표 대비: 실행가 − 기준 원가 (▲ 초과 = 그만큼 이익 감소)
+  const budgetRows = [["예가 대비", "실행 예가", c.estimateCost, c.overEstimate], ["목표 대비", "실행목표가", c.targetCost, c.overTarget]].filter(([, , , d]) => d != null);
+  const budgetTable = budgetRows.length ? `<h3 class="rp-h3">예가 · 목표 대비 <small>실행가 ${fmtWon(c.actualCost)} 기준 · ▲ 초과는 그만큼 이익 감소</small></h3>
+    ${table([14, 16, 20, 25, 25], ["구분", "기준", { t: "기준 원가", c: "r" }, { t: "차이 (실행가 − 기준)", c: "r" }, { t: "이익 영향", c: "r" }],
+      budgetRows.map(([l, base, cost, d]) => [`<b>${l}</b>`, base, fmtWon(cost), `<b class="${d > 0 ? "bad" : "ok"}">${costDiffText(d)}</b>`,
+        `<span class="${d > 0 ? "bad" : "ok"}">${costDiffEffect(d) || "변동 없음"}</span>`]))}` : "";
   const profitTable = c.amount && profitRows.length ? `<h3 class="rp-h3">이익 분석 <small>발주금액 ${fmtWon(c.amount)} 기준</small></h3>
     ${table([16, 22, 22, 22, 18], ["구분", "원가 기준", { t: "원가", c: "r" }, { t: "이익", c: "r" }, { t: "이익률", c: "r" }],
       profitRows.map(([l, base, cost, prof, rate]) => Object.assign([`<b>${l}</b>`, base, fmtWon(cost), `<b class="${prof < 0 ? "bad" : ""}">${fmtWon(prof)}</b>`,
-        `<span class="rp-rate ${prof < 0 ? "bad" : ""}">${pct(rate)}</span>`], { cls: l === "실제" ? "rp-total" : "" })))}` : "";
+        `<span class="rp-rate ${prof < 0 ? "bad" : ""}">${pct(rate)}</span>`], { cls: l === (c.totalCost !== c.actualCost ? "합계 기준" : "실제") ? "rp-total" : "" })))}
+    ${budgetTable}` : "";
   const costBlock = c.totalCost ? `<div class="rp-costblock"><h3 class="rp-h3">원가 구성</h3>
     ${table([18, 40, 20, 22], ["항목", "산출 근거", { t: "금액", c: "r" }, "비중"],
       [...costRows.map(([l, x, why, cls]) => [`<span class="rp-dot ${cls}"></span>${l}`, why ? `<span class="rp-sub">${why}</span>` : v(""), x ? fmtWon(x) : v(""),
@@ -4789,7 +4810,8 @@ function reportHtml(p, inc) {
     ${sec("계약 및 정산")}
     ${kv([["발주일", d(o.orderDate), "부가세", v(o.vat)],
       ["발주금액", c.amount ? `<b>${fmtWon(c.amount)}</b> <span class="rp-sub">금 ${koreanAmount(c.amount)}원정</span>` : v("")],
-      ["실행 예가", c.estimateCost ? fmtWon(c.estimateCost) : v(""), "실행목표가", c.targetCost ? `${fmtWon(c.targetCost)}${c.actualCost && c.overBudget ? ` <span class="rp-sub ${c.overBudget > 0 ? "bad" : "ok"}">실행가 ${c.overBudget > 0 ? "초과" : "절감"} ${fmtWon(Math.abs(c.overBudget))}</span>` : ""}` : v("")],
+      ["실행 예가", c.estimateCost ? `${fmtWon(c.estimateCost)}${c.overEstimate ? ` <span class="rp-sub ${c.overEstimate > 0 ? "bad" : "ok"}">실행가 ${costDiffText(c.overEstimate)}</span>` : ""}` : v(""),
+        "실행목표가", c.targetCost ? `${fmtWon(c.targetCost)}${c.overTarget ? ` <span class="rp-sub ${c.overTarget > 0 ? "bad" : "ok"}">실행가 ${costDiffText(c.overTarget)}</span>` : ""}` : v("")],
       ["정산 현황", c.payments.length ? `${c.paidRatio}% 정산 완료 · 수금 ${fmtWon(c.paidAmount)} / 미수금 ${fmtWon(c.amount - c.paidAmount)}` : v("")]])}
     ${costBlock}
     ${profitTable ? `<div class="rp-costblock">${profitTable}</div>` : ""}

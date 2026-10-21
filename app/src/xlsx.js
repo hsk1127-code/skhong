@@ -225,7 +225,9 @@ const Xlsx = (() => {
           const o = typeof cell === "object" ? cell : { v: cell };
           const ref = `${colName(c)}${r + 1}`;
           const s = STYLE[o.s] ? ` s="${STYLE[o.s]}"` : "";
-          if (o.f) cells.push(`<c r="${ref}"${s}><f>${xmlEsc(o.f)}</f>${typeof o.v === "number" && isFinite(o.v) ? `<v>${o.v}</v>` : ""}</c>`);
+          if (o.f) cells.push(typeof o.v === "string" && o.v
+            ? `<c r="${ref}"${s} t="str"><f>${xmlEsc(o.f)}</f><v>${xmlEsc(o.v)}</v></c>`
+            : `<c r="${ref}"${s}><f>${xmlEsc(o.f)}</f>${typeof o.v === "number" && isFinite(o.v) ? `<v>${o.v}</v>` : ""}</c>`);
           else if (o.v == null || o.v === "") cells.push(`<c r="${ref}"${s}/>`);
           else if ((o.s === "date" || o.s === "dateL") && /^\d{4}-\d{2}-\d{2}$/.test(o.v)) cells.push(`<c r="${ref}"${s}><v>${dateToSerial(o.v)}</v></c>`);
           else if (typeof o.v === "number" && isFinite(o.v)) cells.push(`<c r="${ref}"${s}><v>${o.v}</v></c>`);
