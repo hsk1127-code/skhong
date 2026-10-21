@@ -762,6 +762,15 @@ dialog .form.md-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .split-table { width: 100%; margin-top: 8px; border-collapse: collapse; } .split-table td { padding: 4px 6px; } .split-table select { width: 100%; }
 .split-h { margin: 12px 0 4px; font-size: 13px; }
 
+/* 정보 수정: 미입력 칸 표시 */
+.unfilled-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px;
+  background: var(--warn-soft); border: 1px solid var(--warn); color: var(--warn); }
+.unfilled-bar.done { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); } .unfilled-bar .ok { color: var(--ok); }
+.unfilled-bar .chip-btn { border: 1px solid var(--warn); background: var(--panel); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.unfilled-bar .chip-btn:hover { background: var(--warn-soft); }
+input.unfilled, select.unfilled, textarea.unfilled { border-color: var(--warn) !important; background: var(--warn-soft) !important; }
+label.unfilled-label { color: var(--warn); }
+
 </style>
 </head>
 <body>
@@ -2893,7 +2902,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 08:05</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.21 08:51</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -3580,7 +3589,7 @@ function rerender() {
 function tabOverviewEdit(p, el) {
   const o = p.overview;
   const s = projectSummary(p);
-  el.innerHTML = `<div class="grid2 wide-left">
+  el.innerHTML = `<div class="unfilled-bar" id="unfilledBar"></div><div class="grid2 wide-left">
     <div class="card"><h3>프로젝트 개요</h3><div class="form ov" id="ovForm">
       <label class="full">설비/품목명<input data-k="name" value="${esc(o.name)}"></label>
       ${OVERVIEW_FIELDS.filter(([k]) => k !== "warranty").map(([k, label]) => k === "scope" || k === "note"
@@ -3610,6 +3619,9 @@ function tabOverviewEdit(p, el) {
     <div class="danger-zone"><button class="btn danger sm" id="delProject">프로젝트 삭제</button></div></div>
     <div class="card" id="contractCard">${contractEditHtml(p)}</div></div>`;
   bindContractEdit(p, $("#contractCard", el));
+  markUnfilled(el);
+  el.addEventListener("input", () => markUnfilled(el));
+  el.addEventListener("change", () => markUnfilled(el));
   $$("#ovForm [data-k]", el).forEach((inp) => (inp.oninput = () => {
     const before = o[inp.dataset.k];
     o[inp.dataset.k] = inp.value;
@@ -3639,6 +3651,38 @@ function tabOverviewEdit(p, el) {
     Store.gc().catch(console.error);
     go({ view: "home" });
   };
+}
+
+// 정보 수정: 비어 있는 칸을 노란색으로 표시하고 맨 위에 목록 (누르면 그 칸으로). 다른 자료에서 자동으로 채워지는 칸은 제외
+function markUnfilled(el) {
+  const fields = $$("#ovForm [data-k], #kdForm [data-k], #contractCard [data-ck], #contractCard [data-rate], #contractCard [data-md]", el)
+    .filter((f) => !f.readOnly && f.closest("label") && !f.closest(".pay-table"));
+  const missing = [];
+  for (const f of fields) {
+    const lab = f.closest("label");
+    const auto = /자동:/.test(lab.textContent) || "labor" in f.dataset || /에서\)$/.test(f.placeholder || "");
+    const empty = !String(f.value || "").trim() && !auto;
+    f.classList.toggle("unfilled", empty);
+    lab.classList.toggle("unfilled-label", empty);
+    if (empty) missing.push({ f, name: [...lab.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").replace(/\s+/g, " ").trim() });
+  }
+  const bar = $("#unfilledBar", el);
+  if (!bar) return;
+  // 목록이 바뀔 때만 다시 그림 (입력 칸을 벗어날 때 다시 그리면 누른 버튼이 사라짐)
+  bar._missing = missing;
+  const key = missing.map((m) => m.name).join("|");
+  if (bar.dataset.key === key && bar.innerHTML) return;
+  bar.dataset.key = key;
+  bar.innerHTML = missing.length
+    ? `<b>⚠ 미입력 ${missing.length}개</b> <span class="muted small">눌러서 바로 입력</span> ${missing.map((m, i) => `<button type="button" class="chip-btn" data-goto-field="${i}">${esc(m.name)}</button>`).join("")}`
+    : `<b class="ok">✓ 모든 칸이 입력되었습니다</b>`;
+  bar.classList.toggle("done", !missing.length);
+  $$("[data-goto-field]", bar).forEach((b) => (b.onclick = () => {
+    const f = bar._missing[b.dataset.gotoField]?.f;
+    if (!f) return;
+    f.scrollIntoView({ behavior: "smooth", block: "center" });
+    f.focus();
+  }));
 }
 
 // ------------------------------------------------------------- 계약·정산 (정보 수정 화면)

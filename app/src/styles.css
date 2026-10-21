@@ -751,3 +751,12 @@ dialog .form.md-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .split-toggle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .split-table { width: 100%; margin-top: 8px; border-collapse: collapse; } .split-table td { padding: 4px 6px; } .split-table select { width: 100%; }
 .split-h { margin: 12px 0 4px; font-size: 13px; }
+
+/* 정보 수정: 미입력 칸 표시 */
+.unfilled-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 14px; margin-bottom: 12px; border-radius: 10px;
+  background: var(--warn-soft); border: 1px solid var(--warn); color: var(--warn); }
+.unfilled-bar.done { background: var(--ok-soft); border-color: var(--ok); color: var(--ok); } .unfilled-bar .ok { color: var(--ok); }
+.unfilled-bar .chip-btn { border: 1px solid var(--warn); background: var(--panel); color: var(--warn); border-radius: 999px; padding: 2px 10px; font-size: 12px; cursor: pointer; }
+.unfilled-bar .chip-btn:hover { background: var(--warn-soft); }
+input.unfilled, select.unfilled, textarea.unfilled { border-color: var(--warn) !important; background: var(--warn-soft) !important; }
+label.unfilled-label { color: var(--warn); }

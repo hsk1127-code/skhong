@@ -38,7 +38,12 @@ const assert = require("assert");
   // 발주금액·정산 비율
   await p.fill("[data-k=note]", "고객 요청: 도장 색상 별도 협의");
   await p.fill("[data-ck=orderDate]", "2026-09-11");
+  // 정보 수정: 비어 있는 칸은 맨 위 '미입력' 목록과 노란 칸으로 표시, 채우면 목록에서 빠짐
+  assert.match(await p.textContent("#unfilledBar"), /미입력 \d+개[\s\S]*발주금액/);
+  assert.ok(await p.locator("[data-ck=orderAmount].unfilled").count());
   await p.type("[data-ck=orderAmount]", "120000000");
+  assert.doesNotMatch(await p.textContent("#unfilledBar"), /발주금액/);
+  assert.strictEqual(await p.locator("[data-ck=orderAmount].unfilled").count(), 0);
   assert.strictEqual(await p.inputValue("[data-ck=orderAmount]"), "120,000,000");
   assert.strictEqual(await p.textContent("#amountWords"), "금 일억이천만원정");
   // 실행목표가·실행가 → 이익

@@ -787,7 +787,7 @@ function rerender() {
 function tabOverviewEdit(p, el) {
   const o = p.overview;
   const s = projectSummary(p);
-  el.innerHTML = `<div class="grid2 wide-left">
+  el.innerHTML = `<div class="unfilled-bar" id="unfilledBar"></div><div class="grid2 wide-left">
     <div class="card"><h3>프로젝트 개요</h3><div class="form ov" id="ovForm">
       <label class="full">설비/품목명<input data-k="name" value="${esc(o.name)}"></label>
       ${OVERVIEW_FIELDS.filter(([k]) => k !== "warranty").map(([k, label]) => k === "scope" || k === "note"
@@ -817,6 +817,9 @@ function tabOverviewEdit(p, el) {
     <div class="danger-zone"><button class="btn danger sm" id="delProject">프로젝트 삭제</button></div></div>
     <div class="card" id="contractCard">${contractEditHtml(p)}</div></div>`;
   bindContractEdit(p, $("#contractCard", el));
+  markUnfilled(el);
+  el.addEventListener("input", () => markUnfilled(el));
+  el.addEventListener("change", () => markUnfilled(el));
   $$("#ovForm [data-k]", el).forEach((inp) => (inp.oninput = () => {
     const before = o[inp.dataset.k];
     o[inp.dataset.k] = inp.value;
@@ -846,6 +849,38 @@ function tabOverviewEdit(p, el) {
     Store.gc().catch(console.error);
     go({ view: "home" });
   };
+}
+
+// 정보 수정: 비어 있는 칸을 노란색으로 표시하고 맨 위에 목록 (누르면 그 칸으로). 다른 자료에서 자동으로 채워지는 칸은 제외
+function markUnfilled(el) {
+  const fields = $$("#ovForm [data-k], #kdForm [data-k], #contractCard [data-ck], #contractCard [data-rate], #contractCard [data-md]", el)
+    .filter((f) => !f.readOnly && f.closest("label") && !f.closest(".pay-table"));
+  const missing = [];
+  for (const f of fields) {
+    const lab = f.closest("label");
+    const auto = /자동:/.test(lab.textContent) || "labor" in f.dataset || /에서\)$/.test(f.placeholder || "");
+    const empty = !String(f.value || "").trim() && !auto;
+    f.classList.toggle("unfilled", empty);
+    lab.classList.toggle("unfilled-label", empty);
+    if (empty) missing.push({ f, name: [...lab.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join("").replace(/\s+/g, " ").trim() });
+  }
+  const bar = $("#unfilledBar", el);
+  if (!bar) return;
+  // 목록이 바뀔 때만 다시 그림 (입력 칸을 벗어날 때 다시 그리면 누른 버튼이 사라짐)
+  bar._missing = missing;
+  const key = missing.map((m) => m.name).join("|");
+  if (bar.dataset.key === key && bar.innerHTML) return;
+  bar.dataset.key = key;
+  bar.innerHTML = missing.length
+    ? `<b>⚠ 미입력 ${missing.length}개</b> <span class="muted small">눌러서 바로 입력</span> ${missing.map((m, i) => `<button type="button" class="chip-btn" data-goto-field="${i}">${esc(m.name)}</button>`).join("")}`
+    : `<b class="ok">✓ 모든 칸이 입력되었습니다</b>`;
+  bar.classList.toggle("done", !missing.length);
+  $$("[data-goto-field]", bar).forEach((b) => (b.onclick = () => {
+    const f = bar._missing[b.dataset.gotoField]?.f;
+    if (!f) return;
+    f.scrollIntoView({ behavior: "smooth", block: "center" });
+    f.focus();
+  }));
 }
 
 // ------------------------------------------------------------- 계약·정산 (정보 수정 화면)
