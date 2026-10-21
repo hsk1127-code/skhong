@@ -613,7 +613,7 @@ async function buildWorkbook(p) {
   ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
     [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
   ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 (실행 예가 − 실행가) ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
-    [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: ci.profit != null ? `이익 ${fmtWon(ci.profit)} (${(ci.profitRate * 100).toFixed(1)}%)` : "", s: "cell" }],
+    [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: "", s: "cell" }],
     [{ v: "재경비", s: "head" }, { v: ci.overhead || "", s: "money" }, { v: ci.overheadRate ? `실행가 × ${ci.overheadRate}%` : "", s: "cell" }],
     [{ v: "워런티비", s: "head" }, { v: ci.warrantyCost || "", s: "money" }, { v: ci.warrantyRate ? `실행가 × ${ci.warrantyRate}%` : "", s: "cell" }],
     [{ v: "실행가 합계", s: "head" }, { v: ci.totalCost || "", s: "money" }, { v: ci.totalProfit != null ? `실행가+인건비+재경비+워런티비 · 이익(발주금액 − 실행가 합계) ${ci.totalProfit < 0 ? "−" : ""}${fmtWon(Math.abs(ci.totalProfit))} (${(ci.totalRate * 100).toFixed(1)}%)` : "실행가+인건비+재경비+워런티비", s: "cell" }],
@@ -916,8 +916,7 @@ function contractInfo(p) {
     estProfit: estimateCost && actualCost ? estimateCost - actualCost : null,
     estRate: estimateCost && actualCost ? (estimateCost - actualCost) / estimateCost : null,
     targetProfit: targetCost && actualCost ? targetCost - actualCost : null,
-    targetRate: targetCost && actualCost ? (targetCost - actualCost) / targetCost : null,
-    profit: amount && actualCost ? amount - actualCost : null, profitRate: rate(actualCost) };
+    targetRate: targetCost && actualCost ? (targetCost - actualCost) / targetCost : null };
 }
 
 // ------------------------------------------------- 완료 프로젝트 마감 보고서 (엑셀 양식)
@@ -1009,8 +1008,6 @@ function closingInfo(p) {
     mdTotal: c.mdTotal, mdText: c.mdText, labor: c.labor, overheadRate: c.overheadRate, warrantyRate: c.warrantyRate,
     overhead: c.overhead, warrantyCost: c.warrantyCost, totalCost: actualCost ? c.totalCost : 0,
     totalProfit: orderAmount && actualCost ? orderAmount - c.totalCost : null, totalRate: orderAmount && actualCost ? (orderAmount - c.totalCost) / orderAmount : null,
-    profit: orderAmount && actualCost ? orderAmount - actualCost : null,
-    profitRate: orderAmount && actualCost ? (orderAmount - actualCost) / orderAmount : null,
     auto,
   };
 }
@@ -1043,21 +1040,19 @@ async function buildClosingWorkbook(projects) {
     row("", "실행 예가", (x) => money(x.estimateCost)),
     row("", "실행목표가", (x) => money(x.targetCost)),
     row("", "실행가", (x) => money(x.actualCost)),
-    row("", "이익", (x, i) => (x.orderAmount && x.actualCost ? { f: `${col(i)}14-${col(i)}17`, v: x.profit, s: "moneyb" } : txt(""))),
-    row("", "이익률", (x, i) => (x.orderAmount && x.actualCost ? { f: `IF(${col(i)}14=0,"",${col(i)}18/${col(i)}14)`, v: x.profitRate, s: "pct" } : txt(""))),
-    // 실행가 구성: 인건비(M/D) · 재경비 · 워런티비 → 실행가 합계 (20~26행)
+    // 실행가 구성: 인건비(M/D) · 재경비 · 워런티비 → 실행가 합계 (18~24행)
     row("", "투입 M/D", (x) => txt(x.mdTotal ? `${x.mdTotal} M/D (${x.mdText})` : "")),
     row("", "인건비", (x) => money(x.labor)),
     row("", "재경비", (x, i) => (x.actualCost && x.overheadRate ? { f: `${col(i)}17*${x.overheadRate}/100`, v: x.overhead, s: "money" } : money(""))),
     row("", "워런티비", (x, i) => (x.actualCost && x.warrantyRate ? { f: `${col(i)}17*${x.warrantyRate}/100`, v: x.warrantyCost, s: "money" } : money(""))),
-    row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}21)+N(${col(i)}22)+N(${col(i)}23)`, v: x.totalCost, s: "moneyb" } : txt(""))),
-    row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}24`, v: x.totalProfit, s: "moneyb" } : txt(""))),
-    row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}25/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
-    // 예상 이익 = 실행 예가 − 실행가, 목표 이익 = 실행목표가 − 실행가, 이익률은 각 기준 금액 대비 (27~30행)
-    ...[["예상", 15, "estimateCost", 27], ["목표", 16, "targetCost", 29]].flatMap(([l, br, key, pr]) => [
+    row("", "실행가 합계", (x, i) => (x.totalCost ? { f: `${col(i)}17+N(${col(i)}19)+N(${col(i)}20)+N(${col(i)}21)`, v: x.totalCost, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익", (x, i) => (x.orderAmount && x.totalCost ? { f: `${col(i)}14-${col(i)}22`, v: x.totalProfit, s: "moneyb" } : txt(""))),
+    row("", "합계 기준 이익률", (x, i) => (x.orderAmount && x.totalCost ? { f: `IF(${col(i)}14=0,"",${col(i)}23/${col(i)}14)`, v: x.totalRate, s: "pct" } : txt(""))),
+    // 예상 이익 = 실행 예가 − 실행가, 목표 이익 = 실행목표가 − 실행가, 이익률은 각 기준 금액 대비 (25~28행)
+    ...[["예상", 15, "estimateCost", 25], ["목표", 16, "targetCost", 27]].flatMap(([l, br, key, pr]) => [
       row("", `${l} 이익 (${br === 15 ? "실행 예가" : "실행목표가"} − 실행가)`, (x, i) => (x[key] && x.actualCost ? { f: `${col(i)}${br}-${col(i)}17`, v: x[key] - x.actualCost, s: "money" } : txt(""))),
       row("", `${l} 이익률`, (x, i) => (x[key] && x.actualCost ? { f: `IF(${col(i)}${br}=0,"",${col(i)}${pr}/${col(i)}${br})`, v: (x[key] - x.actualCost) / x[key], s: "pct" } : txt("")))]),
-    [], [null, { v: `※ 이익 = 발주가 - 실행가, 이익률 = 이익 / 발주가 · 예상 이익 = 실행 예가 - 실행가 (이익률 = 예상 이익 / 실행 예가) · 목표 이익 = 실행목표가 - 실행가 (이익률 = 목표 이익 / 실행목표가) · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 · 출력일 ${today()}`, s: "wrap" }],
+    [], [null, { v: `※ 예상 이익 = 실행 예가 - 실행가 (이익률 = 예상 이익 / 실행 예가) · 목표 이익 = 실행목표가 - 실행가 (이익률 = 목표 이익 / 실행목표가) · 재경비·워런티비 = 실행가 × 비율 · 실행가 합계 = 실행가 + 인건비 + 재경비 + 워런티비 · 합계 기준 이익 = 발주가 - 실행가 합계 (이익률 = 합계 기준 이익 / 발주가) · 출력일 ${today()}`, s: "wrap" }],
   ];
   // 긴 글자 행은 줄 수만큼 높이를 키운다 (열 너비 34 ≈ 한 줄 17자)
   const lines = (t) => String(t || "").split("\n").reduce((a, l) => a + Math.max(1, Math.ceil([...l].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0) / 32)), 0);
@@ -1068,19 +1063,17 @@ async function buildClosingWorkbook(projects) {
     heights[r] = Math.max(20, max * 15 + 5);
   });
   const sheets = [{ name: "완료프로젝트 마감보고서", cols: [3, 14, 24, ...infos.map(() => 34)], rows, heights,
-    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B30", `B32:${last}32`] }];
+    merges: [`B1:${last}1`, "B4:B7", "B8:B11", "B12:B28", `B30:${last}30`] }];
 
   // 종합: 프로젝트별 금액
-  const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],
-    [null, ...["발주명", "수주가", "실적가", "실투입재료비", "이익 (수주가 - 재료비)", "이익률 (수주가 기준)", "실행가 합계", "합계 기준 이익", "합계 기준 이익률", "비고"].map(H)]];
+  const sum = [[null, { v: "** 프로젝트별 금액", s: "title" }, null, null, null, null, null, null, { v: "단위 (원)", s: "wrap" }],
+    [null, ...["발주명", "수주가", "실적가", "실투입재료비", "실행가 합계", "합계 기준 이익", "합계 기준 이익률", "비고"].map(H)]];
   infos.forEach((x, i) => {
     const r = 3 + i;
     sum.push([null, txt(x.projectName), money(x.orderAmount), money(x.salesActual), money(x.actualCost),
-      x.orderAmount && x.actualCost ? { f: `C${r}-E${r}`, v: x.profit, s: "money" } : txt(""),
-      x.orderAmount && x.actualCost ? { f: `IF(C${r}=0,"",(C${r}-E${r})/C${r})`, v: x.profitRate, s: "pct" } : txt(""),
       money(x.totalCost),
-      x.orderAmount && x.totalCost ? { f: `C${r}-H${r}`, v: x.totalProfit, s: "money" } : txt(""),
-      x.orderAmount && x.totalCost ? { f: `IF(C${r}=0,"",(C${r}-H${r})/C${r})`, v: x.totalRate, s: "pct" } : txt(""),
+      x.orderAmount && x.totalCost ? { f: `C${r}-F${r}`, v: x.totalProfit, s: "money" } : txt(""),
+      x.orderAmount && x.totalCost ? { f: `IF(C${r}=0,"",(C${r}-F${r})/C${r})`, v: x.totalRate, s: "pct" } : txt(""),
       txt(projects[i].report?.summary ? projects[i].report.summary.split("\n")[0] : "")]);
   });
   if (infos.length > 1) {
@@ -1088,11 +1081,10 @@ async function buildClosingWorkbook(projects) {
     sum.push([null, H("합계"), { f: `SUM(C3:C${n})`, v: infos.reduce((a, x) => a + (x.orderAmount || 0), 0), s: "moneyb" },
       { f: `SUM(D3:D${n})`, v: infos.reduce((a, x) => a + (x.salesActual || 0), 0), s: "moneyb" },
       { f: `SUM(E3:E${n})`, v: infos.reduce((a, x) => a + (x.actualCost || 0), 0), s: "moneyb" },
-      { f: `SUM(F3:F${n})`, s: "moneyb" }, { f: `IF(C${n + 1}=0,"",F${n + 1}/C${n + 1})`, s: "pct" },
-      { f: `SUM(H3:H${n})`, v: infos.reduce((a, x) => a + (x.totalCost || 0), 0), s: "moneyb" },
-      { f: `SUM(I3:I${n})`, s: "moneyb" }, { f: `IF(C${n + 1}=0,"",I${n + 1}/C${n + 1})`, s: "pct" }, txt("")]);
+      { f: `SUM(F3:F${n})`, v: infos.reduce((a, x) => a + (x.totalCost || 0), 0), s: "moneyb" },
+      { f: `SUM(G3:G${n})`, s: "moneyb" }, { f: `IF(C${n + 1}=0,"",G${n + 1}/C${n + 1})`, s: "pct" }, txt("")]);
   }
-  sheets.push({ name: "종합", cols: [3, 40, 16, 16, 16, 18, 14, 16, 16, 14, 40], rows: sum });
+  sheets.push({ name: "종합", cols: [3, 40, 16, 16, 16, 16, 16, 14, 40], rows: sum });
 
   // 한 프로젝트만 내려받을 때는 근거 자료 시트도 함께
   if (projects.length === 1) {

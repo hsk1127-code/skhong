@@ -1929,7 +1929,7 @@ function reportDialog(p) {
       const line = (label, x) => `${label} ${fmtWon(amt - x)} <span class="muted small">(${(((amt - x) / amt) * 100).toFixed(1)}%)</span>`;
       const vs = (label, base, prof, r) => prof != null && `<span class="${prof < 0 ? "bad" : "ok"}">${label} ${fmtWon(prof)} <span class="muted small">(${base} − 실행가, ${pctText(r)})</span></span>`;
       $("#profitView", dlg).innerHTML = amt && cost
-        ? [line("실제", cost), c.totalCost !== cost && line("합계 기준", c.totalCost), vs("예상", "실행 예가", c.estProfit, c.estRate), vs("목표", "실행목표가", c.targetProfit, c.targetRate)].filter(Boolean).join(" &nbsp;·&nbsp; ")
+        ? [line("합계 기준", c.totalCost), vs("예상", "실행 예가", c.estProfit, c.estRate), vs("목표", "실행목표가", c.targetProfit, c.targetRate)].filter(Boolean).join(" &nbsp;·&nbsp; ")
         : `<span class="muted small">발주가와 실행가를 넣으면 계산됩니다</span>`;
     };
     $$("[data-money]", dlg).forEach((inp) => inp.addEventListener("input", () => {
@@ -2052,14 +2052,14 @@ function reportHtml(p, inc) {
     ["워런티비", c.warrantyCost, c.warrantyRate ? `실행가 × ${c.warrantyRate}%` : "", "c4"]];
   const share = (x) => (c.totalCost ? (x / c.totalCost) * 100 : 0);
   // 이익 분석: 실행 예가(예상) · 실행목표가(목표) · 실행가(실제) · 실행가 합계 기준
-  // 예상·목표: 기준 금액 − 실행가 (이익률 = 이익 / 기준 금액), 실제·합계: 발주금액 − 원가
+  // 예상·목표: 기준 금액 − 실행가 (이익률 = 이익 / 기준 금액), 합계 기준: 발주금액 − 실행가 합계
   const profitRows = [["예상", "실행 예가 − 실행가", c.estimateCost, c.estProfit, c.estRate], ["목표", "실행목표가 − 실행가", c.targetCost, c.targetProfit, c.targetRate],
-    ["실제", "발주금액 − 실행가", c.amount, c.profit, c.profitRate], ["합계 기준", "발주금액 − 실행가 합계", c.totalCost !== c.actualCost ? c.amount : 0, c.totalProfit, c.totalRate]]
+    ["합계 기준", "발주금액 − 실행가 합계", c.amount, c.totalProfit, c.totalRate]]
     .filter(([, , base, prof]) => base && prof != null);
   const profitTable = c.amount && profitRows.length ? `<h3 class="rp-h3">이익 분석 <small>실행가 ${fmtWon(c.actualCost)} · 이익률 = 이익 / 기준 금액</small></h3>
     ${table([14, 28, 20, 20, 18], ["구분", "계산", { t: "기준 금액", c: "r" }, { t: "이익", c: "r" }, { t: "이익률", c: "r" }],
       profitRows.map(([l, base, cost, prof, rate]) => Object.assign([`<b>${l}</b>`, base, fmtWon(cost), `<b class="${prof < 0 ? "bad" : ""}">${fmtWon(prof)}</b>`,
-        `<span class="rp-rate ${prof < 0 ? "bad" : ""}">${pct(rate)}</span>`], { cls: l === (c.totalCost !== c.actualCost ? "합계 기준" : "실제") ? "rp-total" : "" })))}
+        `<span class="rp-rate ${prof < 0 ? "bad" : ""}">${pct(rate)}</span>`], { cls: l === "합계 기준" ? "rp-total" : "" })))}
 ` : "";
   const costBlock = c.totalCost ? `<div class="rp-costblock"><h3 class="rp-h3">원가 구성</h3>
     ${table([18, 40, 20, 22], ["항목", "산출 근거", { t: "금액", c: "r" }, "비중"],
