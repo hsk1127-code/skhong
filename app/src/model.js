@@ -73,6 +73,28 @@ function ensureUnits(p) {
   if (p.listFiles?.bom?.length) { p.listFiles[`unit:${p.units[0].id}`] = p.listFiles.bom; delete p.listFiles.bom; }
   return p.units;
 }
+// BOM 시트 이름 ↔ 설비 이름 맞추기: "AMR", "BOM(AMR)", "충전기 BOM", "BOM_Auto Charger" …
+const UNIT_SYNONYMS = [["충전기", "charger", "charging", "충전", "충전스테이션", "docking"], ["amr", "로봇", "robot", "agv", "mobile"],
+  ["컨베이어", "conveyor"], ["리프트", "lift"], ["대차", "cart", "trolley"], ["매니퓰레이터", "manipulator"]];
+const bomSheetUnitName = (name) => String(name || "").replace(/\(\s*\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s*\)/, "")
+  .replace(/maker\s*list|bom\s*list|부품\s*리스트|부품표|메이커\s*리스트|\bbom\b|bom/gi, "").replace(/^[\s_\-·()[\]]+|[\s_\-·()[\]]+$/g, "").trim();
+const isOldSheet = (name) => /이전|old|구버전|backup|백업|사본|copy/i.test(name) || /\(\s*\d{4}[.\-/]\d{1,2}[.\-/]\d{1,2}\s*\)/.test(name);
+const synGroups = (n) => UNIT_SYNONYMS.map((g, i) => (g.some((w) => n.includes(norm(w))) ? i : -1)).filter((i) => i >= 0);
+// 가장 잘 맞는 설비 (정확히 같음 > 한쪽이 다른 쪽을 포함 > 같은 뜻의 말), 없으면 null
+function matchUnit(units, sheetName) {
+  const n = norm(bomSheetUnitName(sheetName) || sheetName);
+  if (!n) return null;
+  const score = (u) => {
+    const un = norm(u.name);
+    if (un === n) return 3;
+    if (un.length >= 2 && (n.includes(un) || un.includes(n))) return 2;
+    const a = synGroups(n), b = synGroups(un);
+    return a.length && a.some((i) => b.includes(i)) ? 1 : 0;
+  };
+  const best = units.map((u) => [u, score(u)]).filter(([, s]) => s).sort((a, b) => b[1] - a[1]);
+  return best.length && (best.length === 1 || best[0][1] > best[1][1]) ? best[0][0] : null;
+}
+const looksLikeUnitSheet = (name) => synGroups(norm(name)).length > 0;
 const findUnit = (p, key) => ensureUnits(p).find((u) => `unit:${u.id}` === key || u.id === key);
 const bomItemCount = (p) => ensureUnits(p).reduce((a, u) => a + u.bom.filter(isItemRow).length, 0);
 // 전체 합계: 같은 품목·모델·업체를 모아 설비별 수량과 총 수량
@@ -418,7 +440,7 @@ async function importWorkbook(file, onProgress = () => {}) {
   p.revisions = [];
   const addBytes = (data, type, name) => Store.addFile(new Blob([data], { type }), name);
   let i = 0;
-  const specSheets = [], hasSheet = { sw: false, hw: false };
+  const specSheets = [], hasSheet = { sw: false, hw: false }, unitBomSheets = [];
   for (const sheet of wb.sheets) {
     onProgress(`시트 가져오는 중 (${++i}/${wb.sheets.length}): ${sheet.name}`);
     const key = norm(sheet.name);
@@ -453,6 +475,12 @@ async function importWorkbook(file, onProgress = () => {}) {
       if (!p.lists.hw.length) p.lists.hw = parseSpecDoc(sheet);
       hasSheet.hw = true;
       p.hwImages.push(...images, ...files);
+    } else if (/bom/i.test(sheet.name) && key !== "bom" && !/합계|summary|total/i.test(sheet.name) && !isOldSheet(sheet.name) && analyzePartSheet(sheet)) {
+      // 설비별 BOM 시트 (BOM_AMR, 충전기 BOM …) → 설비로 나눠 넣음
+      const info = analyzePartSheet(sheet);
+      const qtyCell = (sheet.rows[0] || []).findIndex((v) => cellText(v) === "대수");
+      unitBomSheets.push({ name: bomSheetUnitName(sheet.name) || sheet.name, qty: qtyCell >= 0 ? Number(sheet.rows[0][qtyCell + 1]) || 1 : 1,
+        rows: organizeParts(readPartRows(info, info.mapping), { fillKind: false, merge: false, group: false }).rows });
     } else if (["지정품지급품", "소모품", "bom"].includes(key)) {
       const k = { 지정품지급품: "supplied", 소모품: "consumables", bom: "bom" }[key];
       p.lists[k] = readTable(sheet, PART_COLS, { carry: ["kind"] });
@@ -491,6 +519,15 @@ async function importWorkbook(file, onProgress = () => {}) {
   }
   // 엑셀에 없던 빈 기본 사양(SW 사양 / HW 주요 Spec)은 만들지 않음
   p.specs = specs.filter((sp, k) => k > 1 || hasSheet[k ? "hw" : "sw"] || sp.rows.length || sp.files.length || sp.note || specs.length <= 2);
+  if (unitBomSheets.length) {
+    const units = ensureUnits(p);
+    for (const x of unitBomSheets) {
+      let u = matchUnit(units, x.name);
+      if (!u) { u = { id: Store.uid(), name: x.name, qty: x.qty, bom: [] }; units.push(u); }
+      u.bom = u.bom.length ? [...u.bom, ...x.rows] : x.rows;
+    }
+    // 사업 범위에서 만든 설비 중 BOM 이 하나도 없는 빈 설비만 남았으면 그대로 둠 (대수 정보)
+  }
   linkRevisions(p);
   if (!p.revisions.length) p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: "신규 작성", note: "" });
   p.records.sort((a, b) => a.date.localeCompare(b.date));

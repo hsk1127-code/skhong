@@ -2260,7 +2260,7 @@ function tabParts(p, el) {
   }
   const unit = key.startsWith("unit:") ? findUnit(p, key) : null;
   const files = p.listFiles[key] || [];
-  const undo = partsUndo && partsUndo.pid === p.id && partsUndo.key === key ? partsUndo : null;
+  const undo = partsUndo && partsUndo.pid === p.id && (partsUndo.key === key || (partsUndo.multi && key.startsWith("unit:"))) ? partsUndo : null;
   el.innerHTML = nav + unitBar + `
     <div class="card parts-tools">
       ${unit ? `<div class="unit-edit"><label>설비명<input id="unitName" value="${esc(unit.name)}"></label>
@@ -2278,7 +2278,8 @@ function tabParts(p, el) {
   $("#partsImport").onclick = () => pickFiles(".xlsx", false, (f) => partsImportDialog(p, key, f[0]));
   $("#partsOrganize").onclick = () => partsOrganizeDialog(p, key);
   if (undo) $("#partsUndo").onclick = () => {
-    setPartRows(p, key, undo.rows);
+    if (undo.multi) { p.units = undo.units; route.unit = p.units.some((u) => u.id === route.unit) ? route.unit : p.units[0].id; }
+    else setPartRows(p, key, undo.rows);
     partsUndo = null;
     Store.touch(p);
     rerender();
@@ -2382,14 +2383,28 @@ async function partsImportDialog(p, key, file) {
   const most = sheets.reduce((a, b) => (count(b) > count(a) ? b : a));
   let cur = count(sheets[0]) * 2 >= count(most) ? sheets[0] : most;
   let mapping = { ...cur.info.mapping };
+  // 시트가 설비별(AMR, 충전기 …)로 나뉘어 있으면 시트마다 설비에 나눠 넣기
+  const units = ensureUnits(p);
+  const splitCands = sheets.filter((x) => !isOldSheet(x.sh.name));
+  splitCands.forEach((x) => { x.unit = matchUnit(units, x.sh.name); x.newName = bomSheetUnitName(x.sh.name) || x.sh.name; });
+  const matched = new Set(splitCands.map((x) => x.unit?.id).filter(Boolean));
+  const splitDefault = splitCands.length >= 2 && (matched.size >= 2 || splitCands.filter((x) => x.unit || looksLikeUnitSheet(x.sh.name)).length >= 2);
   openDialog(`<h3>BOM 엑셀 가져오기 <span class="muted small">${esc(file.name)}</span></h3>
-    <div class="form">
+    ${splitCands.length >= 2 ? `<div class="split-box">
+      <label class="split-toggle"><input type="checkbox" name="split" ${splitDefault ? "checked" : ""}> <b>시트별로 설비에 나눠 넣기</b>
+        <span class="muted small">시트 ${splitCands.length}개 — 시트 이름으로 설비를 찾고, 없으면 새 설비를 만듭니다</span></label>
+      <table class="split-table">${splitCands.map((x, i) => `<tr><td><input type="checkbox" data-inc="${i}" checked></td>
+        <td><b>${esc(x.sh.name)}</b> <span class="muted small">${count(x)}행</span></td><td class="muted">→</td>
+        <td><select data-to="${i}">${units.map((u) => `<option value="${u.id}" ${x.unit === u ? "selected" : ""}>BOM · ${esc(u.name)} (×${esc(u.qty)})</option>`).join("")}
+          <option value="new" ${x.unit ? "" : "selected"}>＋ 새 설비 '${esc(x.newName)}'</option></select></td></tr>`).join("")}</table></div>` : ""}
+    <div class="form single-only">
       <label>시트<select name="sheet">${sheets.map((x, i) => `<option value="${i}" ${x === cur ? "selected" : ""}>${esc(x.sh.name)} (${count(x)}행)</option>`).join("")}</select></label>
       <label>넣을 목록<select name="target">${partTargets(p).map(([k, label]) => `<option value="${k}" ${k === key ? "selected" : ""}>${esc(label)}</option>`).join("")}</select></label>
       <label class="full">가져오는 방법<select name="mode"><option value="append">기존 목록 뒤에 추가</option><option value="replace">기존 목록을 이 내용으로 바꾸기</option></select></label>
     </div>
-    <h4>열 맞추기 <span class="muted small">자동으로 맞춘 결과입니다. 틀리면 바꿔 주세요.</span></h4>
-    <div class="map-grid" id="mapGrid"></div>
+    <div class="form split-only"><label class="full">가져오는 방법<select name="mode2"><option value="replace">각 설비의 BOM 을 이 내용으로 바꾸기</option><option value="append">각 설비의 BOM 뒤에 추가</option></select></label></div>
+    <h4 class="single-only">열 맞추기 <span class="muted small">자동으로 맞춘 결과입니다. 틀리면 바꿔 주세요.</span></h4>
+    <div class="map-grid single-only" id="mapGrid"></div>
     <div class="opts">
       <label><input type="checkbox" name="extra"> 표에 없는 열(원가, Origin 등)도 비고에 붙이기</label>
       <label><input type="checkbox" name="fill" checked> 구분이 비어 있으면 소제목(예: 전장, 본체부)으로 채우기</label>
@@ -2399,6 +2414,7 @@ async function partsImportDialog(p, key, file) {
     </div>
     <h4>미리보기 <span class="muted small" id="pvSum"></span></h4><div id="pv"></div>`,
   async (form) => {
+    if (form.split?.checked) return importSplit(form);
     const { rows, stats } = build(form);
     const target = form.target.value;
     const before = listRows(p, target);
@@ -2419,6 +2435,16 @@ async function partsImportDialog(p, key, file) {
         </select></label>`).join("");
     };
     const draw = () => {
+      const split = !!form.split?.checked;
+      $$(".single-only", dlg).forEach((x) => (x.style.display = split ? "none" : ""));
+      $$(".split-only", dlg).forEach((x) => (x.style.display = split ? "" : "none"));
+      if (split) {
+        const parts = splitPlan(form);
+        $("#pvSum", dlg).textContent = `${parts.length}개 시트 → ${parts.map((x) => x.label).join(", ")}`;
+        $("#pv", dlg).innerHTML = parts.map((x) => `<h5 class="split-h">${esc(x.sheet)} → ${esc(x.label)} <span class="muted small">${x.rows.filter(isItemRow).length}품목</span></h5>
+          ${partsPreviewTable(x.rows.slice(0, 12))}${x.rows.length > 12 ? `<p class="muted small">… 외 ${x.rows.length - 12}행</p>` : ""}`).join("");
+        return;
+      }
       const { rows, stats } = build(form);
       $("#pvSum", dlg).innerHTML = organizeSummary(stats);
       $("#pv", dlg).innerHTML = partsPreviewTable(rows);
@@ -2434,6 +2460,38 @@ async function partsImportDialog(p, key, file) {
   function build(form) {
     const raw = readPartRows(cur.info, mapping, { extraToNote: form.extra.checked });
     return organizeParts(raw, { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked });
+  }
+  // 시트별 → 설비별 계획: 각 시트는 자기 머리글 맞춤으로 읽음
+  function splitPlan(form) {
+    return splitCands.map((x, i) => {
+      if (!form.querySelector(`[data-inc="${i}"]`).checked) return null;
+      const to = form.querySelector(`[data-to="${i}"]`).value, u = units.find((y) => y.id === to);
+      const rows = organizeParts(readPartRows(x.info, x.info.mapping, { extraToNote: form.extra.checked }),
+        { fillKind: form.fill.checked, merge: form.merge.checked, group: form.group.checked }).rows;
+      return { sheet: x.sh.name, to, name: u ? u.name : x.newName, label: u ? `BOM · ${u.name}` : `새 설비 '${x.newName}'`, rows };
+    }).filter(Boolean);
+  }
+  async function importSplit(form) {
+    const plan = splitPlan(form);
+    if (!plan.length) { toast("넣을 시트를 하나 이상 고르세요."); return false; }
+    partsUndo = { pid: p.id, multi: true, units: structuredClone(p.units), label: "시트별 가져오기" };
+    const fileId = form.keep.checked ? await Store.addFile(file, file.name) : null;
+    const byNew = new Map(), filled = new Set();
+    for (const x of plan) {
+      let u = units.find((y) => y.id === x.to);
+      if (!u) {
+        u = byNew.get(norm(x.name));
+        if (!u) { u = { id: Store.uid(), name: x.name, qty: 1, bom: [] }; byNew.set(norm(x.name), u); p.units.push(u); }
+      }
+      // 바꾸기: 그 설비에 처음 넣는 시트만 기존 BOM 을 바꾸고, 같은 설비로 가는 다음 시트는 뒤에 붙임
+      u.bom = form.mode2.value === "replace" && !filled.has(u.id) ? x.rows : [...u.bom, ...x.rows];
+      filled.add(u.id);
+      if (fileId) { p.listFiles ||= {}; const k = `unit:${u.id}`; p.listFiles[k] ||= []; if (!p.listFiles[k].includes(fileId)) p.listFiles[k].push(fileId); }
+    }
+    Store.touch(p);
+    route.sub = "bom"; route.unit = p.units.find((u) => u.name === plan[0].name)?.id || p.units[0].id;
+    rerender();
+    toast(`${plan.map((x) => `${x.name} ${x.rows.filter(isItemRow).length}품목`).join(" · ")} 을(를) 가져왔습니다.`, 5000);
   }
 }
 

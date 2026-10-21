@@ -703,3 +703,7 @@ input.auto-field { background: var(--accent-soft); color: var(--accent-ink); fon
 input.need-date { border-color: var(--bad); background: var(--bad-soft); }
 dialog .form.md-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 @media (max-width: 800px) { dialog .form.md-grid { grid-template-columns: 1fr 1fr; } }
+.split-box { border: 1px solid var(--accent-soft); background: var(--panel-2); border-radius: var(--r-sm); padding: 10px 12px; margin-bottom: 12px; }
+.split-toggle { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.split-table { width: 100%; margin-top: 8px; border-collapse: collapse; } .split-table td { padding: 4px 6px; } .split-table select { width: 100%; }
+.split-h { margin: 12px 0 4px; font-size: 13px; }
