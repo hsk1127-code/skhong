@@ -75,14 +75,23 @@ const Xlsx = (() => {
       }
     }
     const dateStyles = new Set();
+    // 칸 모양 요약 (원본 시트를 다시 쓸 때): 1 굵게, 2 배경색, 4 가운데, 8 테두리, 16 줄바꿈
+    const styleFlags = [];
     if (zip["xl/styles.xml"]) {
       const st = parse(await zip["xl/styles.xml"].text());
       const fmts = {};
       for (const f of all(st, "numFmt")) fmts[f.getAttribute("numFmtId")] = f.getAttribute("formatCode");
+      const kids = (el) => (el ? [...el.children] : []);
+      const bold = kids(first(st, "fonts")).map((f) => [...f.children].some((x) => x.localName === "b" && x.getAttribute("val") !== "0"));
+      const filled = kids(first(st, "fills")).map((f) => { const pf = first(f, "patternFill"); return !!pf && pf.getAttribute("patternType") === "solid"; });
+      const bordered = kids(first(st, "borders")).map((b) => [...b.children].some((x) => /^(left|right|top|bottom)$/.test(x.localName) && x.getAttribute("style")));
       const xfs = first(st, "cellXfs");
       if (xfs) all(xfs, "xf").forEach((xf, i) => {
         const id = Number(xf.getAttribute("numFmtId") || 0);
         if (isDateFormat(id, fmts[id])) dateStyles.add(i);
+        const al = first(xf, "alignment");
+        styleFlags[i] = (bold[Number(xf.getAttribute("fontId") || 0)] ? 1 : 0) | (filled[Number(xf.getAttribute("fillId") || 0)] ? 2 : 0)
+          | (al?.getAttribute("horizontal") === "center" ? 4 : 0) | (bordered[Number(xf.getAttribute("borderId") || 0)] ? 8 : 0) | (al?.getAttribute("wrapText") === "1" ? 16 : 0);
       });
     }
 
@@ -92,9 +101,11 @@ const Xlsx = (() => {
       const rel = wbRels[relAttr(s, "id")];
       if (!rel || !zip[rel.path] || !/worksheet$/.test(rel.type)) continue;
       const doc = parse(await zip[rel.path].text());
-      const rows = [];
+      const rows = [], flags = [];
       for (const c of all(doc, "c")) {
         const { r, c: col } = addr(c.getAttribute("r"));
+        const fl = styleFlags[Number(c.getAttribute("s") || 0)];
+        if (fl) (flags[r] ||= [])[col] = fl;
         const t = c.getAttribute("t");
         const vEl = first(c, "v");
         let v = vEl ? vEl.textContent : null;
@@ -129,9 +140,11 @@ const Xlsx = (() => {
             while (anchor && !/Anchor$/.test(anchor.localName)) anchor = anchor.parentNode;
             const from = anchor && first(anchor, "from");
             const ext = extOf(target.path);
+            const xfrm = first(pic, "xfrm"), ext0 = xfrm && [...xfrm.children].find((x) => x.localName === "ext");
             images.push({
               row: from ? Number(first(from, "row").textContent) : 0,
               col: from ? Number(first(from, "col").textContent) : 0,
+              cx: ext0 ? Number(ext0.getAttribute("cx")) || 0 : 0, cy: ext0 ? Number(ext0.getAttribute("cy")) || 0 : 0,
               ext, type: MIME[ext] || "application/octet-stream",
               data: await zip[target.path].bytes(),
             });
@@ -143,7 +156,15 @@ const Xlsx = (() => {
         }
       }
       images.sort((a, b) => a.row - b.row || a.col - b.col);
-      sheets.push({ name: s.getAttribute("name"), rows, merges, images, embeds });
+      // 열 너비 · 행 높이 (원본 시트를 다시 쓸 때)
+      const cols = [];
+      for (const cl of all(doc, "col")) {
+        const w = Number(cl.getAttribute("width"));
+        if (w) for (let k = Number(cl.getAttribute("min")); k <= Math.min(Number(cl.getAttribute("max")), 200); k++) cols[k - 1] = Math.round(w * 10) / 10;
+      }
+      const heights = {};
+      for (const rw of all(doc, "row")) if (rw.getAttribute("ht") && rw.getAttribute("customHeight") === "1") heights[Number(rw.getAttribute("r")) - 1] = Number(rw.getAttribute("ht"));
+      sheets.push({ name: s.getAttribute("name"), rows, merges, images, embeds, cols, heights, flags });
     }
     return { sheets };
   }
@@ -164,7 +185,9 @@ const Xlsx = (() => {
     // 일정표(간트) 칸: 빈 칸 · 완료 · 진행 · 지연 · 예정 막대 · 오늘 · 작은 머리글
     gEmpty: 23, gOk: 24, gInfo: 25, gBad: 26, gPlan: 27, gNow: 28, gHead: 29,
     // 줄무늬(짝수 행) · 일정표 칸 안쪽(왼쪽 선 없음) · 한눈에 보기 카드(큰 숫자 · 작은 이름 · 초록/빨강 숫자)
-    cellZ: 30, cZ: 31, dateZ: 32, moneyZ: 33, gIn: 34, gNowIn: 35, kpi: 36, kpiL: 37, kpiOk: 38, kpiBad: 39, kpiS: 40, gEL: 41, gNowL: 42 };
+    cellZ: 30, cZ: 31, dateZ: 32, moneyZ: 33, gIn: 34, gNowIn: 35, kpi: 36, kpiL: 37, kpiOk: 38, kpiBad: 39, kpiS: 40, gEL: 41, gNowL: 42,
+    // 원본 시트 다시 쓰기: 머리글(굵게·회색 바탕·테두리) 가운데/왼쪽, 굵은 글자(테두리 없음)
+    rawHeadC: 43, rawHeadL: 44, rawBold: 45 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
@@ -189,7 +212,7 @@ const Xlsx = (() => {
 <border><left style="thin"><color rgb="FFDDE1EA"/></left><right style="thin"><color rgb="FFDDE1EA"/></right><top style="thin"><color rgb="FFDDE1EA"/></top><bottom style="thin"><color rgb="FFDDE1EA"/></bottom><diagonal/></border>
 <border><left style="thin"><color rgb="FFE5E7EB"/></left><right/><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="43">
+<cellXfs count="46">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
@@ -233,6 +256,9 @@ const Xlsx = (() => {
 <xf numFmtId="0" fontId="10" fillId="17" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="6" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
 <xf numFmtId="0" fontId="0" fillId="15" borderId="6" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -305,9 +331,13 @@ const Xlsx = (() => {
           const media = `image${++mediaNo}.${ext}`;
           files.push({ name: `xl/media/${media}`, data: img.blob, compress: false });
           rels.push(`<Relationship Id="rId${k + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="../media/${media}"/>`);
-          const { w, h } = await imageSize(img.blob);
-          const scale = Math.min(1, (img.maxWidth || 1000) / w);
-          const cx = Math.round(w * scale * 9525), cy = Math.round(h * scale * 9525);
+          let cx, cy;
+          if (img.cx && img.cy) { cx = img.cx; cy = img.cy; } // 원본 크기 그대로
+          else {
+            const { w, h } = await imageSize(img.blob);
+            const scale = Math.min(1, (img.maxWidth || 1000) / w);
+            cx = Math.round(w * scale * 9525); cy = Math.round(h * scale * 9525);
+          }
           anchors.push(`<xdr:oneCellAnchor><xdr:from><xdr:col>${img.col || 0}</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${img.row}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="${cx}" cy="${cy}"/><xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${k + 2}" name="그림 ${k + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr><xdr:blipFill><a:blip r:embed="rId${k + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill><xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:oneCellAnchor>`);
         }
         files.push({ name: `xl/drawings/drawing${n}.xml`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${anchors.join("")}</xdr:wsDr>` });

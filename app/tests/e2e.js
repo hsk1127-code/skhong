@@ -253,17 +253,32 @@ const assert = require("assert");
     const q = Store.project(route.id);
     const wb = await Xlsx.read(new Blob([await buildWorkbook(q)]));
     const sh = (n) => wb.sheets.find((x) => x.name === n);
-    return { first: wb.sheets.slice(0, 2).map((x) => x.name), sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
+    return { names: wb.sheets.map((x) => x.name), order: q.sheetOrder || [], sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
       rev: readTable(sh("Revision"), LISTS.revisions.cols).length, wantRev: q.revisions.length,
       gantt: sh("일정").rows.some((r) => /^■ 일정표/.test(String(r?.[0] || ""))),
       // 자료 이력 메모는 좁은 A열에 몰리지 않고 A~B열을 합친 칸에 (줄마다 한 행)
       memoMerged: q.records.filter((r) => r.memo).every((r) => (wb.sheets.find((x) => x.name.startsWith(r.title.slice(0, 20)))?.merges || []).some((m) => m.c1 === 0 && m.c2 === 1)),
       memos: q.records.filter((r) => r.memo).length };
   });
-  assert.deepStrictEqual(rt.first, ["한눈에 보기", "개요"]); // 맨 앞 요약 시트 (다시 불러올 때는 건너뜀), 그다음 개요
+  // 탭 순서는 올린 엑셀을 따름 (요약 시트 '한눈에 보기'는 만들지 않음)
+  assert.ok(!rt.names.includes("한눈에 보기"));
+  assert.deepStrictEqual(rt.names.filter((n) => rt.order.includes(n)), rt.order.filter((n) => rt.names.includes(n)));
   assert.deepStrictEqual(rt.sched, rt.want); // 표 아래 일정표(간트)는 일정 항목으로 읽지 않음
   assert.ok(rt.gantt);
   assert.ok(rt.memoMerged, "자료 이력 메모가 A~B열 합친 칸에 들어가야 함");
+  // 고치지 않은 자료 이력은 올린 원본 시트 모양(값 · 합친 칸) 그대로, 고치면 프로그램 양식으로
+  const rawChk = await p.evaluate(async () => {
+    const q = structuredClone(Store.project(route.id));
+    const r = q.records.find((x) => x.raw);
+    if (!r) return null;
+    const read = async () => (await Xlsx.read(new Blob([await buildWorkbook(q)]))).sheets.find((x) => x.name === r.raw.name);
+    const before = await read();
+    r.memo = (r.memo || "") + " (수정)";
+    const after = await read();
+    const flat = (rows) => (rows || []).flat().filter((v) => v != null && v !== "").map(String);
+    return { same: JSON.stringify(flat(before?.rows)) === JSON.stringify(flat(r.raw.rows)), merges: before?.merges.length === r.raw.merges.length, edited: !after || flat(after.rows).includes("날짜") };
+  });
+  if (rawChk) { assert.ok(rawChk.same && rawChk.merges, "원본 시트 그대로"); assert.ok(rawChk.edited, "고친 뒤에는 프로그램 양식"); }
   assert.strictEqual(rt.rev, rt.wantRev);
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));
