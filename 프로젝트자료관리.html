@@ -1913,7 +1913,7 @@ function submissionsFromDoc(sheet) {
 // 맨 왼쪽에 No 열이 있고 1, 2, 3 … 번호 행이 이어지는 큰 표(시험계획서 · 체크리스트 등) → 사양 항목
 // 머리글이 여러 줄이면 합쳐 열 이름을 만들고, 열 이름으로 구분 · 항목 · 내용을 고르고 나머지는 검토에 '이름: 값'.
 // 모든 행이 같은 값인 열(대상 · 목적 · 관련 근거 등)은 사양 메모로
-function numberedTable(sheet) {
+function numberedTable(sheet, allowPlain = true) {
   const rows = filledRows(sheet);
   for (let h = 0; h < Math.min(rows.length, 15); h++) {
     const row = rows[h] || [];
@@ -1928,32 +1928,56 @@ function numberedTable(sheet) {
     const data = [];
     for (let r = d; r < rows.length; r++) if (isNo(r)) data.push(rows[r] || []);
     if (data.length < 5) continue;
-    const width = Math.max(...rows.slice(h, d).map((r) => (r || []).length), ...data.map((r) => r.length));
-    const cols = [];
-    for (let c = first + 1; c < width; c++) {
-      const parts = [];
-      for (let r = h; r < d; r++) { const t = cellText(rows[r]?.[c]); if (t && !parts.includes(t)) parts.push(t); }
-      const vals = data.map((r) => cellText(r[c]));
-      const filled = vals.filter((v) => v && v !== "-");
-      if (!parts.length || !filled.length) continue;
-      cols.push({ c, last: parts[parts.length - 1], vals, constant: data.length > 1 && filled.length >= data.length * 0.9 && new Set(filled).size === 1 });
-    }
-    const ITEM = /명칭|품목|항목|item|name|기능명|구성|시험\s*항목/i, KIND = /구분|분류|대상|category|파트|part/i, CONTENT = /spec|사양|내용|설명|상세|요구|기능|조건/i;
-    const live = cols.filter((x) => !x.constant);
-    const item = live.find((x) => ITEM.test(x.last)) || live.find((x) => !KIND.test(x.last));
-    const content = live.find((x) => x !== item && ITEM.test(x.last)) || live.find((x) => x !== item && CONTENT.test(x.last))
-      || live.find((x) => x !== item && !KIND.test(x.last));
-    const kinds = live.filter((x) => x !== item && x !== content && KIND.test(x.last));
-    const rest = live.filter((x) => x !== item && x !== content && !kinds.includes(x));
-    const out = data.map((_, k) => ({ id: Store.uid(),
-      kind: kinds.map((x) => x.vals[k]).filter((v) => v && v !== "-").join(" · "),
-      item: item?.vals[k] || "", content: content?.vals[k] || "",
-      review: rest.map((x) => x.vals[k] && x.vals[k] !== "-" ? `${x.last}: ${x.vals[k]}` : "").filter(Boolean).join("\n") }));
-    const titleLine = rows.slice(0, h).map((r) => [...new Set((r || []).map(cellText).filter(Boolean))].join(" ")).filter(Boolean).join("\n"); // 합친 칸은 한 번만
-    const note = [titleLine, ...cols.filter((x) => x.constant).map((x) => `${x.last}: ${x.vals.find(Boolean)}`)].filter(Boolean).join("\n");
-    return { rows: out, note };
+    return tableToSpec(rows, h, d, data, first + 1);
+  }
+  return allowPlain ? plainTable(rows) : null;
+}
+// No 열이 없는 보통 표(맨 위 근처 머리글 + 아래로 데이터 행, 예: 발주 내역 · 금액 표) → 사양 항목.
+// 문서형 시트(번호 제목 · ■ 제목 사이사이 작은 표)는 제외해 원래대로 문서로 읽게 함
+function plainTable(rows) {
+  const lines = rows.map((r, i) => [i, (r || []).map(cellText).filter(Boolean)]).filter(([, t]) => t.length);
+  for (let k = 0; k < Math.min(3, lines.length); k++) {
+    const [h, texts] = lines[k];
+    if (new Set(texts).size < 4 || texts.some((t) => t.length > 25 || /^-?[\d,.]+%?$/.test(t))) continue;
+    if (SPEC_COLS.filter((c) => texts.some((t) => norm(t) === norm(c.label))).length >= 3) return null;
+    const after = lines.filter(([i]) => i > h);
+    if (after.some(([, t]) => t.length === 1 && /^(■|□|\d+(\.\d+)*\.\s|[IVX]+\.\s)/.test(t[0]))) return null;
+    const need = Math.max(2, Math.ceil(new Set(texts).size / 2));
+    const data = after.filter(([, t]) => t.length >= need);
+    if (data.length < 5 || data.length < after.length * 0.8) continue;
+    const first = (rows[h] || []).findIndex((v) => cellText(v));
+    return tableToSpec(rows, h, h + 1, data.map(([i]) => rows[i] || []), first);
   }
   return null;
+}
+// 머리글 행(h ~ d-1)과 데이터 행으로 사양 항목 만들기: 열 이름으로 구분 · 항목 · 내용을 고르고 나머지는 검토에 '이름: 값',
+// 모든 행이 같은 값인 열(대상 · 목적 등)은 메모로
+function tableToSpec(rows, h, d, data, startCol) {
+  const width = Math.max(...rows.slice(h, d).map((r) => (r || []).length), ...data.map((r) => r.length));
+  const cols = [];
+  for (let c = startCol; c < width; c++) {
+    const parts = [];
+    for (let r = h; r < d; r++) { const t = cellText(rows[r]?.[c]); if (t && !parts.includes(t)) parts.push(t); }
+    const vals = data.map((r) => cellText(r[c]));
+    const filled = vals.filter((v) => v && v !== "-");
+    if (!parts.length || !filled.length) continue;
+    cols.push({ c, last: parts[parts.length - 1].replace(/\s+/g, " "), vals, constant: data.length > 1 && filled.length >= data.length * 0.9 && new Set(filled).size === 1 });
+  }
+  const ITEM = /명칭|품목|항목|item|name|기능명|구성|시험\s*항목/i, KIND = /구분|분류|대상|category|파트|part/i, CONTENT = /spec|사양|규격|내용|설명|상세|요구|기능|조건|개선안/i;
+  const live = cols.filter((x) => !x.constant);
+  const item = live.find((x) => ITEM.test(x.last)) || live.find((x) => !KIND.test(x.last));
+  const content = live.find((x) => x !== item && ITEM.test(x.last)) || live.find((x) => x !== item && CONTENT.test(x.last))
+    || live.find((x) => x !== item && !KIND.test(x.last));
+  const kinds = live.filter((x) => x !== item && x !== content && KIND.test(x.last));
+  const rest = live.filter((x) => x !== item && x !== content && !kinds.includes(x));
+  const out = data.map((_, k) => ({ id: Store.uid(),
+    kind: kinds.map((x) => x.vals[k]).filter((v) => v && v !== "-").join(" · "),
+    item: item?.vals[k] || "", content: content?.vals[k] || "",
+    review: rest.map((x) => x.vals[k] && x.vals[k] !== "-" ? `${x.last}: ${x.vals[k]}` : "").filter(Boolean).join("\n") }))
+    .filter((r) => r.item || r.content || r.review);
+  const titleLine = rows.slice(0, h).map((r) => [...new Set((r || []).map(cellText).filter(Boolean))].join(" ")).filter(Boolean).join("\n"); // 합친 칸은 한 번만
+  const note = [titleLine, ...cols.filter((x) => x.constant).map((x) => `${x.last}: ${x.vals.find(Boolean)}`)].filter(Boolean).join("\n");
+  return { rows: out, note };
 }
 // 시트를 위로 n줄 당김 (값 · 칸 모양 · 합친 칸 · 그림 · 행 높이)
 function shiftSheet(sheet, n) {
@@ -2161,7 +2185,7 @@ async function importWorkbook(file, onProgress = () => {}) {
     } else if (firstText.includes("회의록")) {
       // 엑셀 Revision 시트에 이미 기록된 회의록이므로 logged, 시트 이름은 Revision 연결용으로 보관
       p.meetings.push({ ...parseMeeting(sheet, [...images, ...files]), sheetTitle: title, logged: true });
-    } else if ((numbered = numberedTable(sheet))) {
+    } else if ((numbered = numberedTable(sheet, !date))) { // 날짜 시트(받은 자료)는 번호 붙은 큰 표만 — 그 밖은 자료 이력으로
       // 번호 붙은 큰 표(시험계획서 등)는 사양 표로. 날짜 시트면 자료 이력에도 남겨 Revision 과 이어지게 (메모는 짧게)
       const rec = date ? { id: Store.uid(), date, kind: "자료", title, from: "", to: "",
         memo: `표 ${numbered.rows.length}행을 사양 '${title}' 에 등록했습니다.`, images: [], files: [], raw: raw() } : null;
@@ -2186,7 +2210,6 @@ async function importWorkbook(file, onProgress = () => {}) {
     }
   }
   fillSubmitTo(p);
-  p.sheetOrder = wb.sheets.map((sh) => sh.name); // 엑셀로 내보낼 때 올린 파일의 탭 순서를 따름
   // SW·HW 외 사양 시트는 사양 구분으로 (같은 이름이면 합침)
   const specs = ensureSpecs(p);
   if (p.swFiles) { specs[0].files.push(...p.swFiles); delete p.swFiles; }
@@ -2354,7 +2377,6 @@ function linkSource(p, q) {
   const n = (t) => norm(t);
   let count = 0;
   p.source = q.source;
-  p.sheetOrder = q.sheetOrder;
   for (const qr of q.records.filter((x) => x.raw)) {
     const r = p.records.find((x) => n(x.title) === n(qr.title) && (!qr.date || x.date === qr.date)) || p.records.find((x) => n(x.title) === n(qr.title));
     if (r) { r.raw = qr.raw; r.rawSig = recSig(r); count++; }
@@ -2368,19 +2390,6 @@ function linkSource(p, q) {
     count++;
   }
   return count;
-}
-// 올린 엑셀의 탭 순서대로 (설비별 BOM · BOM 합계는 원래 BOM 자리에, 원본에 없던 시트는 바로 앞 시트 뒤에)
-function orderLikeSource(sheets, order) {
-  if (!order?.length) return sheets;
-  const pos = new Map(order.map((n, i) => [norm(n), i]));
-  const bomAt = order.findIndex((n) => norm(n) === "bom");
-  let last = -1;
-  return sheets.map((sh, i) => {
-    let k = pos.get(norm(sh.name));
-    if (k == null && bomAt >= 0 && /^bom/i.test(sh.name)) k = bomAt;
-    if (k == null) k = last; else last = k;
-    return { sh, k, i };
-  }).sort((a, b) => a.k - b.k || a.i - b.i).map((x) => x.sh);
 }
 async function buildWorkbook(p) {
   const sheets = [];
@@ -2625,7 +2634,7 @@ async function buildWorkbook(p) {
         tab: XL_TAB.doc, grid: false, fit: true, images });
     }
   }
-  return Xlsx.write(orderLikeSource(sheets, p.sheetOrder));
+  return Xlsx.write(sheets); // 시트 순서: 개요 → 일정 → Revision → 사양 → 자재 · BOM → 제출 자료 → 변경사항 → 자료 이력 · 회의록(날짜순)
 }
 
 // 프로젝트 전체(엑셀 + 첨부 원본 파일)를 폴더 구조의 ZIP 으로
@@ -3395,7 +3404,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:54</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:58</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));

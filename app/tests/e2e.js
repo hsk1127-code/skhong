@@ -235,8 +235,15 @@ const assert = require("assert");
     const head = [["■ Test Plan"], [], ["No.", "대상", "구분", "", "항목", "Spec.*", "목적"], ["", "", "대구분", "명칭", "", "", ""]];
     const data = Array.from({ length: 6 }, (_, i) => [String(i + 1), "PTR", i < 3 ? "주행부" : "매니퓰레이터", `기능${i + 1}`, `내용${i + 1}`, i % 2 ? "확인" : "구현", "요구사양 확인"]);
     const tbl = numberedTable(sheet([...head, ...data], [{ r1: 2, c1: 2, r2: 2, c2: 3 }]));
+    // No 열 없는 보통 표(발주 내역 등)도 표로, 문서형(■ 제목 사이 작은 표)은 표로 보지 않음
+    const plain = numberedTable(sheet([["프로젝트코드", "프로젝트명", "품목명", "규격", "거래처명"],
+      ...Array.from({ length: 6 }, (_, i) => [`P-${i}`, "캠트로닉스", `품목${i}`, `규격${i}`, i % 2 ? "A사" : "B사"])]));
+    const docLike = numberedTable(sheet([["■ 설계"], ["항목", "내용", "담당", "비고"], ...Array.from({ length: 5 }, (_, i) => [`H${i}`, `내용${i}`, "외주", ""]),
+      ["■ 제작"], ["항목", "내용", "담당", "비고"], ["A", "B", "C", ""]]));
+    const dated = numberedTable(sheet([["분류", "위치", "보관소", "비고"], ...Array.from({ length: 6 }, (_, i) => ["출발지", `위치${i}`, `P${i}`, "x"])]), false);
     const parts = dropEmptySections([{ item: "■ 지정품 List" }, { item: "모터" }, { item: "■ 사급품 List" }]).map((r) => r.item);
-    return { units, subs, row: tbl && tbl.rows[0], n: tbl?.rows.length, note: tbl?.note, parts };
+    return { units, subs, row: tbl && tbl.rows[0], n: tbl?.rows.length, note: tbl?.note, parts,
+      plain: plain && [plain.rows.length, plain.rows[0].item, plain.rows[0].content], docLike: !!docLike, dated: !!dated };
   });
   assert.deepStrictEqual(imp.units, [{ name: "모바일 로봇(PTR)", qty: 1 }, { name: "표준형 무선 충전기", qty: 1 }]);
   assert.deepStrictEqual(imp.subs, ["사용 설명서", "설계 도면", "시험/검수 결과 Report"]);
@@ -244,6 +251,9 @@ const assert = require("assert");
   assert.deepStrictEqual([imp.row.kind, imp.row.item, imp.row.content, imp.row.review], ["주행부", "기능1", "내용1", "Spec.*: 구현"]);
   assert.match(imp.note, /■ Test Plan[\s\S]*대상: PTR[\s\S]*목적: 요구사양 확인/);
   assert.deepStrictEqual(imp.parts, ["■ 지정품 List", "모터"]);
+  assert.deepStrictEqual(imp.plain, [6, "품목0", "규격0"]);
+  assert.strictEqual(imp.docLike, false);
+  assert.strictEqual(imp.dated, false); // 날짜 붙은 받은 자료는 보통 표 규칙을 쓰지 않음 (자료 이력으로)
 
   // 내보내기
   const [x] = await Promise.all([p.waitForEvent("download"), p.click("#exportXlsx")]);
@@ -255,16 +265,16 @@ const assert = require("assert");
     delete q.rawSheets; for (const x of [...q.records, ...q.meetings, ...(q.specs || [])]) { delete x.raw; delete x.rawSig; delete x.rawRec; }
     const wb = await Xlsx.read(new Blob([await buildWorkbook(q)]));
     const sh = (n) => wb.sheets.find((x) => x.name === n);
-    return { names: wb.sheets.map((x) => x.name), order: q.sheetOrder || [], sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
+    return { names: wb.sheets.map((x) => x.name), sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
       rev: readTable(sh("Revision"), LISTS.revisions.cols).length, wantRev: q.revisions.length,
       gantt: sh("일정").rows.some((r) => /^■ 일정표/.test(String(r?.[0] || ""))),
       // 자료 이력 메모는 좁은 A열에 몰리지 않고 A~B열을 합친 칸에 (줄마다 한 행)
       memoMerged: q.records.filter((r) => r.memo).every((r) => (wb.sheets.find((x) => x.name.startsWith(r.title.slice(0, 20)))?.merges || []).some((m) => m.c1 === 0 && m.c2 === 1)),
       memos: q.records.filter((r) => r.memo).length };
   });
-  // 탭 순서는 올린 엑셀을 따름 (요약 시트 '한눈에 보기'는 만들지 않음)
+  // 시트 순서: 개요 → 일정 → Revision … (요약 시트 '한눈에 보기'는 만들지 않음)
   assert.ok(!rt.names.includes("한눈에 보기"));
-  assert.deepStrictEqual(rt.names.filter((n) => rt.order.includes(n)), rt.order.filter((n) => rt.names.includes(n)));
+  assert.deepStrictEqual(rt.names.slice(0, 3), ["개요", "일정", "Revision"]);
   assert.deepStrictEqual(rt.sched, rt.want); // 표 아래 일정표(간트)는 일정 항목으로 읽지 않음
   assert.ok(rt.gantt);
   assert.ok(rt.memoMerged, "자료 이력 메모가 A~B열 합친 칸에 들어가야 함");
