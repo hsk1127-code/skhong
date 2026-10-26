@@ -226,6 +226,25 @@ const assert = require("assert");
   assert.ok(!revs2.includes("도면 송부"));
   await p.click(".tabs [data-tab=records]");
 
+  // 엑셀 불러오기 규칙: 사업 범위 수량, 문서형 제출 자료, 번호 붙은 큰 표(시험계획서), 빈 소제목
+  const imp = await p.evaluate(() => {
+    const sheet = (rows, merges = []) => ({ name: "t", rows, merges, images: [], embeds: [] });
+    const units = parseScopeUnits("모바일 로봇(PTR) 1대\n표준형 무선 충전기 1대\n상위시스템 연동");
+    const subs = submissionsFromDoc(sheet([["1.1. 최종 산출물(제출 자료)"], ["제품 출하 후 하기 개발 문서를 SEC에 제출하여야 한다."],
+      ["(1)  설명서 및 인증관련 자료"], ["A.   사용 설명서"], ["B.   설계 도면"], ["(2)  시험/검수 결과 Report"]])).map((x) => x.item);
+    const head = [["■ Test Plan"], [], ["No.", "대상", "구분", "", "항목", "Spec.*", "목적"], ["", "", "대구분", "명칭", "", "", ""]];
+    const data = Array.from({ length: 6 }, (_, i) => [String(i + 1), "PTR", i < 3 ? "주행부" : "매니퓰레이터", `기능${i + 1}`, `내용${i + 1}`, i % 2 ? "확인" : "구현", "요구사양 확인"]);
+    const tbl = numberedTable(sheet([...head, ...data], [{ r1: 2, c1: 2, r2: 2, c2: 3 }]));
+    const parts = dropEmptySections([{ item: "■ 지정품 List" }, { item: "모터" }, { item: "■ 사급품 List" }]).map((r) => r.item);
+    return { units, subs, row: tbl && tbl.rows[0], n: tbl?.rows.length, note: tbl?.note, parts };
+  });
+  assert.deepStrictEqual(imp.units, [{ name: "모바일 로봇(PTR)", qty: 1 }, { name: "표준형 무선 충전기", qty: 1 }]);
+  assert.deepStrictEqual(imp.subs, ["사용 설명서", "설계 도면", "시험/검수 결과 Report"]);
+  assert.strictEqual(imp.n, 6);
+  assert.deepStrictEqual([imp.row.kind, imp.row.item, imp.row.content, imp.row.review], ["주행부", "기능1", "내용1", "Spec.*: 구현"]);
+  assert.match(imp.note, /■ Test Plan[\s\S]*대상: PTR[\s\S]*목적: 요구사양 확인/);
+  assert.deepStrictEqual(imp.parts, ["■ 지정품 List", "모터"]);
+
   // 내보내기
   const [x] = await Promise.all([p.waitForEvent("download"), p.click("#exportXlsx")]);
   await x.saveAs(path.join(work, "out.xlsx"));

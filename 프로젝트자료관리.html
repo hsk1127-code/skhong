@@ -1597,11 +1597,16 @@ function unitTotalQty(r, u) {
   return isItemRow(r) && String(r.qty ?? "").trim() !== "" && !isNaN(q) ? q * (Number(u?.qty) || 0) : "";
 }
 // "Conveyor AMR : 2EA" → { name: "Conveyor AMR", qty: 2 }
+// "모바일 로봇(PTR) 1대" → { name: "모바일 로봇(PTR)", qty: 1 }. 수량이 적힌 줄이 하나라도 있으면
+// 수량 없는 줄("상위시스템 연동" 같은 업무 범위)은 설비로 만들지 않음
 function parseScopeUnits(scope) {
-  return String(scope || "").split("\n").map((l) => l.trim()).filter(Boolean).map((l) => {
-    const m = /^(.*?)\s*[:：x×]\s*(\d+)\s*(?:EA|ea|대|개|set|SET|식|기)?\s*$/.exec(l);
-    return m ? { name: m[1].trim(), qty: Number(m[2]) } : { name: l, qty: 1 };
+  const list = String(scope || "").split("\n").map((l) => l.trim().replace(/^[-•·※▶■]\s*/, "")).filter(Boolean).map((l) => {
+    const m = /^(.*?)\s*[:：x×]\s*(\d+)\s*(?:EA|ea|대|개|set|SET|식|기|units?)?\s*$/.exec(l)
+      || /^(.*?\S)\s+(\d+)\s*(?:EA|ea|대|개|set|SET|식|기|units?)\s*$/i.exec(l);
+    return m ? { name: m[1].trim(), qty: Number(m[2]), counted: true } : { name: l, qty: 1, counted: false };
   });
+  const counted = list.filter((x) => x.counted);
+  return (counted.length ? counted : list).map(({ name, qty }) => ({ name, qty }));
 }
 // 설비 목록이 없으면 사업 범위에서 만들고, 예전 BOM(한 장짜리)은 첫 번째 설비로 옮긴다
 function ensureUnits(p) {
@@ -1846,6 +1851,64 @@ function readTable(sheet, cols, { carry = [] } = {}) {
   }
   return out;
 }
+// 소제목("■ 지정품 List")만 있고 아래에 품목이 없는 구분 행은 버림 (빈 양식에서 들어오는 군더더기)
+const dropEmptySections = (rows) => rows.filter((r, i) => isItemRow(r) || (rows[i + 1] && isItemRow(rows[i + 1])));
+// 문서형 '제출 자료' 시트 → 제출할 자료 이름만 (번호 제목 · 설명 문장 · 아래에 A./B. 하위 항목이 있는 묶음 제목은 뺌)
+function submissionsFromDoc(sheet) {
+  const lines = sheetLines(sheet).map((v) => v.join(" ").replace(/\s+/g, " ").trim()).filter((l) => l && norm(l) !== "제출자료");
+  const sub = /^([A-Za-z가-하]|[ivx]+)[.)]\s/i;
+  return lines.filter((l, i) => !/^\d+(\.\d+)*\.?\s/.test(l) || /^\d+\)\s/.test(l)) // "1.1. 최종 산출물" 같은 제목
+    .filter((l) => !(/(다|니다|할 것|바람|요)\.?$/.test(l) && l.length > 12)) // "…제출하여야 한다." 같은 설명
+    .filter((l, i, arr) => !(/^(\(\d+\)|\d+\))\s/.test(l) && sub.test(arr[i + 1] || ""))) // 하위 항목이 있는 묶음 제목
+    .map((l) => l.replace(/^(\(\d+\)|\d+\)|[A-Za-z가-하][.)]|[ivx]+[.)]|[-•·※▶])\s*/i, "").trim())
+    .filter(Boolean)
+    .map((item) => ({ id: Store.uid(), item, to: "", submitted: "", status: "미제출", note: "" }));
+}
+// 맨 왼쪽에 No 열이 있고 1, 2, 3 … 번호 행이 이어지는 큰 표(시험계획서 · 체크리스트 등) → 사양 항목
+// 머리글이 여러 줄이면 합쳐 열 이름을 만들고, 열 이름으로 구분 · 항목 · 내용을 고르고 나머지는 검토에 '이름: 값'.
+// 모든 행이 같은 값인 열(대상 · 목적 · 관련 근거 등)은 사양 메모로
+function numberedTable(sheet) {
+  const rows = filledRows(sheet);
+  for (let h = 0; h < Math.min(rows.length, 15); h++) {
+    const row = rows[h] || [];
+    const first = row.findIndex((v) => cellText(v));
+    if (first < 0 || !/^(no\.?|번호|순번|#)$/i.test(cellText(row[first])) || row.filter((v) => cellText(v)).length < 4) continue;
+    // 이 프로그램의 사양 표(구분·항목·내용·검토)처럼 이미 아는 양식이면 원래 방식으로 읽음
+    if (SPEC_COLS.filter((c) => row.some((v) => norm(v) === norm(c.label))).length >= 3) return null;
+    const isNo = (r) => /^\d+$/.test(cellText(rows[r]?.[first]));
+    let d = h + 1;
+    while (d < rows.length && d <= h + 4 && !isNo(d)) d++;
+    if (!isNo(d)) continue;
+    const data = [];
+    for (let r = d; r < rows.length; r++) if (isNo(r)) data.push(rows[r] || []);
+    if (data.length < 5) continue;
+    const width = Math.max(...rows.slice(h, d).map((r) => (r || []).length), ...data.map((r) => r.length));
+    const cols = [];
+    for (let c = first + 1; c < width; c++) {
+      const parts = [];
+      for (let r = h; r < d; r++) { const t = cellText(rows[r]?.[c]); if (t && !parts.includes(t)) parts.push(t); }
+      const vals = data.map((r) => cellText(r[c]));
+      const filled = vals.filter((v) => v && v !== "-");
+      if (!parts.length || !filled.length) continue;
+      cols.push({ c, last: parts[parts.length - 1], vals, constant: data.length > 1 && filled.length >= data.length * 0.9 && new Set(filled).size === 1 });
+    }
+    const ITEM = /명칭|품목|항목|item|name|기능명|구성|시험\s*항목/i, KIND = /구분|분류|대상|category|파트|part/i, CONTENT = /spec|사양|내용|설명|상세|요구|기능|조건/i;
+    const live = cols.filter((x) => !x.constant);
+    const item = live.find((x) => ITEM.test(x.last)) || live.find((x) => !KIND.test(x.last));
+    const content = live.find((x) => x !== item && ITEM.test(x.last)) || live.find((x) => x !== item && CONTENT.test(x.last))
+      || live.find((x) => x !== item && !KIND.test(x.last));
+    const kinds = live.filter((x) => x !== item && x !== content && KIND.test(x.last));
+    const rest = live.filter((x) => x !== item && x !== content && !kinds.includes(x));
+    const out = data.map((_, k) => ({ id: Store.uid(),
+      kind: kinds.map((x) => x.vals[k]).filter((v) => v && v !== "-").join(" · "),
+      item: item?.vals[k] || "", content: content?.vals[k] || "",
+      review: rest.map((x) => x.vals[k] && x.vals[k] !== "-" ? `${x.last}: ${x.vals[k]}` : "").filter(Boolean).join("\n") }));
+    const titleLine = rows.slice(0, h).map((r) => [...new Set((r || []).map(cellText).filter(Boolean))].join(" ")).filter(Boolean).join("\n"); // 합친 칸은 한 번만
+    const note = [titleLine, ...cols.filter((x) => x.constant).map((x) => `${x.last}: ${x.vals.find(Boolean)}`)].filter(Boolean).join("\n");
+    return { rows: out, note };
+  }
+  return null;
+}
 const sheetLines = (sheet) => filledRows(sheet).map((row) => {
   const vals = [];
   (row || []).forEach((v) => { const t = cellText(v); if (t && vals[vals.length - 1] !== t) vals.push(t); });
@@ -1998,7 +2061,8 @@ async function importWorkbook(file, onProgress = () => {}) {
       files.push(await addBytes(e.data, e.type, `${title}${sheet.embeds.length > 1 ? "_" + (k + 1) : ""}.${e.ext}`));
     }
     const firstText = sheetLines(sheet).slice(0, 5).flat().map(norm);
-    if (key === "한눈에보기") continue; // 엑셀 내보내기의 요약 시트 (다른 시트에서 다시 만들어짐)
+    let numbered = null;
+    if (key === "한눈에보기" || key === "bom합계") continue; // 엑셀 내보내기의 요약 시트 (다른 시트에서 다시 만들어짐)
 
     if (key === "revision") {
       p.revisions = readTable(sheet, LISTS.revisions.cols);
@@ -2024,18 +2088,21 @@ async function importWorkbook(file, onProgress = () => {}) {
         rows: organizeParts(readPartRows(info, info.mapping), { fillKind: false, merge: false, group: false }).rows });
     } else if (["지정품지급품", "소모품", "bom"].includes(key)) {
       const k = { 지정품지급품: "supplied", 소모품: "consumables", bom: "bom" }[key];
-      p.lists[k] = readTable(sheet, PART_COLS, { carry: ["kind"] });
+      p.lists[k] = dropEmptySections(readTable(sheet, PART_COLS, { carry: ["kind"] }));
     } else if (key === "제출자료") {
       p.lists.submissions = readTable(sheet, [{ key: "item", label: "자료명", alias: ["자료", "항목", "제출 자료"] }, ...LISTS.submissions.cols.slice(1)]);
-      if (!p.lists.submissions.length) {
-        p.lists.submissions = sheetLines(sheet).filter((v) => norm(v[0]) !== "제출자료")
-          .map((v) => ({ id: Store.uid(), item: v.join(" "), to: "", submitted: "", status: "미제출", note: "" }));
-      }
+      if (!p.lists.submissions.length) p.lists.submissions = submissionsFromDoc(sheet);
     } else if (key === "변경사항") {
       p.lists.changes = readTable(sheet, LISTS.changes.cols).map((r) => ({ ...r, files: [] }));
     } else if (firstText.includes("회의록")) {
       // 엑셀 Revision 시트에 이미 기록된 회의록이므로 logged, 시트 이름은 Revision 연결용으로 보관
       p.meetings.push({ ...parseMeeting(sheet, [...images, ...files]), sheetTitle: title, logged: true });
+    } else if ((numbered = numberedTable(sheet))) {
+      // 번호 붙은 큰 표(시험계획서 등)는 사양 표로. 날짜 시트면 자료 이력에도 남겨 Revision 과 이어지게 (메모는 짧게)
+      specSheets.push({ name: title || sheet.name, rows: numbered.rows, files: [...images, ...files],
+        note: [date && `${fmtDot(date)} 받은 자료`, numbered.note].filter(Boolean).join("\n") });
+      if (date) p.records.push({ id: Store.uid(), date, kind: "자료", title, from: "", to: "",
+        memo: `표 ${numbered.rows.length}행을 사양 '${title}' 에 등록했습니다.`, images: [], files: [] });
     } else if (isSpecSheet(sheet, date)) {
       // 날짜 시트(메일로 받은 사양서)는 캡처·원본을 첨부하고, 넣어 둔 엑셀 사양서에서 항목을 읽음
       const memo = sheetLines(sheet).map((v) => v.join("  ")).join("\n");
@@ -2043,7 +2110,7 @@ async function importWorkbook(file, onProgress = () => {}) {
       const note = date ? [`${fmtDot(date)} 받은 자료`, memo].filter(Boolean).join("\n") : "";
       specSheets.push({ name: title || sheet.name, rows, files: [...images, ...files], note });
     } else {
-      const memo = sheetLines(sheet).map((v) => v.join("  ")).join("\n");
+      const memo = sheetLines(sheet).map((v) => v.join(" | ")).join("\n"); // 표 모양 행은 칸을 | 로 나눠 읽기 쉽게
       if (!images.length && !files.length && !memo) continue;
       const kind = /답변|회신/.test(title) ? "답변" : /문의|질의/.test(title) ? "문의" : "자료";
       p.records.push({ id: Store.uid(), date: date || today(), kind, title, from: "", to: "", memo, images, files });
@@ -3214,7 +3281,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:21</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:31</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
