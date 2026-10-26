@@ -281,24 +281,24 @@ const assert = require("assert");
     return { same: JSON.stringify(flat(before?.rows)) === JSON.stringify(flat(r.raw.rows)), merges: before?.merges.length === r.raw.merges.length, edited: !after || flat(after.rows).includes("날짜") };
   });
   if (rawChk) { assert.ok(rawChk.same && rawChk.merges, "원본 시트 그대로"); assert.ok(rawChk.edited, "고친 뒤에는 프로그램 양식"); }
-  // 올린 엑셀 파일 자체를 보관하고, 예전에 불러온 프로젝트에도 원본을 연결할 수 있음 (내용 유지).
-  // 연결 뒤 고치지 않은 일정은 원본 시트 그대로, 일정을 고치면 프로그램 양식(일정표 포함)으로
+  // 올린 엑셀 파일 자체를 보관하고, 예전에 불러온 프로젝트(원본 표 정보 없음)에도 원본을 연결할 수 있음 (내용 유지).
+  // 연결 뒤: 자료 이력은 원본 표 모양 그대로, 일정 · 개요 같은 프로그램 탭은 늘 정리된 양식
   const link = await p.evaluate(async () => {
     const cur = Store.project(route.id);
     if (!cur.source?.file) return { noSource: true };
     const q0 = structuredClone(cur);
-    delete q0.rawSheets; delete q0.sheetOrder;
+    for (const r of q0.records) { delete r.raw; delete r.rawSig; }
     const fresh = await importWorkbook(new File([await Store.getBlob(cur.source.file)], cur.source.name));
     const n = linkSource(q0, fresh);
-    const sched = async () => (await Xlsx.read(new Blob([await buildWorkbook(q0)]))).sheets.find((x) => x.name === "일정");
-    const before = await sched();
-    if (q0.schedule[0]) q0.schedule[0].note = "수정";
-    const after = await sched();
+    const rec = q0.records.find((r) => r.raw);
+    const wb = await Xlsx.read(new Blob([await buildWorkbook(q0)]));
+    const recSheet = rec && wb.sheets.find((x) => x.name === rec.raw.name);
+    const sched = wb.sheets.find((x) => x.name === "일정");
     const has = (sh, t) => (sh?.rows || []).some((r) => (r || []).some((v) => String(v).startsWith(t)));
-    return { n, rawBefore: !has(before, "■ 일정표"), progAfter: has(after, "■ 일정표") };
+    return { n, hasRec: !!rec, recRaw: rec ? !has(recSheet, "날짜") : true, schedOrganized: has(sched, "■ 일정표") };
   });
   assert.ok(!link.noSource, "올린 엑셀 원본을 보관해야 함");
-  assert.ok(link.n > 0 && link.rawBefore && link.progAfter, JSON.stringify(link));
+  assert.ok(link.recRaw && link.schedOrganized, JSON.stringify(link));
   assert.strictEqual(rt.rev, rt.wantRev);
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));
