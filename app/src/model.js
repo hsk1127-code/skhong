@@ -342,6 +342,7 @@ function parseSchedule(sheet) {
   const base = today();
   for (let r = head.row + 1; r < rows.length; r++) {
     const row = rows[r] || [];
+    if (/^■\s*일정표/.test(cellText(row[0]))) break; // 아래는 내보내기에서 붙인 일정표(간트) — 일정 항목이 아님
     const ph = cellText(row[phaseCol]);
     if (ph) phase = ph;
     const get = (k) => (head.cols[k] == null ? "" : row[head.cols[k]]);
@@ -642,21 +643,94 @@ async function buildWorkbook(p) {
   }
   sheets.push({ name: "개요", cols: [18, 60, 44], rows: ovRows, heights: { 0: 30, 2: 22 }, freeze: 3, tab: XL_TAB.ov, grid: false, fit: true });
 
-  // ── 일정: 단계 이름은 단계의 첫 줄에만 (다시 불러올 때 아래 줄로 이어짐), 상태 색
-  const base = today();
-  const sRows = [[{ v: "일정", s: "big" }, null, null, null, null, null, null, null, { v: "기준일", s: "label" }, { v: base, s: "date" }], [],
-    th(["단계", "세부사항", "비고", "담당자", "시작일", "종료일", "기간", "경과일", "잔여일", "상태"])];
+  // ── 일정: 표 + 아래에 일정표(간트, 시간이 옆으로). 세부사항 오른쪽은 좁은 같은 너비 칸으로 나눠
+  //    위 표는 칸을 합쳐 쓰고, 아래 일정표는 한 칸 = 하루/한 주/한 달. 단계 이름은 단계의 첫 줄에만 (다시 불러올 때 아래로 이어짐)
+  const base = today(), b0 = dayNo(base);
+  const SPAN = [["비고", 8], ["담당자", 4], ["시작일", 5], ["종료일", 5], ["기간", 3], ["경과일", 3], ["잔여일", 3], ["상태", 5]];
+  const sRows = [], sMerges = [];
+  const spanRow = (a, b2, cells) => {
+    const row = [a, b2], r = sRows.length + 1;
+    let c = 2;
+    cells.forEach((cell, k) => {
+      const w = SPAN[k][1];
+      row.push(cell, ...Array(w - 1).fill(0).map(() => ({ v: "", s: cell?.s || "cell" })));
+      if (w > 1) sMerges.push(`${Xlsx.colName(c)}${r}:${Xlsx.colName(c + w - 1)}${r}`);
+      c += w;
+    });
+    sRows.push(row);
+  };
+  sRows.push([{ v: "일정", s: "big" }]);
+  sMerges.push(`${Xlsx.colName(26)}1:${Xlsx.colName(28)}1`, `${Xlsx.colName(29)}1:${Xlsx.colName(33)}1`);
+  Object.assign(sRows[0], { 26: { v: "기준일", s: "label" }, 27: { v: "", s: "label" }, 28: { v: "", s: "label" }, 29: { v: base, s: "date" }, 30: { v: "", s: "date" }, 31: { v: "", s: "date" }, 32: { v: "", s: "date" }, 33: { v: "", s: "date" } });
+  for (let k = 0; k < 34; k++) if (sRows[0][k] === undefined) sRows[0][k] = null;
+  sRows.push([]);
+  spanRow({ v: "단계", s: "th" }, { v: "세부사항", s: "th" }, SPAN.map(([l]) => ({ v: l, s: "th" })));
   const infos = scheduleInfos(p.schedule, base);
   let prevPhase = null;
   for (const [k, t] of p.schedule.entries()) {
     const info = infos[k], first = t.phase !== prevPhase;
     prevPhase = t.phase;
-    sRows.push([{ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" }, { v: t.note, s: "cell" }, { v: t.owner, s: "c" },
-      { v: t.start, s: "date" }, { v: t.end, s: "date" }, { v: info.dur, s: "c" }, { v: info.elapsed, s: "c" },
-      { v: info.remain, s: "c" }, { v: info.status, s: stStyle(info.status) }]);
+    spanRow({ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" },
+      [{ v: t.note, s: "cell" }, { v: t.owner, s: "c" }, { v: t.start, s: "date" }, { v: t.end, s: "date" },
+        { v: info.dur, s: "c" }, { v: info.elapsed, s: "c" }, { v: info.remain, s: "c" }, { v: info.status, s: stStyle(info.status) }]);
   }
-  sheets.push({ name: "일정", cols: [16, 30, 20, 10, 12, 12, 7, 7, 8, 12], rows: sRows, heights: { 0: 28, 2: 22 }, freeze: 3,
-    filter: sRows.length > 3 ? `A3:J${sRows.length}` : "", tab: XL_TAB.sched, grid: false, landscape: true });
+  // 일정표(간트): 기간에 따라 하루 / 한 주(월요일 시작) / 한 달 단위
+  const datedTasks = p.schedule.filter((t) => isDate(t.start));
+  let gCols = 34, ganttRow = 0;
+  if (datedTasks.length) {
+    const starts = datedTasks.map((t) => dayNo(t.start)), ends = datedTasks.map((t) => dayNo(isDate(t.end) ? t.end : t.start));
+    const lo = Math.min(...starts, b0), hi = Math.max(...ends, b0);
+    const unit = hi - lo + 1 <= 45 ? "day" : (hi - lo) / 7 <= 70 ? "week" : "month";
+    const fromNo = (n) => new Date(Date.UTC(1970, 0, 1) + n * 86400000);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const periods = [];
+    if (unit === "day") for (let n = lo; n <= hi; n++) periods.push({ s: n, e: n, d: fromNo(n) });
+    else if (unit === "week") {
+      let n = lo - ((fromNo(lo).getUTCDay() + 6) % 7); // 그 주 월요일
+      for (; n <= hi; n += 7) periods.push({ s: n, e: n + 6, d: fromNo(n) });
+    } else {
+      let d = new Date(Date.UTC(fromNo(lo).getUTCFullYear(), fromNo(lo).getUTCMonth(), 1));
+      while (dayNo(iso(d)) <= hi) { const nx = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); periods.push({ s: dayNo(iso(d)), e: dayNo(iso(nx)) - 1, d }); d = nx; }
+    }
+    gCols = Math.max(34, 2 + periods.length);
+    const C0 = 2, nowIdx = periods.findIndex((x) => b0 >= x.s && b0 <= x.e);
+    sRows.push([]);
+    ganttRow = sRows.length; // 인쇄할 때 일정표는 새 쪽에서
+    const secRow = [{ v: `■ 일정표 (${unit === "day" ? "하루" : unit === "week" ? "주" : "월"} 단위 · 오늘 ${fmtDot(base)})`, s: "sec" }];
+    for (let c = 1; c < gCols; c++) secRow.push({ v: "", s: "sec" });
+    sRows.push(secRow);
+    // 머리글 1: 년·월 (같은 달은 합침), 머리글 2: 날짜(일) 또는 월
+    const top = [{ v: "단계", s: "th" }, { v: "세부사항", s: "th" }], sub = [{ v: "", s: "th" }, { v: "", s: "th" }];
+    const rTop = sRows.length + 1;
+    let k = 0;
+    while (k < periods.length) {
+      const key = unit === "month" ? periods[k].d.getUTCFullYear() : `${periods[k].d.getUTCFullYear()}.${periods[k].d.getUTCMonth() + 1}`;
+      let m = k;
+      while (m + 1 < periods.length && (unit === "month" ? periods[m + 1].d.getUTCFullYear() : `${periods[m + 1].d.getUTCFullYear()}.${periods[m + 1].d.getUTCMonth() + 1}`) === key) m++;
+      // 년도는 첫 달과 1월에만, 칸이 좁으면(2칸 이하) 짧게
+      const [yy, mm] = String(key).split(".").map(Number), wide = m - k + 1 > 2;
+      top.push({ v: unit === "month" ? `${yy}년` : (k === 0 || mm === 1) && wide ? `${yy}년 ${mm}월` : `${mm}월`, s: "th" });
+      for (let q = k + 1; q <= m; q++) top.push({ v: "", s: "th" });
+      if (m > k) sMerges.push(`${Xlsx.colName(C0 + k)}${rTop}:${Xlsx.colName(C0 + m)}${rTop}`);
+      k = m + 1;
+    }
+    sMerges.push(`A${rTop}:A${rTop + 1}`, `B${rTop}:B${rTop + 1}`);
+    periods.forEach((x, q) => sub.push({ v: unit === "month" ? `${x.d.getUTCMonth() + 1}월` : String(x.d.getUTCDate()), s: q === nowIdx ? "bad" : "gHead" }));
+    sRows.push(top, sub);
+    prevPhase = null;
+    for (const [k2, t] of p.schedule.entries()) {
+      const info = infos[k2], first = t.phase !== prevPhase;
+      prevPhase = t.phase;
+      const s0 = isDate(t.start) ? dayNo(t.start) : null, e0 = isDate(t.end) ? dayNo(t.end) : s0;
+      const bar = { 완료: "gOk", 진행: "gInfo", 지연: "gBad" }[info.status] || "gPlan";
+      sRows.push([{ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" },
+        ...periods.map((x, q) => s0 != null && s0 <= x.e && e0 >= x.s ? { v: "", s: bar } : { v: q === 0 && s0 == null ? "날짜 미정" : "", s: q === nowIdx ? "gNow" : "gEmpty" })]);
+    }
+    sRows.push([], [{ v: "막대 색:", s: "note" }, { v: "", s: "note" }, { v: "", s: "gOk" }, { v: "완료", s: "note" }, { v: "", s: "note" }, { v: "", s: "gInfo" }, { v: "진행", s: "note" },
+      { v: "", s: "note" }, { v: "", s: "gBad" }, { v: "지연", s: "note" }, { v: "", s: "note" }, { v: "", s: "gPlan" }, { v: "예정", s: "note" }, { v: "", s: "note" }, { v: "", s: "gNow" }, { v: "오늘", s: "note" }]);
+  }
+  sheets.push({ name: "일정", cols: [16, 30, ...Array(gCols - 2).fill(3.3)], rows: sRows, merges: sMerges,
+    heights: { 0: 28, 2: 22 }, freeze: 3, freezeCols: 2, tab: XL_TAB.sched, grid: false, landscape: true, breaks: ganttRow ? [ganttRow] : [] });
 
   sheets.push(table("revisions", "Revision", XL_TAB.rev));
 

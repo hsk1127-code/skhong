@@ -1135,23 +1135,28 @@ const Xlsx = (() => {
   // 10~ : 엑셀 내보내기용 — th 진한 머리글, label 항목명, sec 구역 제목, c 가운데, ok/warn/bad/info 상태, big 큰 제목, note 작은 설명,
   //       total 합계 금액, moneyL 왼쪽 정렬 금액, rem 테두리 있는 작은 설명
   const STYLE = { head: 1, cell: 2, date: 3, title: 4, wrap: 5, money: 6, pct: 7, moneyb: 8, dateL: 9,
-    th: 10, label: 11, sec: 12, c: 13, ok: 14, warn: 15, bad: 16, info: 17, big: 18, note: 19, total: 20, moneyL: 21, rem: 22 };
+    th: 10, label: 11, sec: 12, c: 13, ok: 14, warn: 15, bad: 16, info: 17, big: 18, note: 19, total: 20, moneyL: 21, rem: 22,
+    // 일정표(간트) 칸: 빈 칸 · 완료 · 진행 · 지연 · 예정 막대 · 오늘 · 작은 머리글
+    gEmpty: 23, gOk: 24, gInfo: 25, gBad: 26, gPlan: 27, gNow: 28, gHead: 29 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
-<fonts count="11"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font>
+<fonts count="12"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FF15803D"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FF9A5B00"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FFB42318"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FF1D4ED8"/><name val="맑은 고딕"/></font>
-<font><b/><sz val="16"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font><font><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font></fonts>
-<fills count="11"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill>
+<font><b/><sz val="16"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font><font><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font><font><b/><sz val="8"/><color rgb="FF374151"/><name val="맑은 고딕"/></font></fonts>
+<fills count="16"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF3B46B8"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F5F9"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE8EBFA"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE6F4EA"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFFF4DB"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFE7EEFC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF0FB"/></patternFill></fill></fills>
-<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="FF3B46B8"/></bottom><diagonal/></border></borders>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE7EEFC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF0FB"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF22A05A"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B82F6"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFEF4444"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2C14E"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFDE2E2"/></patternFill></fill></fills>
+<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="FF3B46B8"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FFE5E7EB"/></left><right style="thin"><color rgb="FFE5E7EB"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="23">
+<cellXfs count="30">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
@@ -1175,6 +1180,13 @@ const Xlsx = (() => {
 <xf numFmtId="3" fontId="1" fillId="10" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 <xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="10" fillId="0" borderId="3" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="11" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="12" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="13" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="14" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="15" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="11" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -1262,11 +1274,15 @@ const Xlsx = (() => {
       //       landscape(가로 인쇄) · fit(세로 인쇄) — 둘 다 용지 너비에 맞춤
       const fit = sh.landscape || sh.fit;
       const sheetPr = sh.tab || fit ? `<sheetPr>${sh.tab ? `<tabColor rgb="FF${sh.tab}"/>` : ""}${fit ? '<pageSetUpPr fitToPage="1"/>' : ""}</sheetPr>` : "";
-      const pane = sh.freeze ? `<pane ySplit="${sh.freeze}" topLeftCell="A${sh.freeze + 1}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A${sh.freeze + 1}" sqref="A${sh.freeze + 1}"/>` : "";
+      // freezeCols: 왼쪽 열 고정 (예: 2 → A·B 열)
+      const fc = sh.freezeCols || 0, tl = `${colName(fc)}${(sh.freeze || 0) + 1}`, ap = fc && sh.freeze ? "bottomRight" : fc ? "topRight" : "bottomLeft";
+      const pane = sh.freeze || fc ? `<pane${fc ? ` xSplit="${fc}"` : ""}${sh.freeze ? ` ySplit="${sh.freeze}"` : ""} topLeftCell="${tl}" activePane="${ap}" state="frozen"/><selection pane="${ap}" activeCell="${tl}" sqref="${tl}"/>` : "";
       const view = `<sheetViews><sheetView workbookViewId="0"${sh.grid === false ? ' showGridLines="0"' : ""}${i === 0 ? ' tabSelected="1"' : ""}${pane ? `>${pane}</sheetView>` : "/>"}</sheetViews>`;
       const filter = sh.filter ? `<autoFilter ref="${sh.filter}"/>` : "";
+      // breaks: 인쇄할 때 이 행 앞에서 쪽을 나눔 (0부터 센 행 번호)
+      const brk = sh.breaks?.length ? `<rowBreaks count="${sh.breaks.length}" manualBreakCount="${sh.breaks.length}">${sh.breaks.map((r) => `<brk id="${r}" max="16383" man="1"/>`).join("")}</rowBreaks>` : "";
       const setup = fit ? `<pageSetup paperSize="9" orientation="${sh.landscape ? "landscape" : "portrait"}" fitToWidth="1" fitToHeight="0"/>` : "";
-      files.push({ name: `xl/worksheets/sheet${n}.xml`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPr}${view}<sheetFormatPr defaultRowHeight="16.5"/>${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${out.join("")}</sheetData>${filter}${merges}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>${setup}${drawing}</worksheet>` });
+      files.push({ name: `xl/worksheets/sheet${n}.xml`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPr}${view}<sheetFormatPr defaultRowHeight="16.5"/>${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${out.join("")}</sheetData>${filter}${merges}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>${setup}${brk}${drawing}</worksheet>` });
       ctypes.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
       wbSheets.push(`<sheet name="${xmlEsc(name)}" sheetId="${n}" r:id="rId${n}"/>`);
       wbRels.push(`<Relationship Id="rId${n}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/>`);
@@ -1844,6 +1860,7 @@ function parseSchedule(sheet) {
   const base = today();
   for (let r = head.row + 1; r < rows.length; r++) {
     const row = rows[r] || [];
+    if (/^■\s*일정표/.test(cellText(row[0]))) break; // 아래는 내보내기에서 붙인 일정표(간트) — 일정 항목이 아님
     const ph = cellText(row[phaseCol]);
     if (ph) phase = ph;
     const get = (k) => (head.cols[k] == null ? "" : row[head.cols[k]]);
@@ -2144,21 +2161,94 @@ async function buildWorkbook(p) {
   }
   sheets.push({ name: "개요", cols: [18, 60, 44], rows: ovRows, heights: { 0: 30, 2: 22 }, freeze: 3, tab: XL_TAB.ov, grid: false, fit: true });
 
-  // ── 일정: 단계 이름은 단계의 첫 줄에만 (다시 불러올 때 아래 줄로 이어짐), 상태 색
-  const base = today();
-  const sRows = [[{ v: "일정", s: "big" }, null, null, null, null, null, null, null, { v: "기준일", s: "label" }, { v: base, s: "date" }], [],
-    th(["단계", "세부사항", "비고", "담당자", "시작일", "종료일", "기간", "경과일", "잔여일", "상태"])];
+  // ── 일정: 표 + 아래에 일정표(간트, 시간이 옆으로). 세부사항 오른쪽은 좁은 같은 너비 칸으로 나눠
+  //    위 표는 칸을 합쳐 쓰고, 아래 일정표는 한 칸 = 하루/한 주/한 달. 단계 이름은 단계의 첫 줄에만 (다시 불러올 때 아래로 이어짐)
+  const base = today(), b0 = dayNo(base);
+  const SPAN = [["비고", 8], ["담당자", 4], ["시작일", 5], ["종료일", 5], ["기간", 3], ["경과일", 3], ["잔여일", 3], ["상태", 5]];
+  const sRows = [], sMerges = [];
+  const spanRow = (a, b2, cells) => {
+    const row = [a, b2], r = sRows.length + 1;
+    let c = 2;
+    cells.forEach((cell, k) => {
+      const w = SPAN[k][1];
+      row.push(cell, ...Array(w - 1).fill(0).map(() => ({ v: "", s: cell?.s || "cell" })));
+      if (w > 1) sMerges.push(`${Xlsx.colName(c)}${r}:${Xlsx.colName(c + w - 1)}${r}`);
+      c += w;
+    });
+    sRows.push(row);
+  };
+  sRows.push([{ v: "일정", s: "big" }]);
+  sMerges.push(`${Xlsx.colName(26)}1:${Xlsx.colName(28)}1`, `${Xlsx.colName(29)}1:${Xlsx.colName(33)}1`);
+  Object.assign(sRows[0], { 26: { v: "기준일", s: "label" }, 27: { v: "", s: "label" }, 28: { v: "", s: "label" }, 29: { v: base, s: "date" }, 30: { v: "", s: "date" }, 31: { v: "", s: "date" }, 32: { v: "", s: "date" }, 33: { v: "", s: "date" } });
+  for (let k = 0; k < 34; k++) if (sRows[0][k] === undefined) sRows[0][k] = null;
+  sRows.push([]);
+  spanRow({ v: "단계", s: "th" }, { v: "세부사항", s: "th" }, SPAN.map(([l]) => ({ v: l, s: "th" })));
   const infos = scheduleInfos(p.schedule, base);
   let prevPhase = null;
   for (const [k, t] of p.schedule.entries()) {
     const info = infos[k], first = t.phase !== prevPhase;
     prevPhase = t.phase;
-    sRows.push([{ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" }, { v: t.note, s: "cell" }, { v: t.owner, s: "c" },
-      { v: t.start, s: "date" }, { v: t.end, s: "date" }, { v: info.dur, s: "c" }, { v: info.elapsed, s: "c" },
-      { v: info.remain, s: "c" }, { v: info.status, s: stStyle(info.status) }]);
+    spanRow({ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" },
+      [{ v: t.note, s: "cell" }, { v: t.owner, s: "c" }, { v: t.start, s: "date" }, { v: t.end, s: "date" },
+        { v: info.dur, s: "c" }, { v: info.elapsed, s: "c" }, { v: info.remain, s: "c" }, { v: info.status, s: stStyle(info.status) }]);
   }
-  sheets.push({ name: "일정", cols: [16, 30, 20, 10, 12, 12, 7, 7, 8, 12], rows: sRows, heights: { 0: 28, 2: 22 }, freeze: 3,
-    filter: sRows.length > 3 ? `A3:J${sRows.length}` : "", tab: XL_TAB.sched, grid: false, landscape: true });
+  // 일정표(간트): 기간에 따라 하루 / 한 주(월요일 시작) / 한 달 단위
+  const datedTasks = p.schedule.filter((t) => isDate(t.start));
+  let gCols = 34, ganttRow = 0;
+  if (datedTasks.length) {
+    const starts = datedTasks.map((t) => dayNo(t.start)), ends = datedTasks.map((t) => dayNo(isDate(t.end) ? t.end : t.start));
+    const lo = Math.min(...starts, b0), hi = Math.max(...ends, b0);
+    const unit = hi - lo + 1 <= 45 ? "day" : (hi - lo) / 7 <= 70 ? "week" : "month";
+    const fromNo = (n) => new Date(Date.UTC(1970, 0, 1) + n * 86400000);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    const periods = [];
+    if (unit === "day") for (let n = lo; n <= hi; n++) periods.push({ s: n, e: n, d: fromNo(n) });
+    else if (unit === "week") {
+      let n = lo - ((fromNo(lo).getUTCDay() + 6) % 7); // 그 주 월요일
+      for (; n <= hi; n += 7) periods.push({ s: n, e: n + 6, d: fromNo(n) });
+    } else {
+      let d = new Date(Date.UTC(fromNo(lo).getUTCFullYear(), fromNo(lo).getUTCMonth(), 1));
+      while (dayNo(iso(d)) <= hi) { const nx = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)); periods.push({ s: dayNo(iso(d)), e: dayNo(iso(nx)) - 1, d }); d = nx; }
+    }
+    gCols = Math.max(34, 2 + periods.length);
+    const C0 = 2, nowIdx = periods.findIndex((x) => b0 >= x.s && b0 <= x.e);
+    sRows.push([]);
+    ganttRow = sRows.length; // 인쇄할 때 일정표는 새 쪽에서
+    const secRow = [{ v: `■ 일정표 (${unit === "day" ? "하루" : unit === "week" ? "주" : "월"} 단위 · 오늘 ${fmtDot(base)})`, s: "sec" }];
+    for (let c = 1; c < gCols; c++) secRow.push({ v: "", s: "sec" });
+    sRows.push(secRow);
+    // 머리글 1: 년·월 (같은 달은 합침), 머리글 2: 날짜(일) 또는 월
+    const top = [{ v: "단계", s: "th" }, { v: "세부사항", s: "th" }], sub = [{ v: "", s: "th" }, { v: "", s: "th" }];
+    const rTop = sRows.length + 1;
+    let k = 0;
+    while (k < periods.length) {
+      const key = unit === "month" ? periods[k].d.getUTCFullYear() : `${periods[k].d.getUTCFullYear()}.${periods[k].d.getUTCMonth() + 1}`;
+      let m = k;
+      while (m + 1 < periods.length && (unit === "month" ? periods[m + 1].d.getUTCFullYear() : `${periods[m + 1].d.getUTCFullYear()}.${periods[m + 1].d.getUTCMonth() + 1}`) === key) m++;
+      // 년도는 첫 달과 1월에만, 칸이 좁으면(2칸 이하) 짧게
+      const [yy, mm] = String(key).split(".").map(Number), wide = m - k + 1 > 2;
+      top.push({ v: unit === "month" ? `${yy}년` : (k === 0 || mm === 1) && wide ? `${yy}년 ${mm}월` : `${mm}월`, s: "th" });
+      for (let q = k + 1; q <= m; q++) top.push({ v: "", s: "th" });
+      if (m > k) sMerges.push(`${Xlsx.colName(C0 + k)}${rTop}:${Xlsx.colName(C0 + m)}${rTop}`);
+      k = m + 1;
+    }
+    sMerges.push(`A${rTop}:A${rTop + 1}`, `B${rTop}:B${rTop + 1}`);
+    periods.forEach((x, q) => sub.push({ v: unit === "month" ? `${x.d.getUTCMonth() + 1}월` : String(x.d.getUTCDate()), s: q === nowIdx ? "bad" : "gHead" }));
+    sRows.push(top, sub);
+    prevPhase = null;
+    for (const [k2, t] of p.schedule.entries()) {
+      const info = infos[k2], first = t.phase !== prevPhase;
+      prevPhase = t.phase;
+      const s0 = isDate(t.start) ? dayNo(t.start) : null, e0 = isDate(t.end) ? dayNo(t.end) : s0;
+      const bar = { 완료: "gOk", 진행: "gInfo", 지연: "gBad" }[info.status] || "gPlan";
+      sRows.push([{ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" },
+        ...periods.map((x, q) => s0 != null && s0 <= x.e && e0 >= x.s ? { v: "", s: bar } : { v: q === 0 && s0 == null ? "날짜 미정" : "", s: q === nowIdx ? "gNow" : "gEmpty" })]);
+    }
+    sRows.push([], [{ v: "막대 색:", s: "note" }, { v: "", s: "note" }, { v: "", s: "gOk" }, { v: "완료", s: "note" }, { v: "", s: "note" }, { v: "", s: "gInfo" }, { v: "진행", s: "note" },
+      { v: "", s: "note" }, { v: "", s: "gBad" }, { v: "지연", s: "note" }, { v: "", s: "note" }, { v: "", s: "gPlan" }, { v: "예정", s: "note" }, { v: "", s: "note" }, { v: "", s: "gNow" }, { v: "오늘", s: "note" }]);
+  }
+  sheets.push({ name: "일정", cols: [16, 30, ...Array(gCols - 2).fill(3.3)], rows: sRows, merges: sMerges,
+    heights: { 0: 28, 2: 22 }, freeze: 3, freezeCols: 2, tab: XL_TAB.sched, grid: false, landscape: true, breaks: ganttRow ? [ganttRow] : [] });
 
   sheets.push(table("revisions", "Revision", XL_TAB.rev));
 
@@ -2983,7 +3073,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:04</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:13</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));

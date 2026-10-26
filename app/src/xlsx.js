@@ -160,23 +160,28 @@ const Xlsx = (() => {
   // 10~ : 엑셀 내보내기용 — th 진한 머리글, label 항목명, sec 구역 제목, c 가운데, ok/warn/bad/info 상태, big 큰 제목, note 작은 설명,
   //       total 합계 금액, moneyL 왼쪽 정렬 금액, rem 테두리 있는 작은 설명
   const STYLE = { head: 1, cell: 2, date: 3, title: 4, wrap: 5, money: 6, pct: 7, moneyb: 8, dateL: 9,
-    th: 10, label: 11, sec: 12, c: 13, ok: 14, warn: 15, bad: 16, info: 17, big: 18, note: 19, total: 20, moneyL: 21, rem: 22 };
+    th: 10, label: 11, sec: 12, c: 13, ok: 14, warn: 15, bad: 16, info: 17, big: 18, note: 19, total: 20, moneyL: 21, rem: 22,
+    // 일정표(간트) 칸: 빈 칸 · 완료 · 진행 · 지연 · 예정 막대 · 오늘 · 작은 머리글
+    gEmpty: 23, gOk: 24, gInfo: 25, gBad: 26, gPlan: 27, gNow: 28, gHead: 29 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
-<fonts count="11"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font>
+<fonts count="12"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FF15803D"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FF9A5B00"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FFB42318"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FF1D4ED8"/><name val="맑은 고딕"/></font>
-<font><b/><sz val="16"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font><font><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font></fonts>
-<fills count="11"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill>
+<font><b/><sz val="16"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font><font><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font><font><b/><sz val="8"/><color rgb="FF374151"/><name val="맑은 고딕"/></font></fonts>
+<fills count="16"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF3B46B8"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F5F9"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE8EBFA"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE6F4EA"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFFF4DB"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFE7EEFC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF0FB"/></patternFill></fill></fills>
-<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="FF3B46B8"/></bottom><diagonal/></border></borders>
+<fill><patternFill patternType="solid"><fgColor rgb="FFE7EEFC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF0FB"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FF22A05A"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B82F6"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFEF4444"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2C14E"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFDE2E2"/></patternFill></fill></fills>
+<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="FF3B46B8"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FFE5E7EB"/></left><right style="thin"><color rgb="FFE5E7EB"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="23">
+<cellXfs count="30">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
@@ -200,6 +205,13 @@ const Xlsx = (() => {
 <xf numFmtId="3" fontId="1" fillId="10" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
 <xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="10" fillId="0" borderId="3" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="11" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="12" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="13" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="14" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="15" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="11" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -287,11 +299,15 @@ const Xlsx = (() => {
       //       landscape(가로 인쇄) · fit(세로 인쇄) — 둘 다 용지 너비에 맞춤
       const fit = sh.landscape || sh.fit;
       const sheetPr = sh.tab || fit ? `<sheetPr>${sh.tab ? `<tabColor rgb="FF${sh.tab}"/>` : ""}${fit ? '<pageSetUpPr fitToPage="1"/>' : ""}</sheetPr>` : "";
-      const pane = sh.freeze ? `<pane ySplit="${sh.freeze}" topLeftCell="A${sh.freeze + 1}" activePane="bottomLeft" state="frozen"/><selection pane="bottomLeft" activeCell="A${sh.freeze + 1}" sqref="A${sh.freeze + 1}"/>` : "";
+      // freezeCols: 왼쪽 열 고정 (예: 2 → A·B 열)
+      const fc = sh.freezeCols || 0, tl = `${colName(fc)}${(sh.freeze || 0) + 1}`, ap = fc && sh.freeze ? "bottomRight" : fc ? "topRight" : "bottomLeft";
+      const pane = sh.freeze || fc ? `<pane${fc ? ` xSplit="${fc}"` : ""}${sh.freeze ? ` ySplit="${sh.freeze}"` : ""} topLeftCell="${tl}" activePane="${ap}" state="frozen"/><selection pane="${ap}" activeCell="${tl}" sqref="${tl}"/>` : "";
       const view = `<sheetViews><sheetView workbookViewId="0"${sh.grid === false ? ' showGridLines="0"' : ""}${i === 0 ? ' tabSelected="1"' : ""}${pane ? `>${pane}</sheetView>` : "/>"}</sheetViews>`;
       const filter = sh.filter ? `<autoFilter ref="${sh.filter}"/>` : "";
+      // breaks: 인쇄할 때 이 행 앞에서 쪽을 나눔 (0부터 센 행 번호)
+      const brk = sh.breaks?.length ? `<rowBreaks count="${sh.breaks.length}" manualBreakCount="${sh.breaks.length}">${sh.breaks.map((r) => `<brk id="${r}" max="16383" man="1"/>`).join("")}</rowBreaks>` : "";
       const setup = fit ? `<pageSetup paperSize="9" orientation="${sh.landscape ? "landscape" : "portrait"}" fitToWidth="1" fitToHeight="0"/>` : "";
-      files.push({ name: `xl/worksheets/sheet${n}.xml`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPr}${view}<sheetFormatPr defaultRowHeight="16.5"/>${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${out.join("")}</sheetData>${filter}${merges}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>${setup}${drawing}</worksheet>` });
+      files.push({ name: `xl/worksheets/sheet${n}.xml`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${sheetPr}${view}<sheetFormatPr defaultRowHeight="16.5"/>${cols ? `<cols>${cols}</cols>` : ""}<sheetData>${out.join("")}</sheetData>${filter}${merges}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>${setup}${brk}${drawing}</worksheet>` });
       ctypes.push(`<Override PartName="/xl/worksheets/sheet${n}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`);
       wbSheets.push(`<sheet name="${xmlEsc(name)}" sheetId="${n}" r:id="rId${n}"/>`);
       wbRels.push(`<Relationship Id="rId${n}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${n}.xml"/>`);
