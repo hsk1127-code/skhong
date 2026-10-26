@@ -162,26 +162,34 @@ const Xlsx = (() => {
   const STYLE = { head: 1, cell: 2, date: 3, title: 4, wrap: 5, money: 6, pct: 7, moneyb: 8, dateL: 9,
     th: 10, label: 11, sec: 12, c: 13, ok: 14, warn: 15, bad: 16, info: 17, big: 18, note: 19, total: 20, moneyL: 21, rem: 22,
     // 일정표(간트) 칸: 빈 칸 · 완료 · 진행 · 지연 · 예정 막대 · 오늘 · 작은 머리글
-    gEmpty: 23, gOk: 24, gInfo: 25, gBad: 26, gPlan: 27, gNow: 28, gHead: 29 };
+    gEmpty: 23, gOk: 24, gInfo: 25, gBad: 26, gPlan: 27, gNow: 28, gHead: 29,
+    // 줄무늬(짝수 행) · 일정표 칸 안쪽(왼쪽 선 없음) · 한눈에 보기 카드(큰 숫자 · 작은 이름 · 초록/빨강 숫자)
+    cellZ: 30, cZ: 31, dateZ: 32, moneyZ: 33, gIn: 34, gNowIn: 35, kpi: 36, kpiL: 37, kpiOk: 38, kpiBad: 39, kpiS: 40, gEL: 41, gNowL: 42 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
-<fonts count="12"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font>
+<fonts count="16"><font><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><name val="맑은 고딕"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FFFFFFFF"/><name val="맑은 고딕"/></font><font><b/><sz val="11"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FF15803D"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FF9A5B00"/><name val="맑은 고딕"/></font>
 <font><b/><sz val="10"/><color rgb="FFB42318"/><name val="맑은 고딕"/></font><font><b/><sz val="10"/><color rgb="FF1D4ED8"/><name val="맑은 고딕"/></font>
-<font><b/><sz val="16"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font><font><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font><font><b/><sz val="8"/><color rgb="FF374151"/><name val="맑은 고딕"/></font></fonts>
-<fills count="16"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill>
+<font><b/><sz val="16"/><color rgb="FF2F3A9E"/><name val="맑은 고딕"/></font><font><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font><font><b/><sz val="8"/><color rgb="FF374151"/><name val="맑은 고딕"/></font>
+<font><b/><sz val="15"/><color rgb="FF111827"/><name val="맑은 고딕"/></font><font><b/><sz val="9"/><color rgb="FF6B7280"/><name val="맑은 고딕"/></font>
+<font><b/><sz val="15"/><color rgb="FF15803D"/><name val="맑은 고딕"/></font><font><b/><sz val="15"/><color rgb="FFB42318"/><name val="맑은 고딕"/></font></fonts>
+<fills count="18"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF3B46B8"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF3F5F9"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE8EBFA"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE6F4EA"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFFFF4DB"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFE7EEFC"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEEF0FB"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FF22A05A"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF3B82F6"/></patternFill></fill>
 <fill><patternFill patternType="solid"><fgColor rgb="FFEF4444"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF2C14E"/></patternFill></fill>
-<fill><patternFill patternType="solid"><fgColor rgb="FFFDE2E2"/></patternFill></fill></fills>
-<borders count="4"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="FF3B46B8"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FFE5E7EB"/></left><right style="thin"><color rgb="FFE5E7EB"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
+<fill><patternFill patternType="solid"><fgColor rgb="FFFDE2E2"/></patternFill></fill>
+<fill><patternFill patternType="solid"><fgColor rgb="FFF4F6FB"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFF5F6FB"/></patternFill></fill></fills>
+<borders count="7"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color rgb="FFB7BEC8"/></left><right style="thin"><color rgb="FFB7BEC8"/></right><top style="thin"><color rgb="FFB7BEC8"/></top><bottom style="thin"><color rgb="FFB7BEC8"/></bottom><diagonal/></border><border><left/><right/><top/><bottom style="medium"><color rgb="FF3B46B8"/></bottom><diagonal/></border><border><left style="thin"><color rgb="FFE5E7EB"/></left><right style="thin"><color rgb="FFE5E7EB"/></right><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border>
+<border><left/><right/><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border>
+<border><left style="thin"><color rgb="FFDDE1EA"/></left><right style="thin"><color rgb="FFDDE1EA"/></right><top style="thin"><color rgb="FFDDE1EA"/></top><bottom style="thin"><color rgb="FFDDE1EA"/></bottom><diagonal/></border>
+<border><left style="thin"><color rgb="FFE5E7EB"/></left><right/><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="30">
+<cellXfs count="43">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
@@ -206,12 +214,25 @@ const Xlsx = (() => {
 <xf numFmtId="3" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyBorder="1" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="10" fillId="0" borderId="3" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
-<xf numFmtId="0" fontId="0" fillId="11" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
-<xf numFmtId="0" fontId="0" fillId="12" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
-<xf numFmtId="0" fontId="0" fillId="13" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
-<xf numFmtId="0" fontId="0" fillId="14" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="0" fontId="0" fillId="11" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="12" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="13" borderId="0" xfId="0" applyFill="1"/>
+<xf numFmtId="0" fontId="0" fillId="14" borderId="0" xfId="0" applyFill="1"/>
 <xf numFmtId="0" fontId="0" fillId="15" borderId="3" xfId="0" applyFill="1" applyBorder="1"/>
 <xf numFmtId="0" fontId="11" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="16" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="0" fillId="16" borderId="1" xfId="0" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="164" fontId="0" fillId="16" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="3" fontId="0" fillId="16" borderId="1" xfId="0" applyNumberFormat="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="right" vertical="center"/></xf>
+<xf numFmtId="0" fontId="10" fillId="0" borderId="4" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="15" borderId="4" xfId="0" applyFill="1" applyBorder="1"/>
+<xf numFmtId="3" fontId="12" fillId="17" borderId="5" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="13" fillId="17" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="3" fontId="14" fillId="17" borderId="5" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="3" fontId="15" fillId="17" borderId="5" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf>
+<xf numFmtId="0" fontId="10" fillId="17" borderId="5" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+<xf numFmtId="0" fontId="10" fillId="0" borderId="6" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="0" fillId="15" borderId="6" xfId="0" applyFill="1" applyBorder="1"/>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -265,7 +286,7 @@ const Xlsx = (() => {
             ? `<c r="${ref}"${s} t="str"><f>${xmlEsc(o.f)}</f><v>${xmlEsc(o.v)}</v></c>`
             : `<c r="${ref}"${s}><f>${xmlEsc(o.f)}</f>${typeof o.v === "number" && isFinite(o.v) ? `<v>${o.v}</v>` : ""}</c>`);
           else if (o.v == null || o.v === "") cells.push(`<c r="${ref}"${s}/>`);
-          else if ((o.s === "date" || o.s === "dateL") && /^\d{4}-\d{2}-\d{2}$/.test(o.v)) cells.push(`<c r="${ref}"${s}><v>${dateToSerial(o.v)}</v></c>`);
+          else if ((o.s === "date" || o.s === "dateL" || o.s === "dateZ") && /^\d{4}-\d{2}-\d{2}$/.test(o.v)) cells.push(`<c r="${ref}"${s}><v>${dateToSerial(o.v)}</v></c>`);
           else if (typeof o.v === "number" && isFinite(o.v)) cells.push(`<c r="${ref}"${s}><v>${o.v}</v></c>`);
           else cells.push(`<c r="${ref}"${s} t="inlineStr"><is><t xml:space="preserve">${xmlEsc(o.v)}</t></is></c>`);
         });

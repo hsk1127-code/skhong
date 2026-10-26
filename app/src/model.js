@@ -459,6 +459,7 @@ async function importWorkbook(file, onProgress = () => {}) {
       files.push(await addBytes(e.data, e.type, `${title}${sheet.embeds.length > 1 ? "_" + (k + 1) : ""}.${e.ext}`));
     }
     const firstText = sheetLines(sheet).slice(0, 5).flat().map(norm);
+    if (key === "한눈에보기") continue; // 엑셀 내보내기의 요약 시트 (다른 시트에서 다시 만들어짐)
 
     if (key === "revision") {
       p.revisions = readTable(sheet, LISTS.revisions.cols);
@@ -575,16 +576,16 @@ function unitBomSheets(p) {
     u.bom.forEach((r) => {
       if (!isItemRow(r)) { rows.push([{ v: "", s: "sec" }, { v: r.item.replace(/^■\s*/, ""), s: "sec" }, ...Array(6).fill(0).map(() => ({ v: "", s: "sec" }))]); return; }
       const q = Number(r.qty), rowNo = rows.length + 1;
-      rows.push([C(++n), T(r.kind), T(r.item), T(r.model), T(r.maker), { v: r.qty !== "" && !isNaN(q) ? q : r.qty, s: "c" },
-        r.qty !== "" && !isNaN(q) ? { f: `F${rowNo}*$G$1`, v: unitTotalQty(r, u), s: "c" } : T(""), T(r.note)]);
+      rows.push(zebra([C(++n), T(r.kind), T(r.item), T(r.model), T(r.maker), { v: r.qty !== "" && !isNaN(q) ? q : r.qty, s: "c" },
+        r.qty !== "" && !isNaN(q) ? { f: `F${rowNo}*$G$1`, v: unitTotalQty(r, u), s: "c" } : T(""), T(r.note)], n - 1));
     });
     return { name: `BOM_${u.name}`, cols: [6, 12, 24, 24, 16, 10, 9, 26], rows, heights: { 0: 28, 2: 22 }, freeze: 3, tab: "F59E0B", grid: false, landscape: true };
   });
   const { units, rows } = bomSummary(p);
   const sum = [[{ v: "BOM 전체 합계 (구매 수량)", s: "big" }], [],
     [H("NO"), H("구분"), H("품목"), H("모델명"), H("업체명"), ...units.map((u) => H(`${u.name} ×${u.qty}`)), H("총 수량"), H("비고")]];
-  rows.forEach((r, i) => sum.push([C(i + 1), T(r.kind), T(r.item), T(r.model), T(r.maker),
-    ...units.map((u) => ({ v: r.per[u.id] ?? "", s: "c" })), { v: r.total, s: "total" }, T(r.notes.join(" / "))]));
+  rows.forEach((r, i) => sum.push(zebra([C(i + 1), T(r.kind), T(r.item), T(r.model), T(r.maker),
+    ...units.map((u) => ({ v: r.per[u.id] ?? "", s: "c" })), { v: r.total, s: "total" }, T(r.notes.join(" / "))], i)));
   const last = Xlsx.colName(6 + units.length);
   sheets.push({ name: "BOM 합계", cols: [6, 12, 24, 24, 16, ...units.map(() => 14), 10, 30], rows: sum, heights: { 0: 28, 2: 22 }, freeze: 3,
     filter: rows.length ? `A3:${last}${sum.length}` : "", tab: "F59E0B", grid: false, landscape: true });
@@ -598,6 +599,8 @@ const stStyle = (v) => (/^(완료|제출|승인|수금완료|보증 중)$/.test(
   : /^(미제출|미청구|예정|시작 전|미정)$/.test(v) ? "warn" : "c");
 // 긴 글(메모·회의 내용)은 한 줄에 한 행씩, 여러 열을 합친 칸에 줄바꿈해서 넣고 행 높이를 글 길이에 맞춘다
 // (한 칸에 몰아넣으면 좁은 열에 세로로 길게 찌그러지거나 행 높이 한도(409)에 잘림). 다시 불러오면 행마다 한 줄로 읽힘
+// 표 행 높이: 기본 20 (여유 있게), 지정한 행은 그대로
+const rowHeights = (rows, fixed) => { const h = {}; rows.forEach((r, i) => { if (i > 2 && r?.length) h[i] = 20; }); return Object.assign(h, fixed); };
 const textWidth = (t) => [...String(t)].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0);
 function longText(rows, merges, heights, text, span, width, style = "wrap") {
   for (const line of String(text || "").split("\n")) {
@@ -607,19 +610,97 @@ function longText(rows, merges, heights, text, span, width, style = "wrap") {
     heights[r] = Math.min(409, Math.max(1, Math.ceil(textWidth(line) / (width * 0.95))) * 15 + 4);
   }
 }
+// 엑셀 내보내기 첫 시트 '한눈에 보기': 핵심 숫자 카드 · 일정 현황 · 주요 일자 · 할 일 · 최근 자료 (다시 불러올 때는 건너뜀)
+function dashboardSheet(p) {
+  const o = p.overview, c = contractInfo(p), kd = keyDates(p), sm = projectSummary(p), st = scheduleStatus(p);
+  const base = today(), infos = scheduleInfos(p.schedule, base);
+  const rows = [], merges = [], heights = {};
+  const E = (s = "cell") => ({ v: "", s });
+  const put = (cells) => { rows.push([null, ...cells]); return rows.length; }; // A열은 여백
+  const span = (r, c1, c2) => merges.push(`${Xlsx.colName(c1)}${r}:${Xlsx.colName(c2)}${r}`);
+  const fill = (v, s, n) => [{ v, s }, ...Array(n - 1).fill(0).map(() => E(s))];
+  // 제목
+  let r = put(fill(o.name || "프로젝트", "big", 8)); span(r, 1, 8); heights[r - 1] = 32;
+  r = put(fill([o.customer, o.project, o.manager && `담당 ${o.manager}`, `상태 ${o.status || "-"}`, `출력일 ${fmtDot(base)}`].filter(Boolean).join("  ·  "), "note", 8)); span(r, 1, 8);
+  rows.push([]);
+  // 핵심 숫자 카드 4개 (2칸씩)
+  const cards = [
+    ["발주금액", c.amount || "-", "kpi", c.amount ? `부가세 ${o.vat || "별도"}` : "발주금액 미입력"],
+    ["실행가 합계", c.actualCost ? c.totalCost : "-", "kpi", c.actualCost ? "실행가 + 인건비 + 재경비 + 워런티비" : "실행가 미입력"],
+    ["이익", c.totalProfit ?? "-", c.totalProfit == null ? "kpi" : c.totalProfit < 0 ? "kpiBad" : "kpiOk", c.totalProfit != null ? `이익률 ${(c.totalRate * 100).toFixed(1)}%` : "발주금액 · 실행가 필요"],
+    ["정산 (수금률)", c.payments.length ? `${c.paidRatio}%` : "-", c.paidRatio === 100 ? "kpiOk" : "kpi", c.payments.length ? `수금 ${fmtWon(c.paidAmount) || "0원"} · 미수 ${fmtWon(c.amount - c.paidAmount) || "0원"}` : "정산 비율 미입력"]];
+  for (const [k, sty] of [[0, "kpiL"], [1, null], [3, "kpiS"]]) {
+    r = put(cards.flatMap((cd) => fill(k === 0 ? cd[0] : k === 1 ? cd[1] : cd[3], sty || cd[2], 2)));
+    for (let q = 0; q < 4; q++) span(r, 1 + q * 2, 2 + q * 2);
+    heights[r - 1] = k === 1 ? 36 : k === 0 ? 20 : 30;
+  }
+  rows.push([]);
+  const sec = (t) => { const rr = put(fill(t, "sec", 8)); heights[rr - 1] = 22; };
+  const pair = (l1, v1, l2, v2, s1 = "cell", s2 = "cell") => {
+    const rr = l2 == null ? put([{ v: l1, s: "label" }, { v: v1, s: s1 }, ...Array(6).fill(0).map(() => E(s1))])
+      : put([{ v: l1, s: "label" }, { v: v1, s: s1 }, E(s1), E(s1), { v: l2, s: "label" }, { v: v2, s: s2 }, E(s2), E(s2)]);
+    if (l2 == null) span(rr, 2, 8); else { span(rr, 2, 4); span(rr, 6, 8); }
+    heights[rr - 1] = 20;
+  };
+  // 일정 현황
+  sec("■ 일정 현황");
+  const dated = infos.filter((x, k) => isDate(p.schedule[k].start));
+  const done = dated.filter((x) => x.status === "완료").length, pct = dated.length ? Math.round((done / dated.length) * 100) : 0;
+  pair("진행 상태", st.text || "-", "완료한 일정", dated.length ? `${done} / ${dated.length}건 (${pct}%)` : "-", stStyle(st.st || "") === "c" ? "cell" : stStyle(st.st || ""));
+  pair("프로젝트 기간", sm.start ? `${fmtDot(sm.start)} ~ ${fmtDot(sm.end)}` : "-", "지연", `${sm.delayed.length}건`, "cell", sm.delayed.length ? "bad" : "ok");
+  pair("다음 일정", sm.next ? `${sm.next.phase ? sm.next.phase + " · " : ""}${sm.next.name} (${fmtDot(sm.next.start)})` : "-");
+  // 완료율 막대 (7칸)
+  r = put([{ v: `완료율 ${pct}%`, s: "label" }, ...Array(7).fill(0).map((_, q) => E(q < Math.round((pct / 100) * 7) ? "gOk" : "gEmpty"))]); heights[r - 1] = 18;
+  rows.push([]);
+  // 주요 일자
+  sec("■ 주요 일자");
+  const d = (x) => (isDate(x) ? fmtDot(x) : "-");
+  pair("Kick Off", d(kd.kickoffDate.value), "납품일", d(kd.receiveDate.value));
+  pair("Setup 완료", d(kd.setupDate.value), "지급 완료", d(kd.paidDate.value), isDate(kd.setupDate.value) ? "ok" : "cell", isDate(kd.paidDate.value) ? "ok" : "cell");
+  pair("Warranty", [kd.warranty.text, kd.warranty.state].filter(Boolean).join(" · ") || "-");
+  rows.push([]);
+  // 할 일
+  sec("■ 할 일  (미완료 실천 의제 · 미제출 자료)");
+  r = put([{ v: "구분", s: "th" }, { v: "내용", s: "th" }, E("th"), E("th"), E("th"), { v: "담당 / 제출처", s: "th" }, E("th"), { v: "기한", s: "th" }]);
+  span(r, 2, 5); span(r, 6, 7); heights[r - 1] = 22;
+  const todo = [...sm.openActions.map((a) => ["실천 의제", a.text, a.owner, a.due]), ...sm.pendingSubmissions.map((x) => ["제출 자료", x.item, x.to, ""])].slice(0, 12);
+  if (!todo.length) { r = put(fill("남은 할 일이 없습니다", "c", 8)); span(r, 1, 8); }
+  todo.forEach((t, i) => {
+    r = put(zebra([{ v: t[0], s: "c" }, { v: t[1], s: "cell" }, E(), E(), E(), { v: t[2] || "", s: "c" }, E("c"), { v: t[3] || "", s: isDate(t[3]) ? "date" : "c" }], i));
+    span(r, 2, 5); span(r, 6, 7); heights[r - 1] = 20;
+  });
+  rows.push([]);
+  // 최근 자료 이력
+  sec("■ 최근 자료 이력");
+  r = put([{ v: "날짜", s: "th" }, { v: "제목", s: "th" }, E("th"), E("th"), E("th"), { v: "구분", s: "th" }, { v: "보낸 곳", s: "th" }, E("th")]);
+  span(r, 2, 5); span(r, 7, 8); heights[r - 1] = 22;
+  const recent = [...p.records].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 8);
+  if (!recent.length) { r = put(fill("자료 이력이 없습니다", "c", 8)); span(r, 1, 8); }
+  recent.forEach((x, i) => {
+    r = put(zebra([{ v: x.date, s: "date" }, { v: x.title, s: "cell" }, E(), E(), E(), { v: x.kind, s: "c" }, { v: x.from || "", s: "c" }, E("c")], i));
+    span(r, 2, 5); span(r, 7, 8); heights[r - 1] = 20;
+  });
+  return { name: "한눈에 보기", cols: [2, 14, 14, 14, 14, 14, 14, 14, 14], rows, merges, heights, tab: "111827", grid: false, fit: true };
+}
+
+// 짝수 행 줄무늬
+const ZEBRA = { cell: "cellZ", c: "cZ", date: "dateZ", money: "moneyZ" };
+const zebra = (row, i) => (i % 2 ? row.map((c) => (c && typeof c === "object" && ZEBRA[c.s] ? { ...c, s: ZEBRA[c.s] } : c)) : row);
 async function buildWorkbook(p) {
   const sheets = [];
   const th = (labels) => labels.map((v) => ({ v, s: "th" }));
   const table = (key, title, tab) => {
     const def = LISTS[key];
     const rows = [[{ v: title || def.title, s: "big" }], [], th(["NO", ...def.cols.map((c) => c.label), ...(def.files ? ["첨부 파일"] : [])])];
-    listRows(p, key).forEach((r, i) => rows.push([{ v: i + 1, s: "c" }, ...def.cols.map((c) => c.key === "status" ? { v: r[c.key] || "", s: stStyle(r[c.key] || "") }
+    listRows(p, key).forEach((r, i) => rows.push(zebra([{ v: i + 1, s: "c" }, ...def.cols.map((c) => c.key === "status" ? { v: r[c.key] || "", s: stStyle(r[c.key] || "") }
       : c.type === "date" && isDate(r[c.key]) ? { v: r[c.key], s: "date" } : cellOf(c, r[c.key])),
-      ...(def.files ? [{ v: fileNames(r.files), s: "cell" }] : [])]));
+      ...(def.files ? [{ v: fileNames(r.files), s: "cell" }] : [])], i)));
     const last = Xlsx.colName(def.cols.length + (def.files ? 1 : 0));
-    return { name: def.sheet, cols: [6, ...def.cols.map((c) => c.w), ...(def.files ? [30] : [])], rows, heights: { 0: 28, 2: 22 },
+    return { name: def.sheet, cols: [6, ...def.cols.map((c) => c.w), ...(def.files ? [30] : [])], rows, heights: rowHeights(rows, { 0: 28, 2: 24 }),
       freeze: 3, filter: rows.length > 3 ? `A3:${last}${rows.length}` : "", tab, grid: false, landscape: true };
   };
+
+  sheets.push(dashboardSheet(p));
 
   // ── 개요: 구역별 (프로젝트 개요 · 주요 일자 · 계약 · 정산 · 정산 단계)
   const ov = p.overview, kdx = keyDates(p), ci = contractInfo(p);
@@ -711,9 +792,11 @@ async function buildWorkbook(p) {
   for (const [n, t] of p.schedule.entries()) {
     const info = infos[n], first = t.phase !== prevPhase;
     prevPhase = t.phase;
+    const zi = n;
     spanRow({ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" },
       [{ v: t.note, s: "cell" }, { v: t.owner, s: "c" }, { v: t.start, s: "date" }, { v: t.end, s: "date" },
         { v: info.dur, s: "c" }, { v: info.elapsed, s: "c" }, { v: info.remain, s: "c" }, { v: info.status, s: stStyle(info.status) }]);
+    sRows[sRows.length - 1] = zebra(sRows[sRows.length - 1], zi);
   }
   let ganttRow = 0;
   if (P) {
@@ -751,7 +834,9 @@ async function buildWorkbook(p) {
       const cells = [];
       periods.forEach((x, z) => {
         const on = s0 != null && s0 <= x.e && e0 >= x.s;
-        for (let y = 0; y < k; y++) cells.push(on ? { v: "", s: bar } : { v: z === 0 && y === 0 && s0 == null ? "날짜 미정" : "", s: z === nowIdx ? "gNow" : "gEmpty" });
+        // 한 기간이 여러 칸이면 안쪽 세로선 없이 (기간 경계에만 선)
+        for (let y = 0; y < k; y++) cells.push(on ? { v: "", s: bar } : { v: z === 0 && y === 0 && s0 == null ? "날짜 미정" : "",
+          s: k === 1 ? (z === nowIdx ? "gNow" : "gEmpty") : y === 0 ? (z === nowIdx ? "gNowL" : "gEL") : z === nowIdx ? "gNowIn" : "gIn" });
       });
       sRows.push([{ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" }, ...cells]);
     }
@@ -773,7 +858,7 @@ async function buildWorkbook(p) {
     const rows = [th(["NO", ...SPEC_COLS.map((c) => c.label)])];
     sp.rows.forEach((r, i) => rows.push(/^■/.test(r.item || "") && !r.content
       ? [{ v: "", s: "sec" }, ...SPEC_COLS.map((c) => ({ v: c.key === "item" ? r.item : r[c.key] || "", s: "sec" }))]
-      : [{ v: i + 1, s: "c" }, ...SPEC_COLS.map((c) => cellOf(c, r[c.key]))]));
+      : zebra([{ v: i + 1, s: "c" }, ...SPEC_COLS.map((c) => cellOf(c, r[c.key]))], i)));
     // 메모는 한 줄에 한 행 (합치지 않고 옆 빈 칸으로 흘러 보이게 — 합치면 다시 불러올 때 사양 항목으로 읽힘)
     if (sp.note) rows.push([], ...sp.note.split("\n").map((line) => [line]));
     const fileList = fileNames(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")));
