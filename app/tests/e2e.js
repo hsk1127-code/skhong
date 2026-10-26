@@ -236,11 +236,15 @@ const assert = require("assert");
     const sh = (n) => wb.sheets.find((x) => x.name === n);
     return { first: wb.sheets[0].name, sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
       rev: readTable(sh("Revision"), LISTS.revisions.cols).length, wantRev: q.revisions.length,
-      gantt: sh("일정").rows.some((r) => /^■ 일정표/.test(String(r?.[0] || ""))) };
+      gantt: sh("일정").rows.some((r) => /^■ 일정표/.test(String(r?.[0] || ""))),
+      // 자료 이력 메모는 좁은 A열에 몰리지 않고 A~B열을 합친 칸에 (줄마다 한 행)
+      memoMerged: q.records.filter((r) => r.memo).every((r) => (wb.sheets.find((x) => x.name.startsWith(r.title.slice(0, 20)))?.merges || []).some((m) => m.c1 === 0 && m.c2 === 1)),
+      memos: q.records.filter((r) => r.memo).length };
   });
   assert.strictEqual(rt.first, "개요");
   assert.deepStrictEqual(rt.sched, rt.want); // 표 아래 일정표(간트)는 일정 항목으로 읽지 않음
   assert.ok(rt.gantt);
+  assert.ok(rt.memoMerged, "자료 이력 메모가 A~B열 합친 칸에 들어가야 함");
   assert.strictEqual(rt.rev, rt.wantRev);
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));

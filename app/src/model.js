@@ -596,6 +596,17 @@ function unitBomSheets(p) {
 const XL_TAB = { ov: "3B46B8", sched: "15803D", rev: "6B7280", spec: "7C3AED", part: "F59E0B", sub: "0EA5E9", chg: "DC2626", doc: "94A3B8" };
 const stStyle = (v) => (/^(완료|제출|승인|수금완료|보증 중)$/.test(v) ? "ok" : /^(진행|청구)$/.test(v) ? "info" : /^(지연|반려|만료)$/.test(v) ? "bad"
   : /^(미제출|미청구|예정|시작 전|미정)$/.test(v) ? "warn" : "c");
+// 긴 글(메모·회의 내용)은 한 줄에 한 행씩, 여러 열을 합친 칸에 줄바꿈해서 넣고 행 높이를 글 길이에 맞춘다
+// (한 칸에 몰아넣으면 좁은 열에 세로로 길게 찌그러지거나 행 높이 한도(409)에 잘림). 다시 불러오면 행마다 한 줄로 읽힘
+const textWidth = (t) => [...String(t)].reduce((w, ch) => w + (ch.charCodeAt(0) > 255 ? 2 : 1), 0);
+function longText(rows, merges, heights, text, span, width, style = "wrap") {
+  for (const line of String(text || "").split("\n")) {
+    const r = rows.length;
+    rows.push([{ v: line, s: style }, ...Array(span - 1).fill(0).map(() => ({ v: "", s: style }))]);
+    if (span > 1) merges.push(`A${r + 1}:${Xlsx.colName(span - 1)}${r + 1}`);
+    heights[r] = Math.min(409, Math.max(1, Math.ceil(textWidth(line) / (width * 0.95))) * 15 + 4);
+  }
+}
 async function buildWorkbook(p) {
   const sheets = [];
   const th = (labels) => labels.map((v) => ({ v, s: "th" }));
@@ -740,7 +751,8 @@ async function buildWorkbook(p) {
     sp.rows.forEach((r, i) => rows.push(/^■/.test(r.item || "") && !r.content
       ? [{ v: "", s: "sec" }, ...SPEC_COLS.map((c) => ({ v: c.key === "item" ? r.item : r[c.key] || "", s: "sec" }))]
       : [{ v: i + 1, s: "c" }, ...SPEC_COLS.map((c) => cellOf(c, r[c.key]))]));
-    if (sp.note) rows.push([], [{ v: sp.note, s: "wrap" }]);
+    // 메모는 한 줄에 한 행 (합치지 않고 옆 빈 칸으로 흘러 보이게 — 합치면 다시 불러올 때 사양 항목으로 읽힘)
+    if (sp.note) rows.push([], ...sp.note.split("\n").map((line) => [line]));
     const fileList = fileNames(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")));
     if (fileList) rows.push([], [{ v: `첨부 파일: ${fileList}`, s: "note" }]);
     sheets.push({ name: sp.name, cols: [6, ...SPEC_COLS.map((c) => c.w)], rows, heights: { 0: 22 }, freeze: 1, tab: XL_TAB.spec, grid: false, landscape: true,
@@ -761,9 +773,10 @@ async function buildWorkbook(p) {
         [L("날짜"), { v: r.date, s: "dateL" }], [L("구분"), V(r.kind)],
         [L("보낸 곳"), V(r.from)], [L("받는 곳"), V(r.to)],
         [L("첨부 파일"), V(fileNames(r.files))]];
-      if (r.memo) rows.push([], [{ v: r.memo, s: "wrap" }]);
+      const merges = [], heights = { 0: 28 };
+      if (r.memo) { rows.push([]); longText(rows, merges, heights, r.memo, 2, 104); }
       const images = await imageEntries(r.images, rows.length + 1);
-      sheets.push({ name: `${r.title}(${fmtDot(r.date)})`, cols: [14, 90], rows, heights: { 0: 28 }, tab: XL_TAB.doc, grid: false, fit: true, images });
+      sheets.push({ name: `${r.title}(${fmtDot(r.date)})`, cols: [14, 90], rows, merges, heights, tab: XL_TAB.doc, grid: false, fit: true, images });
     } else {
       const m = x.m;
       const rows = [[{ v: "회     의     록", s: "big" }], [],
@@ -772,17 +785,16 @@ async function buildWorkbook(p) {
         [L("회의시간"), V(m.time), L("구분"), V(m.kind)],
         [L("제   목"), V(m.title), V(""), V("")],
         [L("참 석 자"), V(m.attendees), V(""), V("")],
-        [], [{ v: "회 의 내 용", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }],
-        [V(m.content, "wrap"), V(""), V(""), V("")],
-        [], [{ v: "실천 의제", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }], th(["지시 내용", "담당자", "기한", "완료"])];
-      const merges = ["A1:D1", "B6:D6", "B7:D7", "A9:D9", "A10:D10"];
+        [], [{ v: "회 의 내 용", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }]];
+      const merges = ["A1:D1", "B6:D6", "B7:D7", "A9:D9"], heights = { 0: 30 };
+      longText(rows, merges, heights, m.content, 4, 124);
+      rows.push([], [{ v: "실천 의제", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }], th(["지시 내용", "담당자", "기한", "완료"]));
       for (const a of m.actions) rows.push([V(a.text), { v: a.owner, s: "c" }, { v: a.due, s: isDate(a.due) ? "date" : "c" }, { v: a.done ? "완료" : "", s: a.done ? "ok" : "c" }]);
       rows.push([], [L("특이사항"), V(m.notes), V(""), V("")]);
       merges.push(`B${rows.length}:D${rows.length}`);
       if (m.files?.length) rows.push([L("첨부 파일"), V(fileNames(m.files))]);
-      const lines = Math.max(3, String(m.content || "").split("\n").length);
       const images = await imageEntries(m.files || [], rows.length + 1);
-      sheets.push({ name: `${m.title}(${fmtDot(m.date)})`, cols: [40, 30, 14, 40], rows, merges, heights: { 0: 30, 9: Math.min(400, lines * 15 + 8) },
+      sheets.push({ name: `${m.title}(${fmtDot(m.date)})`, cols: [40, 30, 14, 40], rows, merges, heights,
         tab: XL_TAB.doc, grid: false, fit: true, images });
     }
   }
