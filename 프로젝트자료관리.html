@@ -788,6 +788,7 @@ label .uf-tag, .uf-tag { position: absolute; top: 0; right: 0; font-size: 10.5px
 @keyframes ufFlash { 0%, 60% { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent) !important; } 100% { box-shadow: none; } }
 
 .src-file { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); line-height: 1.6; }
+.reimport-opts label { display: block; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; line-height: 1.5; }
 
 </style>
 </head>
@@ -2371,6 +2372,68 @@ async function rawSheet(raw, tab, { title = "", sub = "" } = {}) {
 // 짝수 행 줄무늬
 const ZEBRA = { cell: "cellZ", c: "cZ", date: "dateZ", money: "moneyZ" };
 const zebra = (row, i) => (i % 2 ? row.map((c) => (c && typeof c === "object" && ZEBRA[c.s] ? { ...c, s: ZEBRA[c.s] } : c)) : row);
+// 예전에 불러온 프로젝트를 지금 규칙으로 다시 정리: 같은 엑셀을 새로 읽은 q 의 정리 결과를 쓰되,
+// 프로그램에서 입력 · 고친 내용(계약 · 정산 · 주요 일자 · 상태, 직접 추가한 자료 · 회의록, 제출 상태, 실천 의제 완료, BOM 수정)은 유지
+function reorganizeFrom(p, q) {
+  const n = (t) => norm(t), log = [];
+  // 개요: 비어 있는 칸만 엑셀 값으로 채움 (고친 값은 그대로)
+  for (const k of ["name", ...OVERVIEW_FIELDS.map(([k]) => k)]) if (!String(p.overview[k] || "").trim() && q.overview[k]) p.overview[k] = q.overview[k];
+  for (const x of q.overview.extra) if (!p.overview.extra.some((y) => n(y.label) === n(x.label))) p.overview.extra.push(x);
+  // Revision · 변경사항 · 일정: 없는 줄만 더함
+  const addMissing = (dst, src, key) => { let c = 0; for (const x of src) if (!dst.some((y) => key(y) === key(x))) { dst.push(x); c++; } return c; };
+  addMissing(p.revisions, q.revisions, (r) => `${r.date}|${n(r.content)}`);
+  addMissing(p.lists.changes, q.lists.changes, (r) => `${r.date}|${n(r.content)}`);
+  if (!p.schedule.length) p.schedule = q.schedule; else addMissing(p.schedule, q.schedule, (t) => `${n(t.phase)}|${n(t.name)}`);
+  // 자료 이력: 엑셀에서 온 자료는 새 정리(메모 · 원본 표)로, 직접 추가한 자료와 보낸 곳 · 받는 곳 · 추가 첨부는 유지
+  for (const qr of q.records) {
+    const r = p.records.find((x) => n(x.title) === n(qr.title) && x.date === qr.date) || p.records.find((x) => n(x.title) === n(qr.title));
+    if (!r) { p.records.push(qr); log.push(`자료 추가: ${qr.title}`); continue; }
+    r.memo = qr.memo;
+    // 같은 그림을 다시 저장하지 않도록, 그림 수가 같으면 원래 그림을 쓰고 원본 표의 그림 위치도 원래 그림으로
+    if (qr.raw) {
+      const same = r.images.length === qr.images.length;
+      r.raw = same ? { ...qr.raw, imgs: (qr.raw.imgs || []).map((im) => ({ ...im, id: r.images[qr.images.indexOf(im.id)] || im.id })) } : qr.raw;
+      if (!same) r.images = qr.images;
+    }
+    r.rawSig = recSig(r);
+  }
+  // 사양: 엑셀에서 온 사양은 새 정리 결과로 (첨부는 원래 것 유지), 직접 만든 사양은 그대로
+  const specs = ensureSpecs(p);
+  for (const qs of q.specs) {
+    const sp = specs.find((x) => n(x.name) === n(qs.name));
+    if (!sp) { specs.push(qs); if (qs.rawRec) { const qr = q.records.find((x) => x.id === qs.rawRec), r = qr && p.records.find((x) => n(x.title) === n(qr.title)); qs.rawRec = r?.id; } log.push(`사양 추가: ${qs.name} (${qs.rows.length}행)`); continue; }
+    if (specSig(sp) !== specSig(qs)) log.push(`사양 다시 정리: ${sp.name} (${sp.rows.length} → ${qs.rows.length}행)`);
+    sp.rows = qs.rows; sp.note = qs.note || sp.note;
+    if (!sp.files.length) sp.files = qs.files;
+    if (qs.raw) sp.raw = qs.raw;
+    sp.rawSig = specSig(sp);
+  }
+  // 회의록: 직접 고친 내용(실천 의제 완료 등)이 있으므로 그대로 두고, 없던 회의록만 더함
+  for (const qm of q.meetings) if (!p.meetings.some((m) => n(m.title) === n(qm.title) && m.date === qm.date)) { p.meetings.push(qm); log.push(`회의록 추가: ${qm.title}`); }
+  // 제출 자료: 새로 정리한 목록 + 같은 자료의 제출 상태 · 날짜 · 비고 · 첨부는 유지, 손대지 않은 예전 항목(제목 · 설명 줄)은 뺌
+  const oldSubs = p.lists.submissions;
+  p.lists.submissions = q.lists.submissions.map((x) => {
+    const o = oldSubs.find((y) => n(y.item).includes(n(x.item)) || n(x.item).includes(n(y.item)));
+    return o ? { ...x, id: o.id, to: o.to || x.to, submitted: o.submitted, status: o.status, note: o.note, files: o.files } : x;
+  });
+  for (const o of oldSubs) if (!p.lists.submissions.some((x) => x.id === o.id) && (o.submitted || o.note || o.files?.length || (o.status && o.status !== "미제출"))) p.lists.submissions.push(o);
+  if (oldSubs.length !== p.lists.submissions.length) log.push(`제출 자료 ${oldSubs.length} → ${p.lists.submissions.length}건`);
+  // 자재: 빈 소제목 정리, 비어 있으면 엑셀에서
+  for (const k of ["supplied", "consumables"]) p.lists[k] = p.lists[k].length ? dropEmptySections(p.lists[k]) : q.lists[k];
+  // 설비: 새 규칙의 설비 이름 · 대수로, 같은 설비의 BOM 은 고친 것을 유지. BOM 없는 예전 설비(업무 범위 줄 등)는 뺌
+  const oldUnits = p.units || [], used = new Set();
+  p.units = q.units.map((qu) => {
+    const o = oldUnits.find((u) => !used.has(u) && (n(u.name) === n(qu.name) || n(u.name).startsWith(n(qu.name)) || n(qu.name).startsWith(n(u.name))));
+    if (o) used.add(o);
+    return o ? { ...o, name: qu.name, qty: qu.qty, bom: o.bom.length ? o.bom : qu.bom } : qu;
+  });
+  for (const u of oldUnits) if (!used.has(u) && u.bom.length) p.units.push(u);
+  if (oldUnits.map((u) => u.name).join("|") !== p.units.map((u) => u.name).join("|")) log.push(`설비: ${oldUnits.map((u) => u.name).join(", ")} → ${p.units.map((u) => u.name).join(", ")}`);
+  p.source = q.source;
+  linkRevisions(p);
+  return log;
+}
+
 // 이미 있는 프로젝트에 원본 엑셀을 연결 (내용은 그대로): 같은 엑셀을 새로 읽은 q 에서 원본 파일 · 탭 순서 ·
 // 자료 이력/사양 시트의 원본 표 모양만 가져옴 (엑셀로 내보낼 때 표가 깨지지 않게). 지금 내용을 기준으로 지문을 새로 만듦
 function linkSource(p, q) {
@@ -3404,7 +3467,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:58</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 08:03</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));
@@ -3674,24 +3737,58 @@ function newProjectDialog() {
   });
 }
 
-async function importXlsx(file) {
-  await busy("엑셀 파일을 불러오는 중…", async (progress) => {
-    const p = await importWorkbook(file, progress);
-    // 같은 이름의 프로젝트가 이미 있으면: 그 프로젝트에 원본 엑셀만 연결(내용 유지)할지, 새 프로젝트로 추가할지
-    const same = Store.projects.find((x) => norm(x.overview.name) === norm(p.overview.name) || (p.overview.projectNo && x.overview.projectNo === p.overview.projectNo));
-    if (same && confirm(`'${same.overview.name}' 프로젝트가 이미 있습니다.\n\n[확인] 기존 프로젝트에 이 엑셀을 원본으로 연결 (지금 내용은 그대로, 엑셀로 내보낼 때 올린 모양 그대로)\n[취소] 새 프로젝트로 추가`)) {
-      const n = linkSource(same, p);
-      Store.touch(same);
-      await Store.flush();
-      go({ view: "project", id: same.id, tab: "overview" });
-      return toast(`원본 엑셀을 연결했습니다: 탭 ${n}개. 엑셀로 내보내면 올린 모양 그대로 나갑니다 (프로그램에서 고친 탭만 프로그램 양식).`, 7000);
-    }
-    Store.projects.push(p);
-    Store.changed();
-    await Store.flush();
-    go({ view: "project", id: p.id, tab: "overview" });
-    toast(`가져오기 완료: 자료 ${p.records.length}건, 사양 ${p.specs.length}개, 회의록 ${p.meetings.length}건, 일정 ${p.schedule.length}건`, 5000);
+// 같은 프로젝트의 엑셀을 다시 올렸을 때 고르기: 새 규칙으로 다시 정리 / 원본만 연결 / 새 프로젝트
+// (openDialog 는 닫힐 때 파일 정리(gc)를 하므로, 새로 읽은 첨부가 지워지지 않게 따로 만든 창을 씀)
+function askReimport(name, allowNew) {
+  return new Promise((resolve) => {
+    const dlg = document.createElement("dialog");
+    dlg.innerHTML = `<form method="dialog"><h3>'${esc(name)}' 프로젝트의 엑셀</h3>
+      <div class="opts reimport-opts">
+        <label><input type="radio" name="mode" value="reorg" checked> <b>새 규칙으로 다시 정리</b> <span class="muted small">(추천)</span><br>
+          <span class="muted small">엑셀을 지금 규칙으로 다시 읽어 사양 · 자료 이력 · 제출 자료 · 설비를 새로 정리합니다.
+          프로그램에서 입력 · 고친 내용(계약 · 정산, 주요 일자, 상태, 직접 추가한 자료 · 회의록, 제출 상태, 실천 의제 완료, BOM 수정)은 그대로 둡니다.</span></label>
+        <label><input type="radio" name="mode" value="link"> <b>원본 엑셀만 연결</b><br>
+          <span class="muted small">내용은 하나도 바꾸지 않고, 엑셀로 내보낼 때 표 모양만 원본에 맞춥니다.</span></label>
+        ${allowNew ? `<label><input type="radio" name="mode" value="new"> <b>새 프로젝트로 추가</b></label>` : ""}
+      </div><div class="actions"><button type="button" class="btn" data-cancel>취소</button><button class="btn primary">확인</button></div></form>`;
+    document.body.appendChild(dlg);
+    let val = null;
+    $("[data-cancel]", dlg).onclick = () => dlg.close();
+    $("form", dlg).onsubmit = (e) => { e.preventDefault(); val = $("form", dlg).mode.value; dlg.close(); };
+    dlg.addEventListener("close", () => { dlg.remove(); resolve(val); });
+    dlg.showModal();
   });
+}
+async function applyReimport(target, q, mode) {
+  if (mode === "reorg") {
+    const before = structuredClone(target);
+    const log = reorganizeFrom(target, q); // 원본 연결(원본 파일 · 표 모양)도 함께 됨
+    Store.touch(target);
+    await Store.flush();
+    go({ view: "project", id: target.id, tab: "overview" });
+    toast(log.length ? `새 규칙으로 다시 정리했습니다: ${log.slice(0, 4).join(" · ")}${log.length > 4 ? ` 외 ${log.length - 4}건` : ""}` : "다시 정리했습니다 (바뀐 내용 없음).", 9000);
+    window.__reorgUndo = { id: target.id, before }; // 콘솔에서 되돌리기용
+  } else {
+    const n = linkSource(target, q);
+    Store.touch(target);
+    await Store.flush();
+    go({ view: "project", id: target.id, tab: "overview" });
+    toast(`원본 엑셀을 연결했습니다: 탭 ${n}개. 엑셀로 내보낼 때 표가 원본 모양에 맞춰 나갑니다.`, 7000);
+  }
+}
+async function importXlsx(file) {
+  const p = await busy("엑셀 파일을 불러오는 중…", (progress) => importWorkbook(file, progress));
+  if (!p) return;
+  // 같은 이름(또는 Project No)의 프로젝트가 이미 있으면 다시 정리 / 원본 연결 / 새 프로젝트 중에서
+  const same = Store.projects.find((x) => norm(x.overview.name) === norm(p.overview.name) || (p.overview.projectNo && x.overview.projectNo === p.overview.projectNo));
+  const mode = same ? await askReimport(same.overview.name, true) : "new";
+  if (!mode) { Store.gc().catch(console.error); return toast("취소했습니다."); }
+  if (mode !== "new") return applyReimport(same, p, mode);
+  Store.projects.push(p);
+  Store.changed();
+  await Store.flush();
+  go({ view: "project", id: p.id, tab: "overview" });
+  toast(`가져오기 완료: 자료 ${p.records.length}건, 사양 ${p.specs.length}개, 회의록 ${p.meetings.length}건, 일정 ${p.schedule.length}건`, 5000);
 }
 
 // ------------------------------------------------------------- 공통 대화상자
@@ -4071,7 +4168,7 @@ function renderProject(p) {
         ${p.overview.project ? `<div class="muted small ellipsis">${esc(p.overview.project)}</div>` : ""}</div></div>
       <div class="row2">
         <button class="btn" id="exportXlsx" title="이 프로젝트를 기존 양식의 엑셀 파일로 저장">📊 엑셀로 내보내기</button>
-        <button class="btn" id="linkSource" title="이 프로젝트를 만든 엑셀을 원본으로 연결 — 내용은 그대로, 엑셀로 내보낼 때 올린 모양 그대로">📎 원본 엑셀 연결</button>
+        <button class="btn" id="linkSource" title="이 프로젝트의 엑셀을 골라 새 규칙으로 다시 정리하거나(입력 · 고친 내용 유지) 원본으로만 연결">📎 엑셀 다시 정리 · 연결</button>
         <button class="btn" id="exportZip" title="엑셀 + 첨부 원본 파일을 폴더 구조로 저장">🗂 전체 자료 ZIP</button>
         <button class="btn ${p.overview.status === "완료" ? "primary" : ""}" id="reportBtn" title="프로젝트 완료 보고서를 인쇄하거나 PDF로 저장">📄 완료 보고서</button>
       </div>
@@ -4079,14 +4176,13 @@ function renderProject(p) {
     <nav class="tabs">${TABS.map(([k, label]) => `<button data-tab="${k}" class="${k === tab ? "active" : ""}">${label}${counts[k] ? ` <small>${counts[k]}</small>` : ""}</button>`).join("")}</nav>
     <section id="tab"></section>`;
   $$(".tabs button").forEach((b) => (b.onclick = () => go({ view: "project", id: p.id, tab: b.dataset.tab })));
-  $("#linkSource").onclick = () => pickFiles(".xlsx", false, (f) => busy("원본 엑셀을 연결하는 중…", async (progress) => {
-    const q = await importWorkbook(f[0], progress);
-    const n = linkSource(p, q);
-    Store.touch(p);
-    await Store.flush();
-    rerender();
-    toast(`원본 엑셀을 연결했습니다: 탭 ${n}개. 엑셀로 내보내면 올린 모양 그대로 나갑니다 (이후 프로그램에서 고친 탭만 프로그램 양식).`, 7000);
-  }));
+  $("#linkSource").onclick = () => pickFiles(".xlsx", false, async (f) => {
+    const q = await busy("엑셀을 읽는 중…", (progress) => importWorkbook(f[0], progress));
+    if (!q) return;
+    const mode = await askReimport(p.overview.name, false);
+    if (!mode) { Store.gc().catch(console.error); return toast("취소했습니다."); }
+    await applyReimport(p, q, mode);
+  });
   $("#exportXlsx").onclick = () => saveFile(() => buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`, "엑셀 파일을 만드는 중…", { project: p.overview.name });
   $("#reportBtn").onclick = () => reportDialog(p);
   $("#exportZip").onclick = () => saveFile(() => buildProjectZip(p), `${p.overview.name}_${today()}.zip`, "ZIP 파일을 만드는 중…", { project: p.overview.name });
@@ -4582,7 +4678,7 @@ function tabOverviewView(p, el) {
         ${o.extra.filter((x) => x.label).map((x) => fact("•", esc(x.label), x.value)).join("")}
       </div>${p.source?.file && Store.fileMeta(p.source.file) ? `<div class="src-file small">📎 원본 엑셀 <a href="#" data-srcfile>${esc(p.source.name)}</a>
         <span class="muted">· ${esc(fmtDot(p.source.date))} 연결 · 엑셀로 내보내면 고치지 않은 탭은 이 모양 그대로</span></div>`
-        : `<div class="src-file small muted">원본 엑셀이 연결되지 않았습니다 — 위쪽 📎 원본 엑셀 연결로 이 프로젝트의 엑셀을 고르면, 내보낼 때 올린 모양 그대로 나갑니다.</div>`}</div>
+        : `<div class="src-file small muted">원본 엑셀이 연결되지 않았습니다 — 위쪽 📎 엑셀 다시 정리 · 연결로 이 프로젝트의 엑셀을 고르면 새 규칙으로 다시 정리하거나 원본으로 연결합니다.</div>`}</div>
       <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}
         <h3 style="margin-top:18px">비고</h3>${o.note ? `<div class="ov-note">${nl2br(o.note)}</div>` : `<p class="muted">비고가 없습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
     </div>

@@ -778,3 +778,4 @@ label .uf-tag, .uf-tag { position: absolute; top: 0; right: 0; font-size: 10.5px
 @keyframes ufFlash { 0%, 60% { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent) !important; } 100% { box-shadow: none; } }
 
 .src-file { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); line-height: 1.6; }
+.reimport-opts label { display: block; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; line-height: 1.5; }

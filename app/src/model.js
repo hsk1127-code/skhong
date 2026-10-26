@@ -790,6 +790,68 @@ async function rawSheet(raw, tab, { title = "", sub = "" } = {}) {
 // 짝수 행 줄무늬
 const ZEBRA = { cell: "cellZ", c: "cZ", date: "dateZ", money: "moneyZ" };
 const zebra = (row, i) => (i % 2 ? row.map((c) => (c && typeof c === "object" && ZEBRA[c.s] ? { ...c, s: ZEBRA[c.s] } : c)) : row);
+// 예전에 불러온 프로젝트를 지금 규칙으로 다시 정리: 같은 엑셀을 새로 읽은 q 의 정리 결과를 쓰되,
+// 프로그램에서 입력 · 고친 내용(계약 · 정산 · 주요 일자 · 상태, 직접 추가한 자료 · 회의록, 제출 상태, 실천 의제 완료, BOM 수정)은 유지
+function reorganizeFrom(p, q) {
+  const n = (t) => norm(t), log = [];
+  // 개요: 비어 있는 칸만 엑셀 값으로 채움 (고친 값은 그대로)
+  for (const k of ["name", ...OVERVIEW_FIELDS.map(([k]) => k)]) if (!String(p.overview[k] || "").trim() && q.overview[k]) p.overview[k] = q.overview[k];
+  for (const x of q.overview.extra) if (!p.overview.extra.some((y) => n(y.label) === n(x.label))) p.overview.extra.push(x);
+  // Revision · 변경사항 · 일정: 없는 줄만 더함
+  const addMissing = (dst, src, key) => { let c = 0; for (const x of src) if (!dst.some((y) => key(y) === key(x))) { dst.push(x); c++; } return c; };
+  addMissing(p.revisions, q.revisions, (r) => `${r.date}|${n(r.content)}`);
+  addMissing(p.lists.changes, q.lists.changes, (r) => `${r.date}|${n(r.content)}`);
+  if (!p.schedule.length) p.schedule = q.schedule; else addMissing(p.schedule, q.schedule, (t) => `${n(t.phase)}|${n(t.name)}`);
+  // 자료 이력: 엑셀에서 온 자료는 새 정리(메모 · 원본 표)로, 직접 추가한 자료와 보낸 곳 · 받는 곳 · 추가 첨부는 유지
+  for (const qr of q.records) {
+    const r = p.records.find((x) => n(x.title) === n(qr.title) && x.date === qr.date) || p.records.find((x) => n(x.title) === n(qr.title));
+    if (!r) { p.records.push(qr); log.push(`자료 추가: ${qr.title}`); continue; }
+    r.memo = qr.memo;
+    // 같은 그림을 다시 저장하지 않도록, 그림 수가 같으면 원래 그림을 쓰고 원본 표의 그림 위치도 원래 그림으로
+    if (qr.raw) {
+      const same = r.images.length === qr.images.length;
+      r.raw = same ? { ...qr.raw, imgs: (qr.raw.imgs || []).map((im) => ({ ...im, id: r.images[qr.images.indexOf(im.id)] || im.id })) } : qr.raw;
+      if (!same) r.images = qr.images;
+    }
+    r.rawSig = recSig(r);
+  }
+  // 사양: 엑셀에서 온 사양은 새 정리 결과로 (첨부는 원래 것 유지), 직접 만든 사양은 그대로
+  const specs = ensureSpecs(p);
+  for (const qs of q.specs) {
+    const sp = specs.find((x) => n(x.name) === n(qs.name));
+    if (!sp) { specs.push(qs); if (qs.rawRec) { const qr = q.records.find((x) => x.id === qs.rawRec), r = qr && p.records.find((x) => n(x.title) === n(qr.title)); qs.rawRec = r?.id; } log.push(`사양 추가: ${qs.name} (${qs.rows.length}행)`); continue; }
+    if (specSig(sp) !== specSig(qs)) log.push(`사양 다시 정리: ${sp.name} (${sp.rows.length} → ${qs.rows.length}행)`);
+    sp.rows = qs.rows; sp.note = qs.note || sp.note;
+    if (!sp.files.length) sp.files = qs.files;
+    if (qs.raw) sp.raw = qs.raw;
+    sp.rawSig = specSig(sp);
+  }
+  // 회의록: 직접 고친 내용(실천 의제 완료 등)이 있으므로 그대로 두고, 없던 회의록만 더함
+  for (const qm of q.meetings) if (!p.meetings.some((m) => n(m.title) === n(qm.title) && m.date === qm.date)) { p.meetings.push(qm); log.push(`회의록 추가: ${qm.title}`); }
+  // 제출 자료: 새로 정리한 목록 + 같은 자료의 제출 상태 · 날짜 · 비고 · 첨부는 유지, 손대지 않은 예전 항목(제목 · 설명 줄)은 뺌
+  const oldSubs = p.lists.submissions;
+  p.lists.submissions = q.lists.submissions.map((x) => {
+    const o = oldSubs.find((y) => n(y.item).includes(n(x.item)) || n(x.item).includes(n(y.item)));
+    return o ? { ...x, id: o.id, to: o.to || x.to, submitted: o.submitted, status: o.status, note: o.note, files: o.files } : x;
+  });
+  for (const o of oldSubs) if (!p.lists.submissions.some((x) => x.id === o.id) && (o.submitted || o.note || o.files?.length || (o.status && o.status !== "미제출"))) p.lists.submissions.push(o);
+  if (oldSubs.length !== p.lists.submissions.length) log.push(`제출 자료 ${oldSubs.length} → ${p.lists.submissions.length}건`);
+  // 자재: 빈 소제목 정리, 비어 있으면 엑셀에서
+  for (const k of ["supplied", "consumables"]) p.lists[k] = p.lists[k].length ? dropEmptySections(p.lists[k]) : q.lists[k];
+  // 설비: 새 규칙의 설비 이름 · 대수로, 같은 설비의 BOM 은 고친 것을 유지. BOM 없는 예전 설비(업무 범위 줄 등)는 뺌
+  const oldUnits = p.units || [], used = new Set();
+  p.units = q.units.map((qu) => {
+    const o = oldUnits.find((u) => !used.has(u) && (n(u.name) === n(qu.name) || n(u.name).startsWith(n(qu.name)) || n(qu.name).startsWith(n(u.name))));
+    if (o) used.add(o);
+    return o ? { ...o, name: qu.name, qty: qu.qty, bom: o.bom.length ? o.bom : qu.bom } : qu;
+  });
+  for (const u of oldUnits) if (!used.has(u) && u.bom.length) p.units.push(u);
+  if (oldUnits.map((u) => u.name).join("|") !== p.units.map((u) => u.name).join("|")) log.push(`설비: ${oldUnits.map((u) => u.name).join(", ")} → ${p.units.map((u) => u.name).join(", ")}`);
+  p.source = q.source;
+  linkRevisions(p);
+  return log;
+}
+
 // 이미 있는 프로젝트에 원본 엑셀을 연결 (내용은 그대로): 같은 엑셀을 새로 읽은 q 에서 원본 파일 · 탭 순서 ·
 // 자료 이력/사양 시트의 원본 표 모양만 가져옴 (엑셀로 내보낼 때 표가 깨지지 않게). 지금 내용을 기준으로 지문을 새로 만듦
 function linkSource(p, q) {

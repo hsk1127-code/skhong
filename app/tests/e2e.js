@@ -309,6 +309,22 @@ const assert = require("assert");
     const has = (sh, t) => (sh?.rows || []).some((r) => (r || []).some((v) => String(v).startsWith(t)));
     return { n, hasRec: !!rec, recRaw: rec ? !has(recSheet, "날짜") : true, schedOrganized: has(sched, "■ 일정표") };
   });
+  // 예전 규칙으로 등록된 프로젝트를 새 규칙으로 다시 정리: 엑셀 내용은 새로 정리, 프로그램에서 입력 · 고친 내용은 유지
+  const reorg = await p.evaluate(async () => {
+    const cur = Store.project(route.id);
+    const old = structuredClone(cur);
+    old.lists.submissions = [{ id: "j1", item: "1.1. 제목 줄", status: "미제출" }, ...old.lists.submissions];
+    old.units = [{ id: "u9", name: `${old.units[0].name} 9대`, qty: 9, bom: old.units[0].bom }, { id: "u8", name: "상위시스템 연동", qty: 1, bom: [] }];
+    old.overview.orderAmount = "123"; old.overview.customer = "고친 고객사";
+    old.records.push({ id: "mine", date: "2026-10-01", kind: "자료", title: "직접 추가", memo: "", images: [], files: [] });
+    const fresh = await importWorkbook(new File([await Store.getBlob(cur.source.file)], cur.source.name));
+    reorganizeFrom(old, fresh);
+    return { junk: old.lists.submissions.some((x) => x.id === "j1"), units: old.units.map((u) => u.name), amount: old.overview.orderAmount,
+      customer: old.overview.customer, mine: old.records.some((r) => r.id === "mine"), bom: old.units[0].bom.length };
+  });
+  assert.strictEqual(reorg.junk, false);
+  assert.ok(!reorg.units.includes("상위시스템 연동"));
+  assert.deepStrictEqual([reorg.amount, reorg.customer, reorg.mine], ["123", "고친 고객사", true]);
   assert.ok(!link.noSource, "올린 엑셀 원본을 보관해야 함");
   assert.ok(link.recRaw && link.schedOrganized, JSON.stringify(link));
   assert.strictEqual(rt.rev, rt.wantRev);
