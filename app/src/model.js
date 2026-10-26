@@ -566,73 +566,116 @@ const fileNames = (ids) => (ids || []).map((id) => Store.fileMeta(id)?.name).fil
 
 // 설비별 BOM 시트 + 전체 합계 시트
 function unitBomSheets(p) {
-  const H = (v) => ({ v, s: "head" }), T = (v) => ({ v: v ?? "", s: "cell" });
+  const H = (v) => ({ v, s: "th" }), T = (v) => ({ v: v ?? "", s: "cell" }), C = (v) => ({ v: v ?? "", s: "c" });
   const sheets = ensureUnits(p).map((u) => {
-    const rows = [[{ v: `BOM · ${u.name}`, s: "title" }, null, null, null, null, { v: "대수", s: "head" }, { v: Number(u.qty) || 0, s: "cell" }], [],
+    const rows = [[{ v: `BOM · ${u.name}`, s: "big" }, null, null, null, null, { v: "대수", s: "label" }, { v: Number(u.qty) || 0, s: "c" }], [],
       [H("NO"), H("구분"), H("품목"), H("모델명"), H("업체명"), H("1대당 수량"), H("총 수량"), H("비고")]];
     let n = 0;
     u.bom.forEach((r) => {
-      if (!isItemRow(r)) { rows.push([T(""), { v: r.item.replace(/^■\s*/, ""), s: "head" }, T(""), T(""), T(""), T(""), T(""), T("")]); return; }
+      if (!isItemRow(r)) { rows.push([{ v: "", s: "sec" }, { v: r.item.replace(/^■\s*/, ""), s: "sec" }, ...Array(6).fill(0).map(() => ({ v: "", s: "sec" }))]); return; }
       const q = Number(r.qty), rowNo = rows.length + 1;
-      rows.push([{ v: ++n, s: "cell" }, T(r.kind), T(r.item), T(r.model), T(r.maker), { v: r.qty !== "" && !isNaN(q) ? q : r.qty, s: "cell" },
-        r.qty !== "" && !isNaN(q) ? { f: `F${rowNo}*$G$1`, v: unitTotalQty(r, u), s: "cell" } : T(""), T(r.note)]);
+      rows.push([C(++n), T(r.kind), T(r.item), T(r.model), T(r.maker), { v: r.qty !== "" && !isNaN(q) ? q : r.qty, s: "c" },
+        r.qty !== "" && !isNaN(q) ? { f: `F${rowNo}*$G$1`, v: unitTotalQty(r, u), s: "c" } : T(""), T(r.note)]);
     });
-    return { name: `BOM_${u.name}`, cols: [6, 12, 22, 22, 16, 10, 9, 24], rows };
+    return { name: `BOM_${u.name}`, cols: [6, 12, 24, 24, 16, 10, 9, 26], rows, heights: { 0: 28, 2: 22 }, freeze: 3, tab: "F59E0B", grid: false, landscape: true };
   });
   const { units, rows } = bomSummary(p);
-  const sum = [[{ v: "BOM 전체 합계 (구매 수량)", s: "title" }], [],
+  const sum = [[{ v: "BOM 전체 합계 (구매 수량)", s: "big" }], [],
     [H("NO"), H("구분"), H("품목"), H("모델명"), H("업체명"), ...units.map((u) => H(`${u.name} ×${u.qty}`)), H("총 수량"), H("비고")]];
-  rows.forEach((r, i) => sum.push([{ v: i + 1, s: "cell" }, T(r.kind), T(r.item), T(r.model), T(r.maker),
-    ...units.map((u) => ({ v: r.per[u.id] ?? "", s: "cell" })), { v: r.total, s: "cell" }, T(r.notes.join(" / "))]));
-  sheets.push({ name: "BOM 합계", cols: [6, 12, 22, 22, 16, ...units.map(() => 14), 10, 30], rows: sum });
+  rows.forEach((r, i) => sum.push([C(i + 1), T(r.kind), T(r.item), T(r.model), T(r.maker),
+    ...units.map((u) => ({ v: r.per[u.id] ?? "", s: "c" })), { v: r.total, s: "total" }, T(r.notes.join(" / "))]));
+  const last = Xlsx.colName(6 + units.length);
+  sheets.push({ name: "BOM 합계", cols: [6, 12, 24, 24, 16, ...units.map(() => 14), 10, 30], rows: sum, heights: { 0: 28, 2: 22 }, freeze: 3,
+    filter: rows.length ? `A3:${last}${sum.length}` : "", tab: "F59E0B", grid: false, landscape: true });
   return sheets;
 }
 
+// 엑셀로 내보내기: 보기 좋게 (진한 머리글, 구역 제목, 상태 색, 머리글 고정·필터, 가로 인쇄)
+// 시트 이름·글자·열 위치는 다시 불러오기(importXlsx)와 맞춰 둔다
+const XL_TAB = { ov: "3B46B8", sched: "15803D", rev: "6B7280", spec: "7C3AED", part: "F59E0B", sub: "0EA5E9", chg: "DC2626", doc: "94A3B8" };
+const stStyle = (v) => (/^(완료|제출|승인|수금완료|보증 중)$/.test(v) ? "ok" : /^(진행|청구)$/.test(v) ? "info" : /^(지연|반려|만료)$/.test(v) ? "bad"
+  : /^(미제출|미청구|예정|시작 전|미정)$/.test(v) ? "warn" : "c");
 async function buildWorkbook(p) {
   const sheets = [];
-  const table = (key, extraTitle) => {
+  const th = (labels) => labels.map((v) => ({ v, s: "th" }));
+  const table = (key, title, tab) => {
     const def = LISTS[key];
-    const rows = [head(["NO", ...def.cols.map((c) => c.label), ...(def.files ? ["첨부 파일"] : [])])];
-    listRows(p, key).forEach((r, i) => rows.push([{ v: i + 1, s: "cell" }, ...def.cols.map((c) => cellOf(c, r[c.key])),
+    const rows = [[{ v: title || def.title, s: "big" }], [], th(["NO", ...def.cols.map((c) => c.label), ...(def.files ? ["첨부 파일"] : [])])];
+    listRows(p, key).forEach((r, i) => rows.push([{ v: i + 1, s: "c" }, ...def.cols.map((c) => c.key === "status" ? { v: r[c.key] || "", s: stStyle(r[c.key] || "") }
+      : c.type === "date" && isDate(r[c.key]) ? { v: r[c.key], s: "date" } : cellOf(c, r[c.key])),
       ...(def.files ? [{ v: fileNames(r.files), s: "cell" }] : [])]));
-    if (extraTitle) rows.unshift([{ v: extraTitle, s: "title" }]);
-    return { name: def.sheet, cols: [6, ...def.cols.map((c) => c.w), ...(def.files ? [30] : [])], rows };
+    const last = Xlsx.colName(def.cols.length + (def.files ? 1 : 0));
+    return { name: def.sheet, cols: [6, ...def.cols.map((c) => c.w), ...(def.files ? [30] : [])], rows, heights: { 0: 28, 2: 22 },
+      freeze: 3, filter: rows.length > 3 ? `A3:${last}${rows.length}` : "", tab, grid: false, landscape: true };
   };
-  sheets.push(table("revisions"));
 
-  const ov = p.overview;
-  const ovRows = [[{ v: `설비/품목명: ${ov.name}`, s: "title" }], [], head(["분류", "항목", "비고"])];
-  for (const [k, label] of OVERVIEW_FIELDS) ovRows.push([{ v: label, s: "head" }, { v: ov[k] || "", s: k === "scope" || k === "note" ? "wrap" : "cell" }, { v: "", s: "cell" }]);
-  for (const x of ov.extra) ovRows.push([{ v: x.label, s: "head" }, { v: x.value, s: "cell" }, { v: "", s: "cell" }]);
-  ovRows.push([{ v: "상태", s: "head" }, { v: ov.status, s: "cell" }, { v: "", s: "cell" }],
-    [{ v: "담당자", s: "head" }, { v: ov.manager, s: "cell" }, { v: "", s: "cell" }]);
-  const kdx = keyDates(p);
-  for (const [k, label] of KEY_DATES.filter(([k]) => k !== "receiveDate")) ovRows.push([{ v: label, s: "head" }, { v: kdx[k].value, s: kdx[k].value ? "date" : "cell" }, { v: kdx[k].auto ? "자동" : "", s: "cell" }]);
-  ovRows.push([{ v: "Warranty 기간", s: "head" }, { v: kdx.warranty.text, s: "cell" }, { v: kdx.warranty.state, s: "cell" }]);
-  const ci = contractInfo(p);
-  ovRows.push([{ v: "발주일", s: "head" }, { v: ov.orderDate || "", s: ov.orderDate ? "date" : "cell" }, { v: "", s: "cell" }],
-    [{ v: "발주금액", s: "head" }, { v: ci.amount || "", s: "cell" }, { v: ci.amount ? `부가세 ${ov.vat || "별도"} · 금 ${koreanAmount(ci.amount)}원정` : "", s: "cell" }]);
-  ovRows.push([{ v: "실행 예가", s: "head" }, { v: ci.estimateCost || "", s: "money" }, { v: ci.estProfit != null ? `예상 이익 (실행 예가 − 실행가) ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", s: "cell" }],
-    [{ v: "실행가", s: "head" }, { v: ci.actualCost || "", s: "money" }, { v: "", s: "cell" }],
-    [{ v: "재경비", s: "head" }, { v: ci.overhead || "", s: "money" }, { v: ci.overheadRate ? `(실행가 + 인건비) × ${ci.overheadRate}%` : "", s: "cell" }],
-    [{ v: "워런티비", s: "head" }, { v: ci.warrantyCost || "", s: "money" }, { v: ci.warrantyRate ? `(실행가 + 인건비) × ${ci.warrantyRate}%` : "", s: "cell" }],
-    [{ v: "실행가 합계", s: "head" }, { v: ci.totalCost || "", s: "money" }, { v: ci.totalProfit != null ? `실행가+인건비+재경비+워런티비 · 이익(발주금액 − 실행가 합계) ${ci.totalProfit < 0 ? "−" : ""}${fmtWon(Math.abs(ci.totalProfit))} (${(ci.totalRate * 100).toFixed(1)}%)` : "실행가+인건비+재경비+워런티비", s: "cell" }],
-    [{ v: "인건비", s: "head" }, { v: ci.labor || "", s: "money" }, { v: [ci.mdTotal && `${ci.mdText} = ${ci.mdTotal} M/D`, ci.mdRate && `단가 ${fmtWon(ci.mdRate)}`].filter(Boolean).join(" · "), s: "cell" }],
-    [{ v: "실행목표가", s: "head" }, { v: ci.targetCost || "", s: "money" }, { v: ci.targetProfit != null ? `목표 이익 (실행목표가 − 실행가) ${fmtWon(ci.targetProfit)} (${(ci.targetRate * 100).toFixed(1)}%)` : "", s: "cell" }]);
-  for (const x of ci.payments) ovRows.push([{ v: `정산: ${x.name}`, s: "head" }, { v: `${x.ratio}% · ${fmtWon(x.amount)} · ${x.cond || ""}`, s: "cell" },
-    { v: [x.status, x.paidDate].filter(Boolean).join(" "), s: "cell" }]);
-  sheets.push({ name: "개요", cols: [16, 60, 24], rows: ovRows, merges: ["A1:C1"] });
+  // ── 개요: 구역별 (프로젝트 개요 · 주요 일자 · 계약 · 정산 · 정산 단계)
+  const ov = p.overview, kdx = keyDates(p), ci = contractInfo(p);
+  const L = (v) => ({ v, s: "label" }), V = (v, st = "cell") => ({ v: v ?? "", s: st }), N = (v = "") => ({ v, s: "cell" });
+  const sec = (t) => [{ v: t, s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }];
+  const won = (n) => (n ? { v: n, s: "moneyL" } : V(""));
+  const ovRows = [[{ v: `설비/품목명: ${ov.name}`, s: "big" }], [{ v: `${ov.customer || ""}${ov.customer ? " · " : ""}${ov.project || ""} · 출력일 ${today()}`, s: "note" }],
+    th(["분류", "항목", "비고"]), sec("■ 프로젝트 개요")];
+  for (const [k, label] of OVERVIEW_FIELDS) ovRows.push([L(label), V(ov[k] || "", k === "scope" || k === "note" ? "wrap" : "cell"), N()]);
+  for (const x of ov.extra) ovRows.push([L(x.label), V(x.value), N()]);
+  ovRows.push([L("상태"), V(ov.status, stStyle(ov.status) === "c" ? "cell" : stStyle(ov.status)), N()], [L("담당자"), V(ov.manager), N()]);
+  ovRows.push(sec("■ 주요 일자 · Warranty"));
+  for (const [k, label] of KEY_DATES.filter(([k]) => k !== "receiveDate")) ovRows.push([L(label), V(kdx[k].value, kdx[k].value ? "dateL" : "cell"), V(kdx[k].auto ? "자동" : "", "rem")]);
+  ovRows.push([L("Warranty 기간"), V(kdx.warranty.text), V(kdx.warranty.state, kdx.warranty.state ? stStyle(kdx.warranty.state) : "cell")]);
+  ovRows.push(sec("■ 계약 · 정산"),
+    [L("발주일"), V(ov.orderDate || "", ov.orderDate ? "dateL" : "cell"), V(ov.vat ? `부가세 ${ov.vat}` : "", "rem")],
+    [L("발주금액"), won(ci.amount), V(ci.amount ? `금 ${koreanAmount(ci.amount)}원정` : "", "rem")],
+    [L("실행 예가"), won(ci.estimateCost), V(ci.estProfit != null ? `예상 이익 (실행 예가 − 실행가) ${fmtWon(ci.estProfit)} (${(ci.estRate * 100).toFixed(1)}%)` : "", "rem")],
+    [L("실행목표가"), won(ci.targetCost), V(ci.targetProfit != null ? `목표 이익 (실행목표가 − 실행가) ${fmtWon(ci.targetProfit)} (${(ci.targetRate * 100).toFixed(1)}%)` : "", "rem")],
+    [L("실행가"), won(ci.actualCost), N()],
+    [L("인건비"), won(ci.labor), V([ci.mdTotal && `${ci.mdText} = ${ci.mdTotal} M/D`, ci.mdRate && `단가 ${fmtWon(ci.mdRate)}`].filter(Boolean).join(" · "), "rem")],
+    [L("재경비"), won(ci.overhead), V(ci.overheadRate ? `(실행가 + 인건비) × ${ci.overheadRate}%` : "", "rem")],
+    [L("워런티비"), won(ci.warrantyCost), V(ci.warrantyRate ? `(실행가 + 인건비) × ${ci.warrantyRate}%` : "", "rem")],
+    // 이익은 따로 행을 만들지 않고 실행가 합계 옆에 (다시 불러올 때 추가 항목이 늘지 않도록)
+    [L("실행가 합계"), ci.totalCost ? { v: ci.totalCost, s: "total" } : V(""),
+      ci.totalProfit != null ? V(`이익 ${ci.totalProfit < 0 ? "−" : ""}${fmtWon(Math.abs(ci.totalProfit))} (${(ci.totalRate * 100).toFixed(1)}%) = 발주금액 − 실행가 합계`, ci.totalProfit < 0 ? "bad" : "ok")
+        : V("실행가 + 인건비 + 재경비 + 워런티비", "rem")]);
+  if (ci.payments.length) {
+    ovRows.push(sec(`■ 정산 단계 (정산 완료 ${ci.paidRatio}%)`));
+    for (const x of ci.payments) ovRows.push([L(`정산: ${x.name}`), V([`${x.ratio}%`, fmtWon(x.amount), x.cond].filter(Boolean).join(" · ")),
+      V([x.status, x.paidDate].filter(Boolean).join(" "), stStyle(x.status || ""))]);
+  }
+  sheets.push({ name: "개요", cols: [18, 60, 44], rows: ovRows, heights: { 0: 30, 2: 22 }, freeze: 3, tab: XL_TAB.ov, grid: false, fit: true });
 
+  // ── 일정: 단계 이름은 단계의 첫 줄에만 (다시 불러올 때 아래 줄로 이어짐), 상태 색
+  const base = today();
+  const sRows = [[{ v: "일정", s: "big" }, null, null, null, null, null, null, null, { v: "기준일", s: "label" }, { v: base, s: "date" }], [],
+    th(["단계", "세부사항", "비고", "담당자", "시작일", "종료일", "기간", "경과일", "잔여일", "상태"])];
+  const infos = scheduleInfos(p.schedule, base);
+  let prevPhase = null;
+  for (const [k, t] of p.schedule.entries()) {
+    const info = infos[k], first = t.phase !== prevPhase;
+    prevPhase = t.phase;
+    sRows.push([{ v: first ? t.phase : "", s: first ? "label" : "cell" }, { v: t.name, s: "cell" }, { v: t.note, s: "cell" }, { v: t.owner, s: "c" },
+      { v: t.start, s: "date" }, { v: t.end, s: "date" }, { v: info.dur, s: "c" }, { v: info.elapsed, s: "c" },
+      { v: info.remain, s: "c" }, { v: info.status, s: stStyle(info.status) }]);
+  }
+  sheets.push({ name: "일정", cols: [16, 30, 20, 10, 12, 12, 7, 7, 8, 12], rows: sRows, heights: { 0: 28, 2: 22 }, freeze: 3,
+    filter: sRows.length > 3 ? `A3:J${sRows.length}` : "", tab: XL_TAB.sched, grid: false, landscape: true });
+
+  sheets.push(table("revisions", "Revision", XL_TAB.rev));
+
+  // ── 사양: 머리글이 맨 위 (다시 불러올 때 표로 인식)
   for (const sp of ensureSpecs(p)) {
-    const rows = [head(["NO", ...SPEC_COLS.map((c) => c.label)])];
-    sp.rows.forEach((r, i) => rows.push([{ v: i + 1, s: "cell" }, ...SPEC_COLS.map((c) => cellOf(c, r[c.key]))]));
+    const rows = [th(["NO", ...SPEC_COLS.map((c) => c.label)])];
+    sp.rows.forEach((r, i) => rows.push(/^■/.test(r.item || "") && !r.content
+      ? [{ v: "", s: "sec" }, ...SPEC_COLS.map((c) => ({ v: c.key === "item" ? r.item : r[c.key] || "", s: "sec" }))]
+      : [{ v: i + 1, s: "c" }, ...SPEC_COLS.map((c) => cellOf(c, r[c.key]))]));
     if (sp.note) rows.push([], [{ v: sp.note, s: "wrap" }]);
     const fileList = fileNames(sp.files.filter((id) => !Store.fileMeta(id)?.type.startsWith("image/")));
-    if (fileList) rows.push([], [{ v: `첨부 파일: ${fileList}`, s: "wrap" }]);
-    sheets.push({ name: sp.name, cols: [6, ...SPEC_COLS.map((c) => c.w)], rows, images: await imageEntries(sp.files, rows.length + 1) });
+    if (fileList) rows.push([], [{ v: `첨부 파일: ${fileList}`, s: "note" }]);
+    sheets.push({ name: sp.name, cols: [6, ...SPEC_COLS.map((c) => c.w)], rows, heights: { 0: 22 }, freeze: 1, tab: XL_TAB.spec, grid: false, landscape: true,
+      images: await imageEntries(sp.files, rows.length + 1) });
   }
-  sheets.push(table("supplied", "지정품/지급품"), table("consumables", "소모품"), ...unitBomSheets(p), table("submissions"), table("changes"));
+  sheets.push(table("supplied", "지정품/지급품", XL_TAB.part), table("consumables", "소모품", XL_TAB.part), ...unitBomSheets(p),
+    table("submissions", "제출 자료", XL_TAB.sub), table("changes", "변경사항", XL_TAB.chg));
 
+  // ── 자료 이력 · 회의록 (날짜순)
   const dated = [
     ...p.records.map((r) => ({ date: r.date, kind: "record", r })),
     ...p.meetings.map((m) => ({ date: m.date, kind: "meeting", m })),
@@ -640,45 +683,35 @@ async function buildWorkbook(p) {
   for (const x of dated) {
     if (x.kind === "record") {
       const r = x.r;
-      const rows = [[{ v: r.title, s: "title" }], [],
-        [{ v: "날짜", s: "head" }, { v: r.date, s: "date" }], [{ v: "구분", s: "head" }, { v: r.kind, s: "cell" }],
-        [{ v: "보낸 곳", s: "head" }, { v: r.from, s: "cell" }], [{ v: "받는 곳", s: "head" }, { v: r.to, s: "cell" }],
-        [{ v: "첨부 파일", s: "head" }, { v: fileNames(r.files), s: "cell" }]];
+      const rows = [[{ v: r.title, s: "big" }], [],
+        [L("날짜"), { v: r.date, s: "dateL" }], [L("구분"), V(r.kind)],
+        [L("보낸 곳"), V(r.from)], [L("받는 곳"), V(r.to)],
+        [L("첨부 파일"), V(fileNames(r.files))]];
       if (r.memo) rows.push([], [{ v: r.memo, s: "wrap" }]);
       const images = await imageEntries(r.images, rows.length + 1);
-      sheets.push({ name: `${r.title}(${fmtDot(r.date)})`, cols: [14, 90], rows, images });
+      sheets.push({ name: `${r.title}(${fmtDot(r.date)})`, cols: [14, 90], rows, heights: { 0: 28 }, tab: XL_TAB.doc, grid: false, fit: true, images });
     } else {
       const m = x.m;
-      const rows = [[{ v: "회     의     록", s: "title" }], [],
-        [{ v: "부 서 명", s: "head" }, { v: m.dept, s: "cell" }, { v: "작 성 자", s: "head" }, { v: m.writer, s: "cell" }],
-        [{ v: "회의일자", s: "head" }, { v: m.date, s: "date" }, { v: "회의장소", s: "head" }, { v: m.place, s: "cell" }],
-        [{ v: "회의시간", s: "head" }, { v: m.time, s: "cell" }, { v: "구분", s: "head" }, { v: m.kind, s: "cell" }],
-        [{ v: "제   목", s: "head" }, { v: m.title, s: "cell" }, { v: "", s: "cell" }, { v: "", s: "cell" }],
-        [{ v: "참 석 자", s: "head" }, { v: m.attendees, s: "cell" }, { v: "", s: "cell" }, { v: "", s: "cell" }],
-        [], [{ v: "회 의 내 용", s: "head" }, { v: "", s: "head" }, { v: "", s: "head" }, { v: "", s: "head" }],
-        [{ v: m.content, s: "cell" }, { v: "", s: "cell" }, { v: "", s: "cell" }, { v: "", s: "cell" }],
-        [], [{ v: "실천 의제", s: "title" }], head(["지시 내용", "담당자", "기한", "완료"])];
+      const rows = [[{ v: "회     의     록", s: "big" }], [],
+        [L("부 서 명"), V(m.dept), L("작 성 자"), V(m.writer)],
+        [L("회의일자"), { v: m.date, s: "dateL" }, L("회의장소"), V(m.place)],
+        [L("회의시간"), V(m.time), L("구분"), V(m.kind)],
+        [L("제   목"), V(m.title), V(""), V("")],
+        [L("참 석 자"), V(m.attendees), V(""), V("")],
+        [], [{ v: "회 의 내 용", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }],
+        [V(m.content, "wrap"), V(""), V(""), V("")],
+        [], [{ v: "실천 의제", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }, { v: "", s: "sec" }], th(["지시 내용", "담당자", "기한", "완료"])];
       const merges = ["A1:D1", "B6:D6", "B7:D7", "A9:D9", "A10:D10"];
-      for (const a of m.actions) rows.push([{ v: a.text, s: "cell" }, { v: a.owner, s: "cell" }, { v: a.due, s: isDate(a.due) ? "date" : "cell" }, { v: a.done ? "완료" : "", s: "cell" }]);
-      rows.push([], [{ v: "특이사항", s: "head" }, { v: m.notes, s: "cell" }, { v: "", s: "cell" }, { v: "", s: "cell" }]);
+      for (const a of m.actions) rows.push([V(a.text), { v: a.owner, s: "c" }, { v: a.due, s: isDate(a.due) ? "date" : "c" }, { v: a.done ? "완료" : "", s: a.done ? "ok" : "c" }]);
+      rows.push([], [L("특이사항"), V(m.notes), V(""), V("")]);
       merges.push(`B${rows.length}:D${rows.length}`);
-      if (m.files?.length) rows.push([{ v: "첨부 파일", s: "head" }, { v: fileNames(m.files), s: "cell" }]);
+      if (m.files?.length) rows.push([L("첨부 파일"), V(fileNames(m.files))]);
+      const lines = Math.max(3, String(m.content || "").split("\n").length);
       const images = await imageEntries(m.files || [], rows.length + 1);
-      sheets.push({ name: `${m.title}(${fmtDot(m.date)})`, cols: [40, 30, 14, 40], rows, merges, images });
+      sheets.push({ name: `${m.title}(${fmtDot(m.date)})`, cols: [40, 30, 14, 40], rows, merges, heights: { 0: 30, 9: Math.min(400, lines * 15 + 8) },
+        tab: XL_TAB.doc, grid: false, fit: true, images });
     }
   }
-
-  const base = today();
-  const sRows = [[{ v: "일정", s: "title" }, null, null, null, null, null, null, null, { v: "기준일", s: "head" }, { v: base, s: "date" }], [],
-    head(["단계", "세부사항", "비고", "담당자", "시작일", "종료일", "기간", "경과일", "잔여일", "상태"])];
-  const infos = scheduleInfos(p.schedule, base);
-  for (const [k, t] of p.schedule.entries()) {
-    const info = infos[k];
-    sRows.push([{ v: t.phase, s: "cell" }, { v: t.name, s: "cell" }, { v: t.note, s: "cell" }, { v: t.owner, s: "cell" },
-      { v: t.start, s: "date" }, { v: t.end, s: "date" }, { v: info.dur, s: "cell" }, { v: info.elapsed, s: "cell" },
-      { v: info.remain, s: "cell" }, { v: info.status, s: "cell" }]);
-  }
-  sheets.push({ name: "일정", cols: [14, 28, 18, 10, 12, 12, 7, 7, 7, 8], rows: sRows });
   return Xlsx.write(sheets);
 }
 

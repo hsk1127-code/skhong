@@ -229,6 +229,17 @@ const assert = require("assert");
   // 내보내기
   const [x] = await Promise.all([p.waitForEvent("download"), p.click("#exportXlsx")]);
   await x.saveAs(path.join(work, "out.xlsx"));
+  // 보기 좋게 꾸민 내보내기도 다시 읽으면 같은 내용 (개요가 첫 시트, 일정 단계는 첫 줄에만 적어도 이어짐, Revision 표)
+  const rt = await p.evaluate(async () => {
+    const q = Store.project(route.id);
+    const wb = await Xlsx.read(new Blob([await buildWorkbook(q)]));
+    const sh = (n) => wb.sheets.find((x) => x.name === n);
+    return { first: wb.sheets[0].name, sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
+      rev: readTable(sh("Revision"), LISTS.revisions.cols).length, wantRev: q.revisions.length };
+  });
+  assert.strictEqual(rt.first, "개요");
+  assert.deepStrictEqual(rt.sched, rt.want);
+  assert.strictEqual(rt.rev, rt.wantRev);
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));
 
