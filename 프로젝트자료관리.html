@@ -1060,7 +1060,13 @@ const Xlsx = (() => {
       for (const f of all(st, "numFmt")) fmts[f.getAttribute("numFmtId")] = f.getAttribute("formatCode");
       const kids = (el) => (el ? [...el.children] : []);
       const bold = kids(first(st, "fonts")).map((f) => [...f.children].some((x) => x.localName === "b" && x.getAttribute("val") !== "0"));
-      const filled = kids(first(st, "fills")).map((f) => { const pf = first(f, "patternFill"); return !!pf && pf.getAttribute("patternType") === "solid"; });
+      // 배경색: 흰색(FFFFFF, 테마 0 그대로)은 배경 없음으로 봄
+      const filled = kids(first(st, "fills")).map((f) => {
+        const pf = first(f, "patternFill"), fg = pf && first(pf, "fgColor");
+        if (!pf || pf.getAttribute("patternType") !== "solid") return false;
+        const rgb = (fg?.getAttribute("rgb") || "").toUpperCase(), theme = fg?.getAttribute("theme"), tint = Number(fg?.getAttribute("tint") || 0);
+        return !(/^(FF)?FFFFFF$/.test(rgb) || (theme === "0" && !tint) || (!rgb && theme == null && fg?.getAttribute("indexed") === "9"));
+      });
       const bordered = kids(first(st, "borders")).map((b) => [...b.children].some((x) => /^(left|right|top|bottom)$/.test(x.localName) && x.getAttribute("style")));
       const xfs = first(st, "cellXfs");
       if (xfs) all(xfs, "xf").forEach((xf, i) => {
@@ -1164,7 +1170,9 @@ const Xlsx = (() => {
     // 줄무늬(짝수 행) · 일정표 칸 안쪽(왼쪽 선 없음) · 한눈에 보기 카드(큰 숫자 · 작은 이름 · 초록/빨강 숫자)
     cellZ: 30, cZ: 31, dateZ: 32, moneyZ: 33, gIn: 34, gNowIn: 35, kpi: 36, kpiL: 37, kpiOk: 38, kpiBad: 39, kpiS: 40, gEL: 41, gNowL: 42,
     // 원본 시트 다시 쓰기: 머리글(굵게·회색 바탕·테두리) 가운데/왼쪽, 굵은 글자(테두리 없음)
-    rawHeadC: 43, rawHeadL: 44, rawBold: 45 };
+    rawHeadC: 43, rawHeadL: 44, rawBold: 45,
+    // 문서형 시트의 번호 제목(파란 굵은 글씨), 머리글 왼쪽 정렬
+    h2: 46, thL: 47 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
@@ -1189,7 +1197,7 @@ const Xlsx = (() => {
 <border><left style="thin"><color rgb="FFDDE1EA"/></left><right style="thin"><color rgb="FFDDE1EA"/></right><top style="thin"><color rgb="FFDDE1EA"/></top><bottom style="thin"><color rgb="FFDDE1EA"/></bottom><diagonal/></border>
 <border><left style="thin"><color rgb="FFE5E7EB"/></left><right/><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="46">
+<cellXfs count="48">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
@@ -1236,6 +1244,8 @@ const Xlsx = (() => {
 <xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
@@ -1945,6 +1955,14 @@ function numberedTable(sheet) {
   }
   return null;
 }
+// 시트를 위로 n줄 당김 (값 · 칸 모양 · 합친 칸 · 그림 · 행 높이)
+function shiftSheet(sheet, n) {
+  sheet.rows = sheet.rows.slice(n);
+  sheet.flags = (sheet.flags || []).slice(n);
+  sheet.merges = sheet.merges.filter((m) => m.r1 >= n).map((m) => ({ ...m, r1: m.r1 - n, r2: m.r2 - n }));
+  sheet.images.forEach((im) => (im.row = Math.max(0, im.row - n)));
+  sheet.heights = Object.fromEntries(Object.entries(sheet.heights || {}).filter(([r]) => r >= n).map(([r, h]) => [r - n, h]));
+}
 const sheetLines = (sheet) => filledRows(sheet).map((row) => {
   const vals = [];
   (row || []).forEach((v) => { const t = cellText(v); if (t && vals[vals.length - 1] !== t) vals.push(t); });
@@ -2087,6 +2105,9 @@ async function importWorkbook(file, onProgress = () => {}) {
     const key = norm(sheet.name);
     const title = titleFromSheet(sheet.name);
     const date = dateFromText(sheet.name);
+    // 이 프로그램이 내보낸 시트의 맨 위 제목 · 설명 줄(3줄)은 내용이 아니므로 떼고 읽음
+    const t0 = (sheet.rows[0] || []).map(cellText).filter(Boolean), t1 = (sheet.rows[1] || []).map(cellText).filter(Boolean);
+    if (t0.length === 1 && norm(t0[0]) === norm(title) && t1.length === 1 && !(sheet.rows[2] || []).some((v) => cellText(v))) shiftSheet(sheet, 3);
     const images = [], files = [], imgPos = [];
     for (let k = 0; k < sheet.images.length; k++) {
       const img = sheet.images[k];
@@ -2275,32 +2296,53 @@ function longText(rows, merges, heights, text, span, width, style = "wrap") {
     heights[r] = Math.min(409, Math.max(1, Math.ceil(textWidth(line) / (width * 0.95))) * 15 + 4);
   }
 }
-// 불러온 원본 시트를 그대로 다시 씀 (값 · 합친 칸 · 열 너비 · 행 높이 · 그림 위치, 칸 모양은 테두리/머리글/굵게 정도로)
-async function rawSheet(raw, tab) {
+// 올린 시트의 표 구조(값 · 합친 칸 · 열 너비 · 그림 위치)는 살리고 모양은 새 양식으로 다시 씀:
+// 맨 위 제목 · 설명, 표 머리글은 진한 파란 머리글, 본문은 테두리 + 줄무늬, 번호 제목(1.1. / ■)은 파란 굵은 글씨, 눈금선 숨김
+async function rawSheet(raw, tab, { title = "", sub = "" } = {}) {
+  const OFF = 3; // 제목 · 설명 · 빈 줄
   const nR = Math.max(raw.rows?.length || 0, raw.flags?.length || 0);
-  const rows = [];
+  const border = (r) => (raw.flags?.[r] || []).some((f) => f & 8);
+  const rows = [[{ v: title || raw.name, s: "big" }], [{ v: sub, s: "note" }], []];
+  let band = 0, blockRow = 0, headOpen = false; // 표 덩어리 안 본문 줄 번호(줄무늬) · 표 안 몇째 줄 · 머리글이 이어지는지
   for (let r = 0; r < nR; r++) {
     const vals = raw.rows?.[r] || [], fl = raw.flags?.[r] || [];
+    const inTable = border(r), firstOfTable = inTable && !border(r - 1);
+    blockRow = firstOfTable ? 0 : blockRow + 1;
+    const texts = vals.map(cellText).filter(Boolean);
+    // 표 위 한 줄짜리 제목("■ … Test Plan")은 옅은 구역 띠로, 그 아래 줄부터 머리글
+    const caption = firstOfTable && new Set(texts).size === 1 && border(r + 1);
+    // 머리글: 표의 첫 줄(제목 다음 줄), 이어지는 줄은 칸 절반 이상이 배경색·굵게면 (표 안 4줄까지)
+    const styled = fl.filter((f, c) => (f & 8) && cellText(vals[c])), marked = styled.length && styled.filter((f) => f & 3).length * 2 >= styled.length;
+    const head = inTable && !caption && (firstOfTable || (headOpen === "caption") || (headOpen && blockRow < 4 && marked && !texts.some((t) => /^\d+$/.test(t))));
+    headOpen = caption ? "caption" : head;
+    if (inTable && !head) band++; else if (!inTable) band = 0;
     const row = [];
     for (let c = 0; c < Math.max(vals.length, fl.length); c++) {
-      const v = vals[c], f = fl[c] || 0;
-      const st = f & 8 ? (f & 3 ? (f & 4 ? "rawHeadC" : "rawHeadL") : f & 4 ? "c" : "cell") : f & 1 ? "rawBold" : undefined;
+      const v = vals[c], f = fl[c] || 0, txt = cellText(v);
+      let st;
+      if (f & 8) st = caption ? "sec" : head ? (f & 4 || firstOfTable ? "th" : "thL") : (f & 4 ? "c" : "cell");
+      else if (/^(\d+(\.\d+)*\.?\s|■|\[|[IVX]+\.\s)/.test(txt)) st = "h2"; // 1.1. 환경 조건 / ■ 설계
+      else if (f & 1) st = "rawBold";
+      else if (f & 16) st = "wrap";
+      if (st === "cell" || st === "c") st = band % 2 === 0 ? (st === "c" ? "cZ" : "cellZ") : st;
       if (v == null || v === "") { row.push(f & 8 ? { v: "", s: st } : null); continue; }
-      row.push({ v, s: typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? (f & 8 ? "date" : "dateL") : st });
+      row.push({ v, s: typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? (f & 8 ? (band % 2 === 0 && !head ? "dateZ" : "date") : "dateL") : st });
     }
     rows.push(row);
   }
+  const heights = { 0: 30 };
+  for (const [r, h] of Object.entries(raw.heights || {})) heights[Number(r) + OFF] = h;
   const images = [];
   for (const im of raw.imgs || []) {
     const meta = Store.fileMeta(im.id), blob = meta && (await Store.getBlob(im.id));
     if (!blob || !/^image\/(png|jpeg|gif)$/.test(meta.type)) continue;
-    images.push({ blob, ext: meta.type.split("/")[1], row: im.row, col: im.col, cx: im.cx, cy: im.cy, maxWidth: 1000 });
+    images.push({ blob, ext: meta.type.split("/")[1], row: im.row + OFF, col: im.col, cx: im.cx, cy: im.cy, maxWidth: 1000 });
   }
-  // 인쇄: 넓은 표는 가로, 그 밖은 세로 — 둘 다 용지 너비에 맞춤 (원본 인쇄 설정은 읽지 않음)
+  // 인쇄: 넓은 표는 가로, 그 밖은 세로 — 둘 다 용지 너비에 맞춤
   const width = rows.reduce((m, r) => Math.max(m, r.length), 0);
   const total = Array.from({ length: width }, (_, c) => raw.cols?.[c] || 8.43).reduce((a, w) => a + w, 0);
-  return { name: raw.name, cols: raw.cols || [], rows, heights: raw.heights || {}, tab, images, landscape: total > 110, fit: total <= 110,
-    merges: (raw.merges || []).map((m) => `${Xlsx.colName(m.c1)}${m.r1 + 1}:${Xlsx.colName(m.c2)}${m.r2 + 1}`) };
+  return { name: raw.name, cols: raw.cols || [], rows, heights, tab, images, grid: false, landscape: total > 110, fit: total <= 110,
+    merges: (raw.merges || []).map((m) => `${Xlsx.colName(m.c1)}${m.r1 + 1 + OFF}:${Xlsx.colName(m.c2)}${m.r2 + 1 + OFF}`) };
 }
 
 // 짝수 행 줄무늬
@@ -2510,7 +2552,7 @@ async function buildWorkbook(p) {
     const unchanged = sp.rawSig && sp.rawSig === specSig(sp);
     // 원본이 자료 이력(날짜 시트) 쪽에 있고 사양을 고치지 않았으면 거기서 원본 모양으로 나가므로 건너뜀
     if (unchanged && sp.rawRec && p.records.some((r) => r.id === sp.rawRec && r.raw && r.rawSig === recSig(r))) continue;
-    if (unchanged && sp.raw) { sheets.push(await rawSheet(sp.raw, XL_TAB.spec)); continue; }
+    if (unchanged && sp.raw) { sheets.push(await rawSheet(sp.raw, XL_TAB.spec, { title: sp.name, sub: `사양 · 항목 ${sp.rows.length}개${sp.note ? `  ·  ${sp.note.split("\n")[0]}` : ""}` })); continue; }
     const rows = [th(["NO", ...SPEC_COLS.map((c) => c.label)])];
     sp.rows.forEach((r, i) => rows.push(/^■/.test(r.item || "") && !r.content
       ? [{ v: "", s: "sec" }, ...SPEC_COLS.map((c) => ({ v: c.key === "item" ? r.item : r[c.key] || "", s: "sec" }))]
@@ -2532,7 +2574,8 @@ async function buildWorkbook(p) {
   ].sort((a, b) => (a.date || "").localeCompare(b.date || ""));
   for (const x of dated) {
     if (x.kind === "record" && x.r.raw && x.r.rawSig === recSig(x.r)) {
-      sheets.push(await rawSheet(x.r.raw, XL_TAB.doc)); // 고치지 않은 자료는 올린 원본 모양 그대로
+      const r = x.r; // 고치지 않은 자료는 올린 표 구조 그대로, 모양은 새 양식으로
+      sheets.push(await rawSheet(r.raw, XL_TAB.doc, { title: r.title, sub: [fmtDot(r.date), r.kind, r.from && `보낸 곳 ${r.from}`, r.to && `받는 곳 ${r.to}`, fileNames(r.files) && `첨부 ${fileNames(r.files)}`].filter(Boolean).join("  ·  ") }));
     } else if (x.kind === "record") {
       const r = x.r;
       // 메모가 표(줄마다 ' | ' 로 나뉜 칸)면 칸으로 다시 펼쳐 표 모양으로, 아니면 넓은 칸에 줄글로
@@ -3352,7 +3395,7 @@ function renderSidebar() {
         <div class="small auto-backup ${autoState.mode}">${autoState.mode === "on" ? `🔄 자동 백업 켜짐${autoState.last ? ` · ${esc(autoState.last)}` : ""}`
           : autoState.mode === "paused" ? `<a href="#" id="autoResume">⏸ 자동 백업 멈춤 — 눌러서 켜기</a>`
           : `<span class="warn">⚠ 자동 백업 꺼짐 (폴더 지정 필요)</span>`}</div>` : ""}
-      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:49</div>
+      <div class="small muted browser-note" style="opacity:.7">버전 2026.10.26 07:54</div>
       <div class="small muted browser-note" title="데이터는 이 브라우저 안에 저장됩니다. 다른 브라우저로 열면 보이지 않습니다.">💻 ${esc(browserName())}에 저장됨</div>
     </div>`;
   $$("[data-go=home]").forEach((b) => (b.onclick = () => go({ view: "home" })));

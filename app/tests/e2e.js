@@ -268,7 +268,7 @@ const assert = require("assert");
   assert.deepStrictEqual(rt.sched, rt.want); // 표 아래 일정표(간트)는 일정 항목으로 읽지 않음
   assert.ok(rt.gantt);
   assert.ok(rt.memoMerged, "자료 이력 메모가 A~B열 합친 칸에 들어가야 함");
-  // 고치지 않은 자료 이력은 올린 원본 시트 모양(값 · 합친 칸) 그대로, 고치면 프로그램 양식으로
+  // 고치지 않은 자료 이력은 올린 표 구조(값 · 합친 칸)를 새 양식으로, 고치면 프로그램 양식으로
   const rawChk = await p.evaluate(async () => {
     const q = structuredClone(Store.project(route.id));
     const r = q.records.find((x) => x.raw);
@@ -278,7 +278,9 @@ const assert = require("assert");
     r.memo = (r.memo || "") + " (수정)";
     const after = await read();
     const flat = (rows) => (rows || []).flat().filter((v) => v != null && v !== "").map(String);
-    return { same: JSON.stringify(flat(before?.rows)) === JSON.stringify(flat(r.raw.rows)), merges: before?.merges.length === r.raw.merges.length, edited: !after || flat(after.rows).includes("날짜") };
+    // 맨 위 3줄은 새 양식의 제목 · 설명, 그 아래는 올린 표 그대로 (값 · 합친 칸)
+    return { same: JSON.stringify(flat(before?.rows.slice(3))) === JSON.stringify(flat(r.raw.rows)) && before.rows[0]?.[0] === r.title,
+      merges: before?.merges.length === r.raw.merges.length, edited: !after || flat(after.rows).includes("날짜") };
   });
   if (rawChk) { assert.ok(rawChk.same && rawChk.merges, "원본 시트 그대로"); assert.ok(rawChk.edited, "고친 뒤에는 프로그램 양식"); }
   // 올린 엑셀 파일 자체를 보관하고, 예전에 불러온 프로젝트(원본 표 정보 없음)에도 원본을 연결할 수 있음 (내용 유지).

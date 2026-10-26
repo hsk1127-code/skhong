@@ -83,7 +83,13 @@ const Xlsx = (() => {
       for (const f of all(st, "numFmt")) fmts[f.getAttribute("numFmtId")] = f.getAttribute("formatCode");
       const kids = (el) => (el ? [...el.children] : []);
       const bold = kids(first(st, "fonts")).map((f) => [...f.children].some((x) => x.localName === "b" && x.getAttribute("val") !== "0"));
-      const filled = kids(first(st, "fills")).map((f) => { const pf = first(f, "patternFill"); return !!pf && pf.getAttribute("patternType") === "solid"; });
+      // 배경색: 흰색(FFFFFF, 테마 0 그대로)은 배경 없음으로 봄
+      const filled = kids(first(st, "fills")).map((f) => {
+        const pf = first(f, "patternFill"), fg = pf && first(pf, "fgColor");
+        if (!pf || pf.getAttribute("patternType") !== "solid") return false;
+        const rgb = (fg?.getAttribute("rgb") || "").toUpperCase(), theme = fg?.getAttribute("theme"), tint = Number(fg?.getAttribute("tint") || 0);
+        return !(/^(FF)?FFFFFF$/.test(rgb) || (theme === "0" && !tint) || (!rgb && theme == null && fg?.getAttribute("indexed") === "9"));
+      });
       const bordered = kids(first(st, "borders")).map((b) => [...b.children].some((x) => /^(left|right|top|bottom)$/.test(x.localName) && x.getAttribute("style")));
       const xfs = first(st, "cellXfs");
       if (xfs) all(xfs, "xf").forEach((xf, i) => {
@@ -187,7 +193,9 @@ const Xlsx = (() => {
     // 줄무늬(짝수 행) · 일정표 칸 안쪽(왼쪽 선 없음) · 한눈에 보기 카드(큰 숫자 · 작은 이름 · 초록/빨강 숫자)
     cellZ: 30, cZ: 31, dateZ: 32, moneyZ: 33, gIn: 34, gNowIn: 35, kpi: 36, kpiL: 37, kpiOk: 38, kpiBad: 39, kpiS: 40, gEL: 41, gNowL: 42,
     // 원본 시트 다시 쓰기: 머리글(굵게·회색 바탕·테두리) 가운데/왼쪽, 굵은 글자(테두리 없음)
-    rawHeadC: 43, rawHeadL: 44, rawBold: 45 };
+    rawHeadC: 43, rawHeadL: 44, rawBold: 45,
+    // 문서형 시트의 번호 제목(파란 굵은 글씨), 머리글 왼쪽 정렬
+    h2: 46, thL: 47 };
   const STYLES_XML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
 <numFmts count="2"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/><numFmt numFmtId="165" formatCode="0.0%"/></numFmts>
@@ -212,7 +220,7 @@ const Xlsx = (() => {
 <border><left style="thin"><color rgb="FFDDE1EA"/></left><right style="thin"><color rgb="FFDDE1EA"/></right><top style="thin"><color rgb="FFDDE1EA"/></top><bottom style="thin"><color rgb="FFDDE1EA"/></bottom><diagonal/></border>
 <border><left style="thin"><color rgb="FFE5E7EB"/></left><right/><top style="thin"><color rgb="FFE5E7EB"/></top><bottom style="thin"><color rgb="FFE5E7EB"/></bottom><diagonal/></border></borders>
 <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-<cellXfs count="46">
+<cellXfs count="48">
 <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
 <xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
@@ -259,6 +267,8 @@ const Xlsx = (() => {
 <xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="4" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
+<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment vertical="center"/></xf>
+<xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment vertical="center" wrapText="1"/></xf>
 </cellXfs>
 <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
 </styleSheet>`;
