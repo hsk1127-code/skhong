@@ -776,3 +776,5 @@ label.unfilled-label { position: relative; }
 label .uf-tag, .uf-tag { position: absolute; top: 0; right: 0; font-size: 10.5px; font-weight: 700; color: var(--warn) !important; background: var(--warn-soft); border-radius: 999px; padding: 0 7px; line-height: 17px; vertical-align: 1px; }
 .uf-flash { animation: ufFlash 1.2s ease; }
 @keyframes ufFlash { 0%, 60% { box-shadow: 0 0 0 4px var(--accent-soft); border-color: var(--accent) !important; } 100% { box-shadow: none; } }
+
+.src-file { margin-top: 12px; padding-top: 10px; border-top: 1px dashed var(--line); line-height: 1.6; }

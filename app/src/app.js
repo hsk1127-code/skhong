@@ -373,6 +373,15 @@ function newProjectDialog() {
 async function importXlsx(file) {
   await busy("엑셀 파일을 불러오는 중…", async (progress) => {
     const p = await importWorkbook(file, progress);
+    // 같은 이름의 프로젝트가 이미 있으면: 그 프로젝트에 원본 엑셀만 연결(내용 유지)할지, 새 프로젝트로 추가할지
+    const same = Store.projects.find((x) => norm(x.overview.name) === norm(p.overview.name) || (p.overview.projectNo && x.overview.projectNo === p.overview.projectNo));
+    if (same && confirm(`'${same.overview.name}' 프로젝트가 이미 있습니다.\n\n[확인] 기존 프로젝트에 이 엑셀을 원본으로 연결 (지금 내용은 그대로, 엑셀로 내보낼 때 올린 모양 그대로)\n[취소] 새 프로젝트로 추가`)) {
+      const n = linkSource(same, p);
+      Store.touch(same);
+      await Store.flush();
+      go({ view: "project", id: same.id, tab: "overview" });
+      return toast(`원본 엑셀을 연결했습니다: 탭 ${n}개. 엑셀로 내보내면 올린 모양 그대로 나갑니다 (프로그램에서 고친 탭만 프로그램 양식).`, 7000);
+    }
     Store.projects.push(p);
     Store.changed();
     await Store.flush();
@@ -758,6 +767,7 @@ function renderProject(p) {
         ${p.overview.project ? `<div class="muted small ellipsis">${esc(p.overview.project)}</div>` : ""}</div></div>
       <div class="row2">
         <button class="btn" id="exportXlsx" title="이 프로젝트를 기존 양식의 엑셀 파일로 저장">📊 엑셀로 내보내기</button>
+        <button class="btn" id="linkSource" title="이 프로젝트를 만든 엑셀을 원본으로 연결 — 내용은 그대로, 엑셀로 내보낼 때 올린 모양 그대로">📎 원본 엑셀 연결</button>
         <button class="btn" id="exportZip" title="엑셀 + 첨부 원본 파일을 폴더 구조로 저장">🗂 전체 자료 ZIP</button>
         <button class="btn ${p.overview.status === "완료" ? "primary" : ""}" id="reportBtn" title="프로젝트 완료 보고서를 인쇄하거나 PDF로 저장">📄 완료 보고서</button>
       </div>
@@ -765,6 +775,14 @@ function renderProject(p) {
     <nav class="tabs">${TABS.map(([k, label]) => `<button data-tab="${k}" class="${k === tab ? "active" : ""}">${label}${counts[k] ? ` <small>${counts[k]}</small>` : ""}</button>`).join("")}</nav>
     <section id="tab"></section>`;
   $$(".tabs button").forEach((b) => (b.onclick = () => go({ view: "project", id: p.id, tab: b.dataset.tab })));
+  $("#linkSource").onclick = () => pickFiles(".xlsx", false, (f) => busy("원본 엑셀을 연결하는 중…", async (progress) => {
+    const q = await importWorkbook(f[0], progress);
+    const n = linkSource(p, q);
+    Store.touch(p);
+    await Store.flush();
+    rerender();
+    toast(`원본 엑셀을 연결했습니다: 탭 ${n}개. 엑셀로 내보내면 올린 모양 그대로 나갑니다 (이후 프로그램에서 고친 탭만 프로그램 양식).`, 7000);
+  }));
   $("#exportXlsx").onclick = () => saveFile(() => buildWorkbook(p), `${p.overview.name}_${today()}.xlsx`, "엑셀 파일을 만드는 중…", { project: p.overview.name });
   $("#reportBtn").onclick = () => reportDialog(p);
   $("#exportZip").onclick = () => saveFile(() => buildProjectZip(p), `${p.overview.name}_${today()}.zip`, "ZIP 파일을 만드는 중…", { project: p.overview.name });
@@ -1258,7 +1276,9 @@ function tabOverviewView(p, el) {
           ? (kd.warranty.end ? `${fmtDot(kd.warranty.start)} ~ ${fmtDot(kd.warranty.end)}` : `${fmtDot(kd.warranty.start)} 시작`)
           : kd.warranty.state === "시작 전" ? `시작 전${kd.warranty.period ? ` · ${isDate(kd.warranty.start) ? fmtDot(kd.warranty.start) + "부터 " : ""}${kd.warranty.period}` : ""}` : "")}
         ${o.extra.filter((x) => x.label).map((x) => fact("•", esc(x.label), x.value)).join("")}
-      </div></div>
+      </div>${p.source?.file && Store.fileMeta(p.source.file) ? `<div class="src-file small">📎 원본 엑셀 <a href="#" data-srcfile>${esc(p.source.name)}</a>
+        <span class="muted">· ${esc(fmtDot(p.source.date))} 연결 · 엑셀로 내보내면 고치지 않은 탭은 이 모양 그대로</span></div>`
+        : `<div class="src-file small muted">원본 엑셀이 연결되지 않았습니다 — 위쪽 📎 원본 엑셀 연결로 이 프로젝트의 엑셀을 고르면, 내보낼 때 올린 모양 그대로 나갑니다.</div>`}</div>
       <div class="card"><h3>사업 범위</h3>${scope ? `<div class="scope">${scope}</div>` : `<p class="muted">사업 범위가 비어 있습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}
         <h3 style="margin-top:18px">비고</h3>${o.note ? `<div class="ov-note">${nl2br(o.note)}</div>` : `<p class="muted">비고가 없습니다. <a href="#" data-ovedit>정보 수정</a>에서 입력하세요.</p>`}</div>
     </div>
@@ -1290,6 +1310,7 @@ function tabOverviewView(p, el) {
     </div>`;
   bindGoto(el);
   $$("[data-ovedit]", el).forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); route.ovMode = "edit"; rerender(); }));
+  $("[data-srcfile]", el)?.addEventListener("click", (e) => { e.preventDefault(); openFile(p.source.file); });
   $$("[data-paydlg]", el).forEach((b) => (b.onclick = () => payDialog(p)));
 }
 

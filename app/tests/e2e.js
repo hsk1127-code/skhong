@@ -250,7 +250,9 @@ const assert = require("assert");
   await x.saveAs(path.join(work, "out.xlsx"));
   // 보기 좋게 꾸민 내보내기도 다시 읽으면 같은 내용 (개요가 첫 시트, 일정 단계는 첫 줄에만 적어도 이어짐, Revision 표)
   const rt = await p.evaluate(async () => {
-    const q = Store.project(route.id);
+    // 프로그램 양식 확인용: 원본 시트 연결을 뗀 복사본 (탭 순서는 유지)
+    const q = structuredClone(Store.project(route.id));
+    delete q.rawSheets; for (const x of [...q.records, ...q.meetings, ...(q.specs || [])]) { delete x.raw; delete x.rawSig; delete x.rawRec; }
     const wb = await Xlsx.read(new Blob([await buildWorkbook(q)]));
     const sh = (n) => wb.sheets.find((x) => x.name === n);
     return { names: wb.sheets.map((x) => x.name), order: q.sheetOrder || [], sched: parseSchedule(sh("일정")).map((t) => `${t.phase}/${t.name}`), want: q.schedule.map((t) => `${t.phase}/${t.name}`),
@@ -279,6 +281,24 @@ const assert = require("assert");
     return { same: JSON.stringify(flat(before?.rows)) === JSON.stringify(flat(r.raw.rows)), merges: before?.merges.length === r.raw.merges.length, edited: !after || flat(after.rows).includes("날짜") };
   });
   if (rawChk) { assert.ok(rawChk.same && rawChk.merges, "원본 시트 그대로"); assert.ok(rawChk.edited, "고친 뒤에는 프로그램 양식"); }
+  // 올린 엑셀 파일 자체를 보관하고, 예전에 불러온 프로젝트에도 원본을 연결할 수 있음 (내용 유지).
+  // 연결 뒤 고치지 않은 일정은 원본 시트 그대로, 일정을 고치면 프로그램 양식(일정표 포함)으로
+  const link = await p.evaluate(async () => {
+    const cur = Store.project(route.id);
+    if (!cur.source?.file) return { noSource: true };
+    const q0 = structuredClone(cur);
+    delete q0.rawSheets; delete q0.sheetOrder;
+    const fresh = await importWorkbook(new File([await Store.getBlob(cur.source.file)], cur.source.name));
+    const n = linkSource(q0, fresh);
+    const sched = async () => (await Xlsx.read(new Blob([await buildWorkbook(q0)]))).sheets.find((x) => x.name === "일정");
+    const before = await sched();
+    if (q0.schedule[0]) q0.schedule[0].note = "수정";
+    const after = await sched();
+    const has = (sh, t) => (sh?.rows || []).some((r) => (r || []).some((v) => String(v).startsWith(t)));
+    return { n, rawBefore: !has(before, "■ 일정표"), progAfter: has(after, "■ 일정표") };
+  });
+  assert.ok(!link.noSource, "올린 엑셀 원본을 보관해야 함");
+  assert.ok(link.n > 0 && link.rawBefore && link.progAfter, JSON.stringify(link));
   assert.strictEqual(rt.rev, rt.wantRev);
   const [b] = await Promise.all([p.waitForEvent("download"), p.click("#backupBtn")]);
   await b.saveAs(path.join(work, "backup.zip"));

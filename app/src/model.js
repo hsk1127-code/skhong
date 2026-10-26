@@ -314,6 +314,28 @@ function readTable(sheet, cols, { carry = [] } = {}) {
 }
 // 불러온 원본 시트(값 · 합친 칸 · 열 너비 · 행 높이 · 칸 모양 · 그림 위치)를 보관했다가, 내용을 고치지 않았으면
 // 엑셀로 내보낼 때 원본 모양 그대로 다시 씀. 고쳤는지는 불러올 때의 내용 지문(sig)과 비교
+// 프로그램이 목록으로 관리하는 시트(Revision · 개요 · 일정 · 자재 · BOM · 제출 자료 · 변경사항)의 내용 지문
+const OV_SIG_KEYS = ["name", ...OVERVIEW_FIELDS.map(([k]) => k), "status", "manager", "orderDate", "orderAmount", "estimateCost", "targetCost", "actualCost",
+  "laborCost", "mdRate", "overheadRate", "warrantyRate", "vat", "kickoffDate", "setupDate", "receiveDate", "paidDate", "warrantyStart", "warrantyYears"];
+function sectionSig(p, kind) {
+  const pick = (arr, keys) => (arr || []).map((x) => keys.map((k) => x?.[k] ?? ""));
+  const PART = ["kind", "item", "model", "maker", "qty", "note"];
+  const v = {
+    revision: () => pick(p.revisions, ["date", "author", "content", "note"]),
+    overview: () => [OV_SIG_KEYS.map((k) => p.overview[k] ?? ""), pick(p.overview.extra, ["label", "value"]),
+      pick(p.overview.payments, ["name", "ratio", "cond", "paidDate", "status"]), p.overview.md || {}],
+    schedule: () => pick(p.schedule, ["phase", "name", "note", "owner", "start", "end"]),
+    supplied: () => pick(p.lists.supplied, PART), consumables: () => pick(p.lists.consumables, PART),
+    units: () => (p.units || []).map((u) => [u.name, u.qty, pick(u.bom, PART)]),
+    submissions: () => pick(p.lists.submissions, ["item", "to", "submitted", "status", "note"]),
+    changes: () => pick(p.lists.changes, ["date", "author", "requester", "content", "note"]),
+  }[kind];
+  return v ? JSON.stringify(v()) : "";
+}
+const meetingSig = (m) => JSON.stringify([m.title, m.date, m.dept, m.writer, m.time, m.place, m.kind, m.attendees, m.content, m.notes,
+  (m.actions || []).map((a) => [a.text, a.owner, a.due, !!a.done]), m.files || []]);
+// 그 종류의 원본 시트들 (내용을 고치지 않았을 때만)
+const rawSheetsOf = (p, kind) => ((p.rawSheets || []).some((x) => x.kind === kind && x.sig === sectionSig(p, kind)) ? p.rawSheets.filter((x) => x.kind === kind) : []);
 const recSig = (r) => JSON.stringify([r.title, r.memo || "", r.images || []]);
 const specSig = (sp) => JSON.stringify((sp.rows || []).map((x) => [x.kind || "", x.item || "", x.content || "", x.review || ""]));
 // 소제목("■ 지정품 List")만 있고 아래에 품목이 없는 구분 행은 버림 (빈 양식에서 들어오는 군더더기)
@@ -505,7 +527,10 @@ async function importWorkbook(file, onProgress = () => {}) {
   onProgress("엑셀 파일을 읽는 중…");
   const wb = await Xlsx.read(file);
   const p = Store.newProject(file.name.replace(/\.xlsx$/i, ""));
+  // 올린 엑셀 파일 자체도 그대로 보관 (개요에서 열기 · 전체 자료 ZIP 에 포함)
+  try { p.source = { file: await Store.addFile(file, file.name || "원본.xlsx"), name: file.name || "원본.xlsx", date: today() }; } catch (e) { console.error(e); }
   p.revisions = [];
+  const keyedRaw = []; // 프로그램이 정리하는 시트의 원본 (나중에 내용 지문과 함께 p.rawSheets 로)
   const addBytes = (data, type, name) => Store.addFile(new Blob([data], { type }), name);
   let i = 0;
   const specSheets = [], hasSheet = { sw: false, hw: false }, unitBomSheets = [], rawByName = {};
@@ -532,12 +557,16 @@ async function importWorkbook(file, onProgress = () => {}) {
     let numbered = null;
     if (key === "한눈에보기" || key === "bom합계") continue; // 엑셀 내보내기의 요약 시트 (다른 시트에서 다시 만들어짐)
 
+    const keep = (kind) => keyedRaw.push({ kind, raw: raw() });
     if (key === "revision") {
       p.revisions = readTable(sheet, LISTS.revisions.cols);
+      keep("revision");
     } else if (key === "개요") {
       parseOverview(sheet, p);
+      keep("overview");
     } else if (key === "일정") {
       p.schedule = parseSchedule(sheet);
+      keep("schedule");
     } else if (key === "sw사양") {
       p.lists.sw = readTable(sheet, SPEC_COLS, { carry: ["kind"] });
       if (!p.lists.sw.length) p.lists.sw = parseSpecDoc(sheet); // 문서형 SW 사양서
@@ -556,17 +585,21 @@ async function importWorkbook(file, onProgress = () => {}) {
       const qtyCell = (sheet.rows[0] || []).findIndex((v) => cellText(v) === "대수");
       unitBomSheets.push({ name: bomSheetUnitName(sheet.name) || sheet.name, qty: qtyCell >= 0 ? Number(sheet.rows[0][qtyCell + 1]) || 1 : 1,
         rows: organizeParts(readPartRows(info, info.mapping), { fillKind: false, merge: false, group: false }).rows });
+      keep("units");
     } else if (["지정품지급품", "소모품", "bom"].includes(key)) {
       const k = { 지정품지급품: "supplied", 소모품: "consumables", bom: "bom" }[key];
       p.lists[k] = dropEmptySections(readTable(sheet, PART_COLS, { carry: ["kind"] }));
+      keep(k === "bom" ? "units" : k); // 한 장짜리 BOM 은 첫 번째 설비로 옮겨지므로 설비 BOM 으로
     } else if (key === "제출자료") {
       p.lists.submissions = readTable(sheet, [{ key: "item", label: "자료명", alias: ["자료", "항목", "제출 자료"] }, ...LISTS.submissions.cols.slice(1)]);
       if (!p.lists.submissions.length) p.lists.submissions = submissionsFromDoc(sheet);
+      keep("submissions");
     } else if (key === "변경사항") {
       p.lists.changes = readTable(sheet, LISTS.changes.cols).map((r) => ({ ...r, files: [] }));
+      keep("changes");
     } else if (firstText.includes("회의록")) {
       // 엑셀 Revision 시트에 이미 기록된 회의록이므로 logged, 시트 이름은 Revision 연결용으로 보관
-      p.meetings.push({ ...parseMeeting(sheet, [...images, ...files]), sheetTitle: title, logged: true });
+      p.meetings.push({ ...parseMeeting(sheet, [...images, ...files]), sheetTitle: title, logged: true, raw: raw() });
     } else if ((numbered = numberedTable(sheet))) {
       // 번호 붙은 큰 표(시험계획서 등)는 사양 표로. 날짜 시트면 자료 이력에도 남겨 Revision 과 이어지게 (메모는 짧게)
       const rec = date ? { id: Store.uid(), date, kind: "자료", title, from: "", to: "",
@@ -620,6 +653,11 @@ async function importWorkbook(file, onProgress = () => {}) {
     // 사업 범위에서 만든 설비 중 BOM 이 하나도 없는 빈 설비만 남았으면 그대로 둠 (대수 정보)
   }
   linkRevisions(p);
+  // 불러온 그대로의 내용 지문: 프로그램에서 고치지 않았으면 엑셀로 내보낼 때 원본 시트를 그대로 씀
+  ensureUnits(p);
+  p.rawSheets = keyedRaw.map((x) => ({ ...x, sig: sectionSig(p, x.kind) }));
+  for (const m of p.meetings) if (m.raw) m.rawSig = meetingSig(m);
+  for (const r of p.records) if (r.raw) r.rawSig = recSig(r);
   if (!p.revisions.length) p.revisions.push({ id: Store.uid(), date: today(), author: Store.state.settings.user, content: "신규 작성", note: "" });
   p.records.sort((a, b) => a.date.localeCompare(b.date));
   p.meetings.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
@@ -730,6 +768,33 @@ async function rawSheet(raw, tab) {
 // 짝수 행 줄무늬
 const ZEBRA = { cell: "cellZ", c: "cZ", date: "dateZ", money: "moneyZ" };
 const zebra = (row, i) => (i % 2 ? row.map((c) => (c && typeof c === "object" && ZEBRA[c.s] ? { ...c, s: ZEBRA[c.s] } : c)) : row);
+// 이미 있는 프로젝트에 원본 엑셀을 연결 (내용은 그대로): 같은 엑셀을 새로 읽은 q 에서 원본 시트 · 탭 순서 · 원본 파일만 가져옴.
+// 지금 내용을 '고치지 않은 상태'로 보고 지문을 새로 만들므로, 이후 프로그램에서 고친 탭만 프로그램 양식으로 나감
+function linkSource(p, q) {
+  const n = (t) => norm(t);
+  let count = 0;
+  p.source = q.source;
+  p.sheetOrder = q.sheetOrder;
+  p.rawSheets = (q.rawSheets || []).map((x) => ({ kind: x.kind, raw: x.raw, sig: sectionSig(p, x.kind) }));
+  count += p.rawSheets.length;
+  for (const qr of q.records.filter((x) => x.raw)) {
+    const r = p.records.find((x) => n(x.title) === n(qr.title) && (!qr.date || x.date === qr.date)) || p.records.find((x) => n(x.title) === n(qr.title));
+    if (r) { r.raw = qr.raw; r.rawSig = recSig(r); count++; }
+  }
+  for (const qm of q.meetings.filter((x) => x.raw)) {
+    const m = p.meetings.find((x) => n(x.title) === n(qm.title) && x.date === qm.date) || p.meetings.find((x) => n(x.sheetTitle || x.title) === n(qm.sheetTitle || qm.title));
+    if (m) { m.raw = qm.raw; m.rawSig = meetingSig(m); count++; }
+  }
+  for (const qs of q.specs || []) {
+    const sp = ensureSpecs(p).find((x) => n(x.name) === n(qs.name));
+    if (!sp || (!qs.raw && !qs.rawRec)) continue;
+    if (qs.raw) sp.raw = qs.raw;
+    if (qs.rawRec) { const qr = q.records.find((x) => x.id === qs.rawRec), r = qr && p.records.find((x) => n(x.title) === n(qr.title)); if (r) sp.rawRec = r.id; }
+    sp.rawSig = specSig(sp);
+    count++;
+  }
+  return count;
+}
 // 올린 엑셀의 탭 순서대로 (설비별 BOM · BOM 합계는 원래 BOM 자리에, 원본에 없던 시트는 바로 앞 시트 뒤에)
 function orderLikeSource(sheets, order) {
   if (!order?.length) return sheets;
@@ -788,7 +853,9 @@ async function buildWorkbook(p) {
     for (const x of ci.payments) ovRows.push([L(`정산: ${x.name}`), V([`${x.ratio}%`, fmtWon(x.amount), x.cond].filter(Boolean).join(" · ")),
       V([x.status, x.paidDate].filter(Boolean).join(" "), stStyle(x.status || ""))]);
   }
-  sheets.push({ name: "개요", cols: [18, 60, 44], rows: ovRows, heights: { 0: 30, 2: 22 }, freeze: 3, tab: XL_TAB.ov, grid: false, fit: true });
+  // 고치지 않았으면 올린 원본 시트 그대로 (아래 일정 · Revision · 자재 · 제출 자료 · 변경사항도 같음)
+  const rawOr = async (kind, tab, made) => { const raws = rawSheetsOf(p, kind); if (raws.length) for (const x of raws) sheets.push(await rawSheet(x.raw, tab)); else sheets.push(...[].concat(made())); };
+  await rawOr("overview", XL_TAB.ov, () => ({ name: "개요", cols: [18, 60, 44], rows: ovRows, heights: { 0: 30, 2: 22 }, freeze: 3, tab: XL_TAB.ov, grid: false, fit: true }));
 
   // ── 일정: 표 + 아래에 일정표(간트, 시간이 옆으로). 세부사항 오른쪽은 좁은 같은 너비 칸 T개로 나누고
   //    위 표의 칸과 아래 일정표의 기간 칸이 모두 이 T칸을 꽉 채우도록 맞춤 (오른쪽 끝이 같음).
@@ -903,10 +970,10 @@ async function buildWorkbook(p) {
     sRows.push([], lg);
   }
   const narrow = Math.min(3.3, Math.max(1.2, 120 / T));
-  sheets.push({ name: "일정", cols: [16, 30, ...Array(T).fill(narrow)], rows: sRows, merges: sMerges,
-    heights: { 0: 28, 2: 22 }, freeze: 3, freezeCols: 2, tab: XL_TAB.sched, grid: false, landscape: true, breaks: ganttRow ? [ganttRow] : [] });
+  await rawOr("schedule", XL_TAB.sched, () => ({ name: "일정", cols: [16, 30, ...Array(T).fill(narrow)], rows: sRows, merges: sMerges,
+    heights: { 0: 28, 2: 22 }, freeze: 3, freezeCols: 2, tab: XL_TAB.sched, grid: false, landscape: true, breaks: ganttRow ? [ganttRow] : [] }));
 
-  sheets.push(table("revisions", "Revision", XL_TAB.rev));
+  await rawOr("revision", XL_TAB.rev, () => table("revisions", "Revision", XL_TAB.rev));
 
   // ── 사양: 머리글이 맨 위 (다시 불러올 때 표로 인식)
   for (const sp of ensureSpecs(p)) {
@@ -925,8 +992,11 @@ async function buildWorkbook(p) {
     sheets.push({ name: sp.name, cols: [6, ...SPEC_COLS.map((c) => c.w)], rows, heights: { 0: 22 }, freeze: 1, tab: XL_TAB.spec, grid: false, landscape: true,
       images: await imageEntries(sp.files, rows.length + 1) });
   }
-  sheets.push(table("supplied", "지정품/지급품", XL_TAB.part), table("consumables", "소모품", XL_TAB.part), ...unitBomSheets(p),
-    table("submissions", "제출 자료", XL_TAB.sub), table("changes", "변경사항", XL_TAB.chg));
+  await rawOr("supplied", XL_TAB.part, () => table("supplied", "지정품/지급품", XL_TAB.part));
+  await rawOr("consumables", XL_TAB.part, () => table("consumables", "소모품", XL_TAB.part));
+  await rawOr("units", XL_TAB.part, () => unitBomSheets(p));
+  await rawOr("submissions", XL_TAB.sub, () => table("submissions", "제출 자료", XL_TAB.sub));
+  await rawOr("changes", XL_TAB.chg, () => table("changes", "변경사항", XL_TAB.chg));
 
   // ── 자료 이력 · 회의록 (날짜순)
   const dated = [
@@ -946,6 +1016,8 @@ async function buildWorkbook(p) {
       if (r.memo) { rows.push([]); longText(rows, merges, heights, r.memo, 2, 104); }
       const images = await imageEntries(r.images, rows.length + 1);
       sheets.push({ name: `${r.title}(${fmtDot(r.date)})`, cols: [14, 90], rows, merges, heights, tab: XL_TAB.doc, grid: false, fit: true, images });
+    } else if (x.m.raw && x.m.rawSig === meetingSig(x.m)) {
+      sheets.push(await rawSheet(x.m.raw, XL_TAB.doc)); // 고치지 않은 회의록은 올린 원본 그대로
     } else {
       const m = x.m;
       const rows = [[{ v: "회     의     록", s: "big" }], [],
@@ -987,6 +1059,7 @@ async function buildProjectZip(p) {
       files.push({ name, data: blob, compress: !/^image\//.test(meta.type) });
     }
   };
+  if (p.source?.file) await add("원본 엑셀", [p.source.file]); // 올린 엑셀 그대로
   for (const r of p.records) await add(`${fmtDot(r.date)}_${r.title}`, [...r.images, ...r.files]);
   for (const m of p.meetings) await add(`${fmtDot(m.date)}_${m.title}`, m.files);
   for (const sp of ensureSpecs(p)) await add(sp.name, sp.files);
